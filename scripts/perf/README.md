@@ -46,6 +46,49 @@ registered in one and not the other, and the drift is invisible because the
 loser is an `UnsupportedOperand` record nobody reads; derive the operand set
 from the registry instead of maintaining it.
 
+## Consolidation keeps small openings on large faces (#4698, #4744)
+
+Measured exact merge-base `2ecf0f096d0f2d6079963040d3293e5964785486`
+against `c7e162d01dc8e59473d8e60ada081eb19abb79ef` on AC20-FZK-Haus and
+ISSUE_129, both verified against the fixture manifest. The source-identical
+stock `perf_probe` was built separately for each revision with the pinned Rust
+toolchain and `profiling` profile on x86_64 Windows (Ryzen 9 9900X3D). Each
+fixture ran five interleaved fresh-process pairs on an otherwise-idle machine,
+using balanced order from `ab-order.mjs` seed 4744 and
+`--iters 1 --json --fingerprint`. The three preparatory index scans and
+uncontrolled OS file cache are the stock probe's warm-cache boundary.
+
+Base/branch median milliseconds:
+
+| Fixture | Parse | Geometry | Pipeline total | Full-call wall |
+|---|---:|---:|---:|---:|
+| AC20-FZK-Haus | 16 / 16 | 19 / 19 | 35 / 35 | 36.935 / 36.908 |
+| ISSUE_129 | 33 / 32 | 889 / 896 | 924 / 929 | 932.971 / 938.638 |
+
+AC20 retained 285 meshes, 35,940 vertices and 19,456 triangles in every run,
+with ordered mesh FNV-1a64 `25ac885b6ff4ad00` on both revisions. ISSUE_129
+retained 1,402 meshes but changed from 218,501 vertices / 132,815 triangles
+to 219,858 / 135,749; its hash changed from `5dbcc345761e87a8` to
+`9138d2efb799991e`, each stable across all five runs of that revision.
+This is intentionally not a byte-identical comparison: the filter keeps real
+opening rings that the plane-relative rule filled, and those rings also affect
+seam conformance and subsequent triangulation. An untimed per-element hash
+comparison found changes only in the seven hosts whose ISSUE_129 census rows
+this PR repins: #7526, #32810, #59111, #139364, #149277, #244479 and #333923.
+Their net increase is 2,934 triangles; every other element's mesh fingerprint
+matched. These hashes cover the stock probe's ordered mesh payload, not text
+metadata, material definitions, UVs, textures or instancing.
+
+Verdict: no median timing move exceeded the base's measured spread on either fixture.
+On ISSUE_129, geometry increased 0.79% against a 2.81% base spread, pipeline
+total 0.54% against 3.03%, and full-call wall 0.61% against 3.01%, despite the
+intentional output increase. This qualifies the observed native cost of a
+correctness fix, not a like-for-like speedup, browser worker-pool result or
+heavy-corpus performance verdict. The lesson: a relative speck filter can erase
+real holes as its plane grows; constrain it by an absolute width as well, keep
+the share guard for load-bearing thin reveal rings, and attribute changed mesh
+bytes before interpreting a timing comparison.
+
 ## Qualified PDF dash expansion (#4406)
 
 Dash expansion is reachable only from the explicit PDF annotation planner; it
