@@ -34,10 +34,10 @@ fn area_facing(mesh: &Mesh, n: Vector3<f64>) -> f64 {
 
 /// A 10 x 10 cm through-opening cut into a wall, then consolidated, in metres
 /// and in millimetres. The front face must lose the opening's area on a 2 x 1 m
-/// wall and on a 20 x 10 m wall alike, in either unit: consolidation runs before
-/// the router scales file units to metres, so the rule has to read the same in
-/// both. Mutation: let the plane share decide alone and the 20 m wall's front
-/// face reads its full area, in metres and in millimetres.
+/// wall and on a 20 x 10 m wall alike, and in either unit: consolidation runs
+/// before the router scales file units to metres, so a millimetre file has to
+/// come out the same. Mutation: let the plane share decide alone and the 20 m
+/// wall's front face reads its full area, in metres and in millimetres.
 #[test]
 fn a_small_opening_keeps_its_hole_on_a_large_face_4698() {
     // `unit` is how many mesh units make a metre: 1 for a metre-authored file,
@@ -63,13 +63,13 @@ fn a_small_opening_keeps_its_hole_on_a_large_face_4698() {
     }
 }
 
-/// Both gates, one case each, in metres and in millimetres: a wide opening on a
-/// large face is kept, a hairline sliver on it is noise, a reveal lip that is its
-/// whole plane is kept (the ISSUE_159 #6012 shape), and a speck under the
-/// absolute area floor is noise. The sliver and the opening scale with the unit,
-/// so a rule that read an absolute width would judge them differently in the two
-/// unit systems. Mutations: share-only fails the first case; a width cutoff fixed
-/// in mesh units (2^-12) fails the millimetre sliver.
+/// Both gates, and the unit invariance of the hairline one. In metres and in
+/// millimetres: a wide opening on a large face is kept, a hairline sliver on it
+/// is noise, a ring either side of the hairline threshold reads the same way in
+/// both units, and a reveal lip that is its whole plane is kept (the ISSUE_159
+/// #6012 shape). Mutations: share-only fails the first case; a width cutoff
+/// fixed in mesh units (2⁻¹²) fails the threshold pair (it calls a 62 µm sliver
+/// hairline in metres, and a 50 µm one geometry in millimetres).
 #[test]
 fn ring_noise_needs_both_hairline_and_a_small_share_of_the_plane_4698() {
     use nalgebra::Point2;
@@ -87,12 +87,29 @@ fn ring_noise_needs_both_hairline_and_a_small_share_of_the_plane_4698() {
             ring_is_noise(&rect(u(1.0), u(50.0e-6)), facade),
             "a 50 µm sliver on a 200 m² face is noise (1 m = {unit} units)"
         );
+        // Either side of the threshold: a 1 m ring is hairline under about
+        // 61 µm. Both verdicts must survive the change of unit.
+        assert!(
+            ring_is_noise(&rect(u(1.0), u(60.0e-6)), facade),
+            "a 60 µm sliver is under the hairline threshold (1 m = {unit} units)"
+        );
+        assert!(
+            !ring_is_noise(&rect(u(1.0), u(62.0e-6)), facade),
+            "a 62 µm sliver is over the hairline threshold (1 m = {unit} units)"
+        );
         let lip = rect(u(2.35), u(1.67e-6));
         assert!(
             !ring_is_noise(&lip, u(2.35) * u(1.67e-6)),
             "a reveal lip that is its whole plane is kept (1 m = {unit} units)"
         );
     }
-    // The absolute area floor is in mesh units squared, so it is stated once.
-    assert!(ring_is_noise(&rect(5.0e-5, 5.0e-5), 200.0), "a 50 µm speck is under the area floor");
+    // The absolute area floor is origin/main's and is NOT unit-free: it drops a
+    // compact speck under about 0.1 mm across on the metre path, and the same
+    // speck survives in a millimetre file. The width gate cannot cover it, since
+    // 2·area / perimeter is about a quarter of a compact ring's size.
+    assert!(ring_is_noise(&rect(5.0e-5, 5.0e-5), 200.0), "a 50 µm speck in metres is noise");
+    assert!(
+        !ring_is_noise(&rect(5.0e-2, 5.0e-2), 2.0e8),
+        "the same speck in a millimetre file is over the absolute area floor"
+    );
 }
