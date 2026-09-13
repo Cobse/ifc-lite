@@ -152,3 +152,22 @@ export const SWALLOW_CASES: readonly (readonly [string, string, (readonly [numbe
     [[1, "#1=IFCPROJECT('a');"]],
   ],
 ];
+
+/**
+ * Entity keywords in every case a file might write them (#4713). A STEP
+ * keyword's case is not significant and Rust's `EntityScanner` accepts a
+ * lowercase lead byte, so each TypeScript scan must find every record and name
+ * its type once, in upper case. `#2`..`#4` respell `#1`'s keyword so a type
+ * cache keyed on the raw bytes cannot pass by accident; `#5` carries a digit
+ * and an underscore through the case fold.
+ */
+export const KEYWORD_CASE_CASE = {
+  text: "DATA;\n#1=ifcwall('a');\n#2=IfcWall('b');\n#3=IFCWALL('c');\n#4=iFcWaLl('d');\n#5=ifcbeam_2d($);\nENDSEC;\n",
+  records: [
+    [1, 'IFCWALL'],
+    [2, 'IFCWALL'],
+    [3, 'IFCWALL'],
+    [4, 'IFCWALL'],
+    [5, 'IFCBEAM_2D'],
+  ] as readonly (readonly [number, string])[],
+};

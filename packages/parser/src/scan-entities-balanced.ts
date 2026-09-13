@@ -19,6 +19,7 @@ import { safeUtf8Decode } from '@ifc-lite/data';
 import { isIndexableExpressId } from './express-id.js';
 import {
   countNewlines,
+  isKeywordLeadByte,
   opensLiteralOrComment,
   skipLexical,
   skipTrivia,
@@ -240,11 +241,12 @@ export class BalancedEntityScan {
     const start = this.position;
     let end = start;
 
-    // Type names start with uppercase letter
-    if (this.position >= this.buffer.length || this.buffer[this.position] < 0x41 || this.buffer[this.position] > 0x5A) {
+    // Type names start with a letter of either case (#4713).
+    if (this.position >= this.buffer.length || !isKeywordLeadByte(this.buffer[this.position])) {
       return null;
     }
 
+    let hasLowercase = false;
     while (end < this.buffer.length) {
       const char = this.buffer[end];
       // Allow letters, numbers, and underscore
@@ -254,6 +256,7 @@ export class BalancedEntityScan {
         (char >= 0x30 && char <= 0x39) || // 0-9
         char === 0x5F // _
       ) {
+        if (char >= 0x61) hasLowercase = true;
         end++;
       } else {
         break;
@@ -262,9 +265,11 @@ export class BalancedEntityScan {
 
     if (end === start) return null;
 
+    // Named in upper case, like scanEntitiesFast. Folded only when the file
+    // wrote a lowercase letter, so an upper-case file allocates nothing more.
     const typeName = safeUtf8Decode(this.buffer, start, end);
     this.position = end;
-    return typeName;
+    return hasLowercase ? typeName.toUpperCase() : typeName;
   }
 
   /**
