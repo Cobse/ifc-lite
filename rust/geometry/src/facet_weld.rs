@@ -442,8 +442,7 @@ pub fn weld_near_coplanar_facets(mesh: &Mesh) -> Mesh {
     // candidate projections (from one or more clusters) gets their average
     // (deterministic — they were pushed in cluster-iteration order), snapped to
     // the kernel grid; a vertex with none stays put.
-    let mut new_canon_pos = canon_pos.clone();
-    let mut welded = vec![false; n_canon];
+    let mut welded: Vec<Option<[f64; 3]>> = vec![None; n_canon];
     for cv in 0..n_canon {
         let cands = &vertex_moves[cv];
         if cands.is_empty() {
@@ -464,10 +463,9 @@ pub fn weld_near_coplanar_facets(mesh: &Mesh) -> Mesh {
         if d2 > MAX_VERTEX_MOVE * MAX_VERTEX_MOVE {
             continue;
         }
-        new_canon_pos[cv] = [snap_grid(avg[0]), snap_grid(avg[1]), snap_grid(avg[2])];
-        welded[cv] = true;
+        welded[cv] = Some([snap_grid(avg[0]), snap_grid(avg[1]), snap_grid(avg[2])]);
     }
-    if !welded.contains(&true) {
+    if welded.iter().all(Option::is_none) {
         return mesh.clone();
     }
     // ── Step 6: same indices/normals; a vertex whose canonical vertex welded takes
@@ -475,8 +473,7 @@ pub fn weld_near_coplanar_facets(mesh: &Mesh) -> Mesh {
     // sharing a dedup cell are not the weld's to merge unless their plane welded.
     let mut out = mesh.clone();
     for i in 0..vertex_count {
-        if welded[canon_of[i]] {
-            let np = new_canon_pos[canon_of[i]];
+        if let Some(np) = welded[canon_of[i]] {
             out.positions[i * 3..i * 3 + 3].copy_from_slice(&[np[0] as f32, np[1] as f32, np[2] as f32]);
         }
     }
