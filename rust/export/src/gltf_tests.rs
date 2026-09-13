@@ -1009,10 +1009,8 @@ fn try_from_meshes_rejects_an_index_past_its_own_mesh() {
     // sums here are exact — and the assembler then copies the index buffer
     // into the BIN chunk verbatim (`bytemuck::cast_slice`), so it reached the
     // file. glTF 2.0 3.7.2.1: "index values MUST be less than the number of
-    // vertices". The same arrays through `try_export_collada_from_meshes` emit ONE
-    // triangle, because `collada.rs` drops a triangle with an index outside its
-    // mesh's range, and `usd.rs`'s `mesh_emittable` has a third copy of the
-    // rule — so the fail-closed exporter was the one that disagreed.
+    // vertices". `try_export_collada_from_meshes` refuses the same arrays through
+    // the same predicate (#4684); `mesh_input`'s tests pin the two together.
     let positions: Vec<f32> =
         vec![0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 0.0];
     let normals: Vec<f32> = std::iter::repeat_n([0.0f32, 0.0, 1.0], 6).flatten().collect();
