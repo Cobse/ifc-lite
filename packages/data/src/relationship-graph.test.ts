@@ -50,7 +50,7 @@ describe('RelationshipGraph', () => {
 
   // The suite above only ever exercises one `RelationshipType` -> IFC entity
   // name mapping (ContainsElements), so a swap between two other entries in
-  // the internal `RelationshipTypeToString` lookup table (e.g. AssignsToGroup
+  // the internal `relationshipTypeName`/`NAMES` lookup table (e.g. AssignsToGroup
   // <-> AssignsToProduct, which are adjacent numeric values 60/61) is
   // invisible to every existing test. This pins every type -> name pair so
   // such a swap fails here.
@@ -75,6 +75,23 @@ describe('RelationshipGraph', () => {
       [RelationshipType.AssignsToGroupByFactor]: 'IfcRelAssignsToGroupByFactor',
       [RelationshipType.AssignsToProduct]: 'IfcRelAssignsToProduct',
       [RelationshipType.ReferencedInSpatialStructure]: 'IfcRelReferencedInSpatialStructure',
+      [RelationshipType.AssignsToActor]: 'IfcRelAssignsToActor',
+      [RelationshipType.AssignsToResource]: 'IfcRelAssignsToResource',
+      [RelationshipType.AssignsToProcess]: 'IfcRelAssignsToProcess',
+      [RelationshipType.AssignsToControl]: 'IfcRelAssignsToControl',
+      [RelationshipType.AssociatesConstraint]: 'IfcRelAssociatesConstraint',
+      [RelationshipType.AssociatesApproval]: 'IfcRelAssociatesApproval',
+      [RelationshipType.AssociatesLibrary]: 'IfcRelAssociatesLibrary',
+      [RelationshipType.Declares]: 'IfcRelDeclares',
+      [RelationshipType.InterferesElements]: 'IfcRelInterferesElements',
+      [RelationshipType.CoversBldgElements]: 'IfcRelCoversBldgElements',
+      [RelationshipType.CoversSpaces]: 'IfcRelCoversSpaces',
+      [RelationshipType.ServicesBuildings]: 'IfcRelServicesBuildings',
+      [RelationshipType.ProjectsElement]: 'IfcRelProjectsElement',
+      [RelationshipType.Positions]: 'IfcRelPositions',
+      [RelationshipType.AdheresToElement]: 'IfcRelAdheresToElement',
+      [RelationshipType.FlowControlElements]: 'IfcRelFlowControlElements',
+      [RelationshipType.Sequence]: 'IfcRelSequence',
     };
 
     let relId = 1000;

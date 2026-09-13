@@ -8,7 +8,7 @@
  */
 
 import type { IfcDataStore } from '@ifc-lite/parser';
-import { IfcTypeEnumToString, PropertyValueType, QuantityType, RelationshipType, flattenRelationshipEdges } from '@ifc-lite/data';
+import { IfcTypeEnumToString, PropertyValueType, QuantityType, flattenRelationshipEdges, relationshipTypeName } from '@ifc-lite/data';
 
 export interface SQLResult {
   columns: string[];
@@ -343,30 +343,11 @@ export class DuckDBIntegration {
     const { relationships } = store;
     const batchSize = 1000;
 
-    const relTypeNames: Record<number, string> = {
-      [RelationshipType.ContainsElements]: 'ContainsElements',
-      [RelationshipType.Aggregates]: 'Aggregates',
-      [RelationshipType.Nests]: 'IfcRelNests', // matches the other 3 RelationshipType->string maps (#4205 review)
-      [RelationshipType.DefinesByProperties]: 'DefinesByProperties',
-      [RelationshipType.DefinesByType]: 'DefinesByType',
-      [RelationshipType.AssociatesMaterial]: 'AssociatesMaterial',
-      [RelationshipType.AssociatesClassification]: 'AssociatesClassification',
-      [RelationshipType.VoidsElement]: 'VoidsElement',
-      [RelationshipType.FillsElement]: 'FillsElement',
-      [RelationshipType.ConnectsPathElements]: 'ConnectsPathElements',
-      [RelationshipType.ConnectsElements]: 'ConnectsElements',
-      [RelationshipType.SpaceBoundary]: 'SpaceBoundary',
-      [RelationshipType.AssignsToGroup]: 'AssignsToGroup',
-      [RelationshipType.AssignsToGroupByFactor]: 'IfcRelAssignsToGroupByFactor',
-      [RelationshipType.AssignsToProduct]: 'AssignsToProduct',
-      [RelationshipType.ReferencedInSpatialStructure]: 'ReferencedInSpatialStructure',
-    };
-
     // One row per `IfcRel*` STEP record, not one row per deduped edge; see `flattenRelationshipEdges`'s doc comment.
     const rows = flattenRelationshipEdges(relationships.forward).map((row) => ({
       sourceId: row.sourceId,
       targetId: row.targetId,
-      relType: relTypeNames[row.type] || 'Unknown',
+      relType: relationshipTypeName(row.type),
       relId: row.relationshipId,
     }));
 

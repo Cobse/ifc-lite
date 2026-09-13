@@ -200,31 +200,7 @@ export enum QuantityType {
   Number = 6,
 }
 
-export enum RelationshipType {
-  ContainsElements = 1,
-  Aggregates = 2,
-  /** `IfcRelNests`; also recorded under {@link Aggregates} (#4205). */ Nests = 3,
-  DefinesByProperties = 10,
-  DefinesByType = 11,
-  AssociatesMaterial = 20,
-  AssociatesClassification = 30,
-  AssociatesDocument = 31,
-  ConnectsPathElements = 40,
-  FillsElement = 41,
-  VoidsElement = 42,
-  ConnectsElements = 43,
-  /** `IfcRelConnectsPortToElement` — a port belongs to the element it sits on.
-   *  Forward runs port → element (RelatingPort, RelatedElement). */
-  ConnectsPortToElement = 44,
-  /** `IfcRelConnectsPorts` — one port joined to another; with
-   *  {@link ConnectsPortToElement} makes plant topology traversable. */
-  ConnectsPorts = 45,
-  SpaceBoundary = 50,
-  AssignsToGroup = 60,
-  AssignsToProduct = 61,
-  /** `IfcRelAssignsToGroupByFactor`; also recorded under {@link AssignsToGroup} (#4205). */ AssignsToGroupByFactor = 62,
-  ReferencedInSpatialStructure = 70,
-}
+export { RelationshipType } from './relationship-type.js';
 
 export enum EntityFlags {
   /** Own `Representation` set (not `$`) — not a class guess, not aggregated children (#4666). */ HAS_GEOMETRY = 0b00000001,

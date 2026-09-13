@@ -98,9 +98,12 @@
  * job, see .github/workflows/test.yml). `--root <dir>` points every read at
  * an alternate tree; `check-server-browser-type-parity.test.mjs` uses it to
  * drive the unmodified checker against mutated copies of the real sources.
+ * `--hierarchy-schema-source <file>` is a second, TEST-ONLY flag: see
+ * `hierarchy-schema-loader.mjs` for why HIERARCHY_REL_TYPES needs a
+ * separate seam from `--root` to be mutation-testable at all.
  */
 
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -117,6 +120,7 @@ import {
   ExtractorUnderReadError,
 } from './lib/server-browser-type-extractors.mjs';
 import { staleAllowlistEntries } from './lib/allowlist-staleness.mjs';
+import { ALLOWLIST } from './lib/server-browser-type-allowlist.mjs';
 
 export { staleAllowlistEntries };
 
@@ -125,6 +129,14 @@ const ROOT =
   rootFlag !== -1 && process.argv[rootFlag + 1]
     ? process.argv[rootFlag + 1]
     : join(dirname(fileURLToPath(import.meta.url)), '..');
+
+// TEST-ONLY (#4672): lets check-server-browser-type-parity.test.mjs point
+// HIERARCHY_REL_TYPES' schema-derived resolution at a mutated COPY of
+// relationship-schema-slots.ts run straight off source (see
+// hierarchy-schema-loader.mjs), so a mutation to the real schema walk is
+// provably detectable by this gate. Never set by a real invocation.
+const hierarchySourceFlag = process.argv.indexOf('--hierarchy-schema-source');
+const HIERARCHY_SCHEMA_SOURCE = hierarchySourceFlag !== -1 ? process.argv[hierarchySourceFlag + 1] : undefined;
 
 function read(rel) {
   return readFileSync(join(ROOT, rel), 'utf8');
@@ -143,62 +155,22 @@ const TS_QTY_MAP = 'packages/parser/src/columnar-parser-indexes.ts';
 const TS_QTY_COLLECT = 'packages/parser/src/quantity-collect.ts';
 const RUST_MATERIALS = 'apps/server/src/services/data_model/materials.rs';
 const TS_MATERIALS = 'packages/parser/src/material-resolver.ts';
+const HIERARCHY_SCHEMA_DIST = 'packages/parser/dist/relationship-schema-slots.js';
 
-/**
- * The allowlist. Every key is `${concept}:${TYPE_NAME}`. Every value is
- * `{ status, note }`:
- *
- *   - `status: 'deliberate'` — a SETTLED trade-off with its own tracking
- *     issue (e.g. #3254). Nobody is going to "fix" this; the note says why
- *     not, and a future agent should read the linked issue before touching
- *     either side's behaviour here.
- *   - `status: 'pending'` — a KNOWN divergence with an open PR already
- *     addressing it, OR flagged to a maintainer with the resolution not yet
- *     decided (e.g. "drop it / add it to the other side / keep and
- *     allowlist" are all still on the table). This gate does not assume an
- *     outcome: it only records that the gap is known and not silent.
- *
- * The distinction matters because the two failure modes it guards against
- * are different: a `deliberate` entry that quietly starts being used as
- * cover for an unrelated new gap is caught by this gate still comparing the
- * type EXACTLY (an allowlist entry suppresses one named type on one named
- * side, never a whole concept); a `pending` entry that outlives its PR
- * closing keeps citing a merged issue number, which is the trigger to
- * re-check whether it can be deleted.
- *
- * An entry here does not fix or hide the divergence: the type genuinely IS
- * absent from one side today, and a reader of this file can go verify that.
- */
-export const ALLOWLIST = {
-  // #3964: server extracted 9 IfcRel* types, TS ~19. PR #3969 (merged) added
-  // IfcRelAssignsToGroup(ByFactor)/Nests/ConnectsPathElements server-side —
-  // those 4 entries are gone from this list because `staleAllowlistEntries()`
-  // (see the file header) confirmed the Rust source now names them; do not
-  // re-add them without re-confirming they diverge again. The remaining
-  // connect/port/space-boundary/referenced-in-spatial-structure types below
-  // are the same shape of gap, still open, and tracked under the same issue.
-  'relationships:IFCRELCONNECTSELEMENTS': { status: 'pending', note: '#3964, tracked with #3969' },
-  'relationships:IFCRELCONNECTSPORTTOELEMENT': { status: 'pending', note: '#3964, tracked with #3969' },
-  'relationships:IFCRELCONNECTSPORTS': { status: 'pending', note: '#3964, tracked with #3969' },
-  'relationships:IFCRELSPACEBOUNDARY': { status: 'pending', note: '#3964, tracked with #3969' },
-  'relationships:IFCRELASSIGNSTOPRODUCT': { status: 'pending', note: '#3964, tracked with #3969' },
-  'relationships:IFCRELREFERENCEDINSPATIALSTRUCTURE': { status: 'pending', note: '#3964, tracked with #3969' },
-
-  // #3254: IfcPhysicalComplexQuantity groups other quantities instead of
-  // carrying a measure itself, so neither side resolves it to a Quantity —
-  // this is a DELIBERATE, tracked trade-off, not an in-flight fix. The
-  // server never names the type at all; the TS side names it only to skip
-  // it explicitly (`quantity-collect.ts`'s COMPLEX_QUANTITY_TYPE). Do not
-  // remove this entry to "fix" the gap — see #3254 before changing either
-  // side's behaviour here.
-  'quantities:IFCPHYSICALCOMPLEXQUANTITY': { status: 'deliberate', note: '#3254 (deliberate, tracked gap)' },
-};
+export { ALLOWLIST };
 
 const CONCEPTS = [
   {
     name: 'relationships',
     rust: () => rustRelationshipTypes(read(RUST_REL)),
-    ts: () => tsRelationshipTypes(read(TS_REL_INDEXES)),
+    // A complete alternate checkout owns both the source being inspected and
+    // its built schema. The mutation fixtures intentionally omit dist/, so
+    // they retain the current checkout's build unless their explicit source
+    // seam below overrides it.
+    ts: () => tsRelationshipTypes(read(TS_REL_INDEXES), {
+      repoRoot: existsSync(join(ROOT, HIERARCHY_SCHEMA_DIST)) ? ROOT : process.cwd(),
+      hierarchySourcePath: HIERARCHY_SCHEMA_SOURCE,
+    }),
     rustLabel: RUST_REL,
     tsLabel: TS_REL_INDEXES,
   },
