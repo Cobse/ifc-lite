@@ -83,9 +83,13 @@ fn emit<W: std::io::Write>(
     let mut order: Vec<u32> = Vec::new();
     let mut line_of: HashMap<u32, (usize, usize)> = HashMap::new();
     let mut max_id = 0u32;
+    let mut owner_histories: Vec<u32> = Vec::new();
     let mut scanner = EntityScanner::new(content);
-    while let Some((id, _type, start, end)) = scanner.next_entity() {
+    while let Some((id, type_name, start, end)) = scanner.next_entity() {
         max_id = max_id.max(id);
+        if type_name.eq_ignore_ascii_case("IFCOWNERHISTORY") {
+            owner_histories.push(id);
+        }
         if line_of.insert(id, (start, end)).is_none() {
             order.push(id);
         }
@@ -126,6 +130,11 @@ fn emit<W: std::io::Write>(
     // Only convert entity types/attributes when an explicit target differs from source.
     let converting = opts.schema.is_some()
         && crate::schema_convert::needs_conversion(&source_schema, &schema);
+    // The first owner history this export writes, for the `$` OwnerHistory
+    // slots an IFC2X3 downgrade must fill (#4686).
+    let mut owner_history = crate::schema_owner_history::OwnerHistoryFill::new(
+        owner_histories.into_iter().find(|id| included.contains(id)),
+    );
 
     // Root-attribute edits, resolved per (entity, attribute) as they are read.
     // A list plus a last-wins rule made "the value at this index" a derived
@@ -174,6 +183,7 @@ fn emit<W: std::io::Write>(
                             &source_schema,
                             &schema,
                             *id,
+                            &mut owner_history,
                         )
                         .as_bytes(),
                     )?;
@@ -206,6 +216,7 @@ fn emit<W: std::io::Write>(
                         &source_schema,
                         &schema,
                         *copy_id,
+                        &mut owner_history,
                     )
                     .as_bytes(),
                 )?;
@@ -245,6 +256,7 @@ fn emit<W: std::io::Write>(
                 copies_refused,
                 refused_refs,
                 attribute_edits_refused,
+                owner_history_unfilled: owner_history.unfilled(),
             });
         };
         for ((express_id, pset_name), props) in &groups {
@@ -301,6 +313,7 @@ fn emit<W: std::io::Write>(
         copies_refused,
         refused_refs,
         attribute_edits_refused,
+        owner_history_unfilled: owner_history.unfilled(),
     })
 }
 

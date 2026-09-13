@@ -5,6 +5,7 @@
 //! trimming on downgrade, padding of the attributes a newer target schema appended
 //! (`schema_pad`), and a proxy fallback for types with no target representation.
 
+use crate::schema_owner_history::OwnerHistoryFill;
 use crate::step_slot::split_top_level_args;
 
 /// Canonicalize a FILE_SCHEMA label to one of the four families we convert between.
@@ -100,7 +101,8 @@ fn by_name_attr_remap_names(entity_type: &str) -> Option<(&'static [&'static str
 /// member of both construction enums and both operation enums, and `.F.` is
 /// the BOOLEAN that claims nothing. Only the remap's own target slots are
 /// covered: a `$` the source already wrote in a slot IFC2X3 also requires
-/// (for example `OwnerHistory`) passes through.
+/// passes through, except `OwnerHistory`, which [`convert_step_line`] fills
+/// (#4686).
 ///
 /// Same table as `IFC2X3_MANDATORY_DEFAULTS` in the TypeScript twin
 /// (`schema-converter-attr-remap.ts`).
@@ -243,11 +245,34 @@ fn trim_attributes(attrs: &str, max_count: usize) -> Option<String> {
 
 /// Convert one STEP entity line `#id=TYPE(attrs);` from `from` to `to`.
 /// Returns the line unchanged when it isn't a parseable entity line.
-pub fn convert_step_line(line: &str, from: &str, to: &str, express_id: u32) -> String {
+///
+/// On a downgrade to IFC2X3, a `$` in a converted record's mandatory
+/// `OwnerHistory` slot is filled from `owner_history` (#4686); see
+/// [`crate::schema_owner_history`]. Required rather than defaulted, so an
+/// exporter cannot convert without having decided which owner history it
+/// writes.
+pub fn convert_step_line(
+    line: &str,
+    from: &str,
+    to: &str,
+    express_id: u32,
+    owner_history: &mut OwnerHistoryFill,
+) -> String {
     let (cfrom, cto) = (canon(from), canon(to));
     if cfrom == cto {
         return line.to_string();
     }
+    let converted = convert_record(line, cfrom, cto, express_id);
+    if cto == "IFC2X3" {
+        owner_history.apply(converted)
+    } else {
+        converted
+    }
+}
+
+/// [`convert_step_line`] before the IFC2X3 OwnerHistory fill, between two
+/// different canonical schemas.
+fn convert_record(line: &str, cfrom: &'static str, cto: &'static str, express_id: u32) -> String {
     // Parse #ID=TYPE(attrs); (multi-line tolerant: rfind ')').
     let trimmed = line.trim_end();
     let body = trimmed.strip_suffix(';').unwrap_or(trimmed);
@@ -349,6 +374,11 @@ pub fn convert_step_line(line: &str, from: &str, to: &str, express_id: u32) -> S
     }
 
     format!("{prefix}{new_type}({final_attrs});")
+}
+
+/// True when `to` names IFC2X3, the one target whose `OwnerHistory` is mandatory.
+pub(crate) fn targets_ifc2x3(to: &str) -> bool {
+    canon(to) == "IFC2X3"
 }
 
 /// True when converting between these schemas changes entity types/attributes.

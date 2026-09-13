@@ -45,6 +45,7 @@ mod rooms;
 pub mod rooted_type;
 mod schema_convert;
 mod schema_detect;
+mod schema_owner_history;
 mod schema_pad;
 pub use schema_pad::padded_type_universe;
 mod shades;

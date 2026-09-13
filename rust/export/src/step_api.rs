@@ -130,4 +130,10 @@ pub struct StepStats {
     /// about: writing by index into a mis-scanned list lands on the wrong
     /// attribute and reports success.
     pub attribute_edits_refused: usize,
+    /// Records written to an IFC2X3 downgrade with `$` in `OwnerHistory`,
+    /// which IFC2X3 requires, because the export writes no `IfcOwnerHistory`
+    /// to point it at (#4686). Non-zero means the file is not valid IFC2X3.
+    /// Records the source gave `$` are otherwise pointed at the first owner
+    /// history the export writes; none is invented.
+    pub owner_history_unfilled: usize,
 }
