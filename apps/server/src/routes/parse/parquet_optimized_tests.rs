@@ -326,6 +326,34 @@ async fn an_optimized_body_with_no_metadata_re_parses() {
     );
 }
 
+/// A response cached before #4653 has its header under
+/// `-parquet-optimized-metadata-v1`, with no georeference factor fields, so a
+/// replay would hand the client every factor as 1. It must re-parse (#4675).
+/// That the same seed under the current keys IS a hit is shown by
+/// `a_cached_optimized_response_does_not_satisfy_the_flat_route`.
+#[tokio::test]
+async fn issue_4675_a_pre_4653_optimized_entry_re_parses() {
+    let state = test_state("4675-pre-4653-optimized").await;
+    let content = MINIMAL_IFC.as_bytes();
+    let cache_key = request_cache_key(content, &ParseQuery::default(), TessellationQuality::default());
+
+    for (key, value) in [
+        (parquet_optimized_cache_key(&cache_key), SENTINEL_BODY),
+        (format!("{cache_key}-parquet-optimized-metadata-v1"), b"{}".as_slice()),
+        (symbolic_cache_key(&cache_key), b"{}".as_slice()),
+    ] {
+        state.cache.set_bytes(&key, value).await.expect("seed pre-#4653 entry");
+    }
+
+    let (status, metadata, body) = post_optimized(&state, content).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_ne!(body, SENTINEL_BODY, "a pre-#4653 optimized entry must not replay");
+    assert!(
+        metadata.contains("vertex_multiplier"),
+        "the re-parse must emit a full metadata header, got: {metadata}"
+    );
+}
+
 /// Different files must not share an optimized entry: the second request's
 /// content differs, so it parses rather than replaying the first one's body.
 #[tokio::test]

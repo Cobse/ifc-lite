@@ -421,7 +421,6 @@ async fn issue_4459_old_json_response_is_reparsed_without_changing_request_ident
     let first = post_fixture(&state, "/api/v1/parse").await;
     assert_eq!(first.status(), StatusCode::OK);
     let bytes = to_bytes(first.into_body(), usize::MAX).await.unwrap();
-    state.cache.set_bytes(&format!("{key}-json-v2"), &bytes).await.unwrap();
     // The route writes in a spawned cache task; wait until that original write
     // is visible before removing it, so it cannot race the stale-cache control.
     for _ in 0..100 {
@@ -430,9 +429,15 @@ async fn issue_4459_old_json_response_is_reparsed_without_changing_request_ident
     }
     assert!(state.cache.get_bytes(&current).await.unwrap().is_some());
     state.cache.remove(&current).await.unwrap();
+    // v2 predates direct fill provenance (#4459); v3 predates the georeference
+    // factor fields (#4675). Neither may replay. Planted after the removal, so
+    // a reverted bump (where one of them IS `current`) cannot be removed here.
+    for retired in ["-json-v2", "-json-v3"] {
+        state.cache.set_bytes(&format!("{key}{retired}"), &bytes).await.unwrap();
+    }
     let second = post_fixture(&state, "/api/v1/parse").await;
     assert_eq!(second.status(), StatusCode::OK);
     let body: Value = serde_json::from_slice(&to_bytes(second.into_body(), usize::MAX).await.unwrap()).unwrap();
     assert_eq!(body["cache_key"], key);
-    assert_eq!(body["stats"]["from_cache"], false, "must not replay schema-v2 symbols");
+    assert_eq!(body["stats"]["from_cache"], false, "must not replay a retired JSON response version");
 }

@@ -274,7 +274,7 @@ async fn await_cache_fill(state: &AppState, live: &[Value]) -> String {
         .to_string();
     let required = [
         format!("{key}-parquet-v5"),
-        format!("{key}-parquet-metadata-v4"),
+        format!("{key}-parquet-metadata-v5"),
         crate::routes::parse::cache_keys::data_model_cache_key(&key),
         crate::routes::parse::cache_keys::symbolic_cache_key(&key),
         crate::routes::parse::stream_progress::stream_progress_cache_key(&key),

@@ -73,7 +73,7 @@ async fn parquet_cache_hit_does_not_swap_body_and_metadata() {
     let query = ParseQuery::default();
     let cache_key = request_cache_key(content, &query, TessellationQuality::default());
     let parquet_key = format!("{cache_key}-parquet-v5");
-    let metadata_key = format!("{cache_key}-parquet-metadata-v4");
+    let metadata_key = format!("{cache_key}-parquet-metadata-v5");
 
     state
         .cache
@@ -156,7 +156,7 @@ async fn a_geometry_hit_with_a_stale_data_model_still_writes_the_current_data_mo
         .expect("seed geometry cache entry");
     state
         .cache
-        .set_bytes(&format!("{cache_key}-parquet-metadata-v4"), b"{}")
+        .set_bytes(&format!("{cache_key}-parquet-metadata-v5"), b"{}")
         .await
         .expect("seed metadata cache entry");
     state
