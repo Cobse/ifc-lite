@@ -5,7 +5,10 @@
 import {
   ASSERTION_FAILURE,
   BASELINE_BROKEN,
+  LOAD_FAILURE,
   PASS,
+  REVERT_BROKE_BUILD,
+  SURGICAL_ADVICE,
   OBSERVED,
   UNOBSERVED,
   INCONCLUSIVE,
@@ -93,7 +96,22 @@ export function ledgerVerdict(ledger) {
     };
   }
 
-  const gap = ledger.find((entry) => entry.role === 'capability-gap') ??
+  const capabilityGap = ledger.find((entry) => entry.role === 'capability-gap');
+  // A green baseline that stops compiling or loading once production is
+  // reverted ran no assertion. That is a fact about this branch's revert (a
+  // removed fn or changed signature its tests call), not an attribution gap,
+  // so it gets its own blocking verdict naming the error (#4700).
+  const unbuilt = !capabilityGap && runs.find((entry) => entry.reverted?.kind === LOAD_FAILURE);
+  if (unbuilt) {
+    return {
+      verdict: REVERT_BROKE_BUILD,
+      exitCode: 3,
+      reason: `reverting production left ${unbuilt.file} unable to compile or load, so no assertion ran (${unbuilt.reverted.evidence?.[0] ?? 'load error'}).`,
+      advice: SURGICAL_ADVICE,
+    };
+  }
+
+  const gap = capabilityGap ??
     runs.find((entry) => !completePass(entry.baseline) || !completePass(entry.reverted));
   if (gap) {
     const detail = gap.reason ?? `${gap.file} produced incomplete reverted evidence (${gap.reverted?.kind ?? 'missing'}).`;
