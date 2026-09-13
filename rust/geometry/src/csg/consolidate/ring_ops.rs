@@ -7,11 +7,15 @@
 //!
 //! Split out of `consolidate.rs` to keep it under the module-size ratchet.
 
-/// Largest rim noise the consolidation post-pass treats as noise, 2⁻¹² in the
-/// caller's unit (244 µm on the metre path): the cap on
-/// [`weld_near_coincident_2d`]'s weld distance, and the `2·area / perimeter`
-/// under which [`ring_is_noise`] may drop a ring.
-const RIM_NOISE: f64 = 1.0 / 4096.0;
+/// Rim noise as a fraction of the ring's own extent, `2⁻¹³`: the scale
+/// [`weld_near_coincident_2d`] welds rim duplicates at, and the width under
+/// which [`ring_is_noise`] may drop a ring. Extent-relative, so it means the
+/// same thing whether the mesh is in metres or in millimetres.
+const RIM_NOISE_OF_EXTENT: f64 = 1.0 / 8192.0;
+
+/// Absolute cap on [`weld_near_coincident_2d`]'s weld distance, 2⁻¹² in the
+/// caller's unit.
+const RIM_NOISE_CAP: f64 = 1.0 / 4096.0;
 
 /// Merge consecutive near-coincident 2D contour vertices BEFORE the union/earcut.
 ///
@@ -58,7 +62,7 @@ pub(super) fn weld_near_coincident_2d(
     }
     // extent · 2⁻¹³ rounded DOWN to a power of two, capped at an absolute
     // 2⁻¹² m so big rings can't swallow mm-scale features ⇒ exact, deterministic.
-    let eps = (floor_pow2(extent) * 2.0_f64.powi(-13)).min(RIM_NOISE);
+    let eps = (floor_pow2(extent) * RIM_NOISE_OF_EXTENT).min(RIM_NOISE_CAP);
     let eps2 = eps * eps;
     let mut kept: Vec<nalgebra::Point2<f64>> = Vec::with_capacity(n);
     for &p in ring {
@@ -152,13 +156,21 @@ pub(super) fn clean_ring(
 /// Is a simplified 2D ring noise? `plane_area` is the summed area of the plane
 /// bucket it came from.
 ///
-/// Noise is a ring under [`NOISE_AREA`], or one whose `2·area / perimeter` is
-/// under [`RIM_NOISE`] and whose area is under [`NOISE_PLANE_SHARE`] of its
-/// plane. `2·area / perimeter` is close to the width of a sliver and half the
-/// side of a square, so a compact hole under about twice [`RIM_NOISE`] across
-/// is still judged by its share. The width gate keeps a real opening on a large face, which the
-/// share alone filled (#4698); the share gate keeps a thin ring that is most of
-/// its plane, such as a µm-deep reveal lip. Fewer than three vertices is noise.
+/// Noise is a ring under [`NOISE_AREA`], or one that is BOTH hairline for its
+/// own size and under [`NOISE_PLANE_SHARE`] of its plane. Hairline is
+/// `2·area / perimeter < floor_pow2(extent) · 2⁻¹³`, the rim-noise scale
+/// [`weld_near_coincident_2d`] welds at, measured against the ring's OWN
+/// bounding-box extent. Reading the ring's own size keeps the test unit-free:
+/// consolidation runs before `GeometryRouter::scale_mesh`, so a millimetre file
+/// arrives with coordinates a thousand times larger than the same building in
+/// metres, and any absolute cutoff would be a thousand times off on one of the
+/// two paths (the `SNAP_GRID` divergence of #2684). `2·area / perimeter` is close
+/// to a sliver's width and half a square's side.
+///
+/// The width gate is what keeps a real opening on a large face, which the plane
+/// share alone filled (#4698). The share gate is what keeps a hairline ring that
+/// is most of its plane, such as a µm-deep reveal lip. Fewer than three vertices
+/// is noise.
 pub(super) fn ring_is_noise(ring: &[nalgebra::Point2<f64>], plane_area: f64) -> bool {
     let n = ring.len();
     if n < 3 {
@@ -173,8 +185,14 @@ pub(super) fn ring_is_noise(ring: &[nalgebra::Point2<f64>], plane_area: f64) -> 
     if !(area < plane_area * NOISE_PLANE_SHARE) {
         return false;
     }
+    let (mut lo, mut hi) = ([f64::MAX; 2], [f64::MIN; 2]);
+    for p in ring {
+        lo = [lo[0].min(p.x), lo[1].min(p.y)];
+        hi = [hi[0].max(p.x), hi[1].max(p.y)];
+    }
+    let hairline = floor_pow2((hi[0] - lo[0]).max(hi[1] - lo[1])) * RIM_NOISE_OF_EXTENT;
     let perimeter: f64 = edges().map(|(a, b)| (b - a).norm()).sum();
-    2.0 * area < perimeter * RIM_NOISE
+    2.0 * area < perimeter * hairline
 }
 
 /// Absolute area floor for [`ring_is_noise`], in squared caller units.
