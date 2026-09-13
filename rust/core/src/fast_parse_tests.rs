@@ -3,6 +3,47 @@
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 use super::*;
+use std::cell::Cell;
+
+thread_local! {
+    static COMMENT_AWARE_CALLS: Cell<usize> = const { Cell::new(0) };
+}
+
+pub(super) fn mark_comment_aware_call() {
+    COMMENT_AWARE_CALLS.with(|calls| calls.set(calls.get() + 1));
+}
+
+fn comment_aware_calls() -> usize {
+    COMMENT_AWARE_CALLS.with(Cell::get)
+}
+
+/// The #4720 regression was not incorrect output: it put comment detection in
+/// every delimiter iteration of the overwhelmingly comment-free point-list
+/// path. Keep the dispatch itself observable so reverting #4735 makes this
+/// test fail even though both implementations return the same numbers.
+#[test]
+fn comment_free_lists_stay_out_of_the_comment_aware_loops() {
+    COMMENT_AWARE_CALLS.with(|calls| calls.set(0));
+
+    assert_eq!(parse_coordinates_direct(b"((1.,2.,3.))"), [1.0, 2.0, 3.0]);
+    assert_eq!(
+        parse_coordinates_direct_f64(b"((1.,2.,3.))"),
+        [1.0, 2.0, 3.0]
+    );
+    assert_eq!(parse_indices_direct(b"((1,2,3))"), [0, 1, 2]);
+    assert_eq!(comment_aware_calls(), 0);
+
+    assert_eq!(
+        parse_coordinates_direct(b"((1.,/* 9 */2.,3.))"),
+        [1.0, 2.0, 3.0]
+    );
+    assert_eq!(
+        parse_coordinates_direct_f64(b"((1.,/* 9 */2.,3.))"),
+        [1.0, 2.0, 3.0]
+    );
+    assert_eq!(parse_indices_direct(b"((1,/* 9 */2,3))"), [0, 1, 2]);
+    assert_eq!(comment_aware_calls(), 3);
+}
 
 #[test]
 fn test_parse_coordinates_direct() {

@@ -32,6 +32,8 @@ fn next_value_start(bytes: &[u8], mut pos: usize, starts_value: fn(u8) -> bool) 
 
 #[cold]
 pub(super) fn parse_coordinates(bytes: &[u8]) -> Vec<f32> {
+    #[cfg(test)]
+    super::tests::mark_comment_aware_call();
     let mut result = Vec::with_capacity(estimate_float_count(bytes));
     let mut pos = 0;
     while let Some(start) = next_value_start(bytes, pos, is_number_start) {
@@ -49,6 +51,8 @@ pub(super) fn parse_coordinates(bytes: &[u8]) -> Vec<f32> {
 
 #[cold]
 pub(super) fn parse_coordinates_f64(bytes: &[u8]) -> Vec<f64> {
+    #[cfg(test)]
+    super::tests::mark_comment_aware_call();
     let mut result = Vec::with_capacity(estimate_float_count(bytes));
     let mut pos = 0;
     while let Some(start) = next_value_start(bytes, pos, is_number_start) {
@@ -66,6 +70,8 @@ pub(super) fn parse_coordinates_f64(bytes: &[u8]) -> Vec<f64> {
 
 #[cold]
 pub(super) fn parse_indices(bytes: &[u8]) -> Vec<u32> {
+    #[cfg(test)]
+    super::tests::mark_comment_aware_call();
     let mut result = Vec::with_capacity(estimate_int_count(bytes));
     let mut pos = 0;
     while let Some(start) = next_value_start(bytes, pos, |b| b.is_ascii_digit()) {
