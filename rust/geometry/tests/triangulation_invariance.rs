@@ -1972,7 +1972,9 @@ const ISSUE_068_MODEL: &str = "ara3d/ISSUE_068_ARK_NUS_skolebygg.ifc";
 /// [`the_heavy_golden_pins_the_known_3435_tear_population`], so the value
 /// cannot drift from the file it describes.
 // #3925: independently remeasured on pre-#3912 code with the loader frame.
-const ISSUE_068_KNOWN_TORN_HOSTS: usize = 26;
+// #4698: 26 -> 25. #893133 closed (open 25 -> 0) once consolidation stopped
+// dropping its 2 to 6 mm wedge regions and falling back to the raw kernel mesh.
+const ISSUE_068_KNOWN_TORN_HOSTS: usize = 25;
 
 /// Coverage floors, one per heavy fixture, bounding BOTH the checked-in golden
 /// and every sweep that gates or blesses against it. [`MIN_VOID_HOSTS`]'s job,
