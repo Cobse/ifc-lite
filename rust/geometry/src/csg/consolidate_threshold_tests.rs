@@ -33,12 +33,9 @@ fn area_facing(mesh: &Mesh, n: Vector3<f64>) -> f64 {
 }
 
 /// A 10 × 10 cm through-opening cut into a wall, then consolidated. The front
-/// face must keep the opening's 0.01 m² out of its area on a small wall and on
-/// a large one alike. The filter used to drop any hole under 1e-4 of the
-/// plane's total area: 2e-4 m² on the 2 × 1 m wall, so the hole stayed, but
-/// 0.02 m² on the 20 × 10 m wall, so the hole was filled and the front face
-/// read the full 200 m². Mutation: make the plane share decide alone again and
-/// the 20 m case fails.
+/// face must lose the opening's 0.01 m² on a 2 × 1 m wall and on a 20 × 10 m
+/// wall alike. Mutation: let the plane share decide alone and the 20 m wall's
+/// front face reads the full 200 m².
 #[test]
 fn a_small_opening_keeps_its_hole_on_a_large_face_4698() {
     for (width, height) in [(2.0, 1.0), (20.0, 10.0)] {
@@ -56,14 +53,11 @@ fn a_small_opening_keeps_its_hole_on_a_large_face_4698() {
     }
 }
 
-/// Where the plane share still decides, and where it no longer does. Each case
-/// is a ring the census or review met: a wide opening on a big face (kept, the
-/// #4698 fix), a 50 µm rim sliver on the same face (still filled, as on main), a
-/// 1.67 µm reveal lip that is its whole plane bucket (still kept, as on main:
-/// ISSUE_159 #6012 re-tessellated from 1176 to 374 triangles when a pure width
-/// rule dropped it), and a speck under the absolute floor. Mutations: the old
-/// share-only rule fails the first case; a width-only rule at the snap step
-/// (this PR's first revision) fails the second and third.
+/// Both gates, one case each: a wide opening on a large face is kept, a 50 µm
+/// sliver on it is noise, a 1.67 µm reveal lip that is its whole plane is kept
+/// (the ISSUE_159 #6012 reveal shape), and a speck under the area floor is
+/// noise. Mutations: share-only fails the first case, width-only fails the
+/// second or the third depending on its floor.
 #[test]
 fn ring_noise_needs_both_thin_and_a_small_share_of_the_plane_4698() {
     use nalgebra::Point2;

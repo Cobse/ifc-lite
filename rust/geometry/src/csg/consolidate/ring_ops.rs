@@ -7,6 +7,12 @@
 //!
 //! Split out of `consolidate.rs` to keep it under the module-size ratchet.
 
+/// Largest rim noise the consolidation post-pass treats as noise, 2⁻¹² in the
+/// caller's unit (244 µm on the metre path): the cap on
+/// [`weld_near_coincident_2d`]'s weld distance, and the mean width under which
+/// [`ring_is_noise`] may drop a ring.
+const RIM_NOISE: f64 = 1.0 / 4096.0;
+
 /// Merge consecutive near-coincident 2D contour vertices BEFORE the union/earcut.
 ///
 /// The exact mesh-arrangement kernel correctly preserves two distinct rim points
@@ -52,7 +58,7 @@ pub(super) fn weld_near_coincident_2d(
     }
     // extent · 2⁻¹³ rounded DOWN to a power of two, capped at an absolute
     // 2⁻¹² m so big rings can't swallow mm-scale features ⇒ exact, deterministic.
-    let eps = (floor_pow2(extent) * 2.0_f64.powi(-13)).min(2.0_f64.powi(-12));
+    let eps = (floor_pow2(extent) * 2.0_f64.powi(-13)).min(RIM_NOISE);
     let eps2 = eps * eps;
     let mut kept: Vec<nalgebra::Point2<f64>> = Vec::with_capacity(n);
     for &p in ring {
@@ -131,41 +137,49 @@ pub(super) fn simplify_2d_collinear(ring: &[nalgebra::Point2<f64>]) -> Vec<nalge
         .collect()
 }
 
-/// Is a simplified 2D ring (a union shape's outer boundary or one of its holes)
-/// noise rather than geometry? `plane_area` is the summed area of the plane
-/// bucket the ring came from.
+/// One i_overlay union ring, cleaned for triangulation: rim duplicates welded
+/// (the #1007 diagonal-sliver source) BEFORE collinear phantoms are dropped, then
+/// `None` if what is left is noise ([`ring_is_noise`]).
+pub(super) fn clean_ring(
+    ring: &[[f64; 2]],
+    plane_area: f64,
+) -> Option<Vec<nalgebra::Point2<f64>>> {
+    let pts: Vec<_> = ring.iter().map(|p| nalgebra::Point2::new(p[0], p[1])).collect();
+    let simplified = simplify_2d_collinear(&weld_near_coincident_2d(&pts));
+    (!ring_is_noise(&simplified, plane_area)).then_some(simplified)
+}
+
+/// Is a simplified 2D ring noise? `plane_area` is the summed area of the plane
+/// bucket it came from.
 ///
-/// Noise is the sliver or speck the i_overlay union leaves from f64 and f32
-/// scatter. A ring is noise when its area is under the absolute `1e-8` floor, or
-/// when it is BOTH thinner than [`NOISE_WIDTH`] (mean width `2·area / perimeter`)
-/// AND under `1e-4` of its plane's area. The plane share alone used to decide,
-/// which filled a real 10 × 10 cm opening on a 200 m² face (#4698): no real
-/// opening is thinner than the width floor, so a wide ring is now kept whatever
-/// the plane's size. The share still decides for thin rings, in both directions:
-/// a 30 to 70 µm rim sliver on a large face is still filled, and a µm-deep
-/// reveal lip that is its plane's whole area is still kept, as before (the
-/// census measured both: dropping those lips re-tessellated ISSUE_159 walls, and
-/// a pure width rule at 2⁻¹² opened rvt01 #31156). A ring of fewer than three
-/// vertices is noise, so callers need no separate length check.
+/// Noise is a ring under [`NOISE_AREA`], or one that is both thinner than
+/// [`RIM_NOISE`] (mean width `2·area / perimeter`) and under [`NOISE_PLANE_SHARE`]
+/// of its plane. The width gate keeps a real opening on a large face, which the
+/// share alone filled (#4698); the share gate keeps a thin ring that is most of
+/// its plane, such as a µm-deep reveal lip. Fewer than three vertices is noise.
 pub(super) fn ring_is_noise(ring: &[nalgebra::Point2<f64>], plane_area: f64) -> bool {
     let n = ring.len();
     if n < 3 {
         return true;
     }
-    let mut twice_signed_area = 0.0;
-    let mut perimeter = 0.0;
-    for i in 0..n {
-        let j = (i + 1) % n;
-        twice_signed_area += ring[i].x * ring[j].y - ring[j].x * ring[i].y;
-        perimeter += (ring[j] - ring[i]).norm();
-    }
+    let edges = || (0..n).map(|i| (ring[i], ring[(i + 1) % n]));
+    let twice_signed_area: f64 = edges().map(|(a, b)| a.x * b.y - b.x * a.y).sum();
     let area = (twice_signed_area * 0.5).abs();
-    area < 1.0e-8 || (2.0 * area < perimeter * NOISE_WIDTH && area < plane_area * 1.0e-4)
+    if area < NOISE_AREA {
+        return true;
+    }
+    if !(area < plane_area * NOISE_PLANE_SHARE) {
+        return false;
+    }
+    let perimeter: f64 = edges().map(|(a, b)| (b - a).norm()).sum();
+    2.0 * area < perimeter * RIM_NOISE
 }
 
-/// Mean-width floor under which [`ring_is_noise`] lets the plane share decide:
-/// 2⁻¹², the same cap [`weld_near_coincident_2d`] puts on rim-duplicate noise.
-const NOISE_WIDTH: f64 = 1.0 / 4096.0;
+/// Absolute area floor for [`ring_is_noise`], in squared caller units.
+const NOISE_AREA: f64 = 1.0e-8;
+
+/// Share of its plane under which a thin ring counts as noise ([`ring_is_noise`]).
+const NOISE_PLANE_SHARE: f64 = 1.0e-4;
 
 pub(super) fn floor_pow2(x: f64) -> f64 {
     if !x.is_finite() || x <= 0.0 {

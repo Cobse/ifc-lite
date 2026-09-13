@@ -9,7 +9,9 @@ mod ring_ops;
 
 use super::ClippingProcessor;
 use conform::{build_seam_map, conform_plans, count_open_boundary_edges_at, emit_plans, PlanBucket, PlanRegion};
-use ring_ops::{floor_pow2, ring_is_noise, simplify_2d_collinear, weld_near_coincident_2d};
+use ring_ops::{clean_ring, floor_pow2};
+#[cfg(test)]
+use ring_ops::{ring_is_noise, weld_near_coincident_2d};
 
 /// Is `v` a degenerate NEEDLE — its shortest edge a hairline relative to its
 /// longest? Such a triangle is a zero-area-intended sliver: the exact kernel
@@ -259,6 +261,8 @@ impl ClippingProcessor {
             }
             let mut subject: Vec<Vec<[f64; 2]>> = Vec::with_capacity(1);
             let mut clip: Vec<Vec<[f64; 2]>> = Vec::with_capacity(tris.len() - 1);
+            // The plane's total area, for `ring_is_noise`'s share test.
+            let mut plane_area = 0.0_f64;
             for (idx, tri) in tris.iter().enumerate() {
                 let pts_2d = project_to_2d_with_basis(&tri.v, &u_axis, &v_axis, &origin);
                 // Force CCW for i_overlay's NonZero fill — kernel output
@@ -268,6 +272,7 @@ impl ClippingProcessor {
                     * (pts_2d[2].y - pts_2d[0].y)
                     - (pts_2d[2].x - pts_2d[0].x)
                         * (pts_2d[1].y - pts_2d[0].y);
+                plane_area += 0.5 * signed_area.abs();
                 let path: Vec<[f64; 2]> = if signed_area >= 0.0 {
                     pts_2d.iter().map(|p| [p.x, p.y]).collect()
                 } else {
@@ -290,48 +295,13 @@ impl ClippingProcessor {
                 continue;
             }
 
-            // The plane's total area, for `ring_is_noise`'s share test on thin rings.
-            let plane_area: f64 = tris
-                .iter()
-                .map(|t| {
-                    let pts = project_to_2d_with_basis(&t.v, &u_axis, &v_axis, &origin);
-                    0.5_f64
-                        * ((pts[1].x - pts[0].x) * (pts[2].y - pts[0].y)
-                            - (pts[2].x - pts[0].x) * (pts[1].y - pts[0].y))
-                            .abs()
-                })
-                .sum();
             for shape in shapes {
-                if shape.is_empty() {
+                let Some(outer_simplified) = shape.first().and_then(|c| clean_ring(c, plane_area))
+                else {
                     continue;
-                }
-                let outer_2d: Vec<nalgebra::Point2<f64>> = shape[0]
-                    .iter()
-                    .map(|p| nalgebra::Point2::new(p[0], p[1]))
-                    .collect();
-                // Weld µm-scale near-coincident rim duplicates FIRST (the #1007
-                // diagonal-sliver source), THEN drop collinear phantoms.
-                let outer_welded = weld_near_coincident_2d(&outer_2d);
-                let outer_simplified = simplify_2d_collinear(&outer_welded);
-                if ring_is_noise(&outer_simplified, plane_area) {
-                    continue;
-                }
-                let holes_simplified: Vec<Vec<nalgebra::Point2<f64>>> = shape
-                    .iter()
-                    .skip(1)
-                    .filter_map(|c| {
-                        let pts: Vec<_> = c
-                            .iter()
-                            .map(|p| nalgebra::Point2::new(p[0], p[1]))
-                            .collect();
-                        let welded = weld_near_coincident_2d(&pts);
-                        let simplified = simplify_2d_collinear(&welded);
-                        if ring_is_noise(&simplified, plane_area) {
-                            return None;
-                        }
-                        Some(simplified)
-                    })
-                    .collect();
+                };
+                let holes_simplified: Vec<Vec<nalgebra::Point2<f64>>> =
+                    shape[1..].iter().filter_map(|c| clean_ring(c, plane_area)).collect();
 
                 plan.regions.push(PlanRegion {
                     changed: false,
