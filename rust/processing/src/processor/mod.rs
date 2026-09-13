@@ -12,7 +12,7 @@ use crate::types::response::{
     QuickMetadataEntitySummary,
 };
 use ifc_lite_core::{
-    keyword_eq, keyword_starts_with, DecodedEntity, EntityDecoder,
+    keyword_eq, keyword_starts_with, EntityDecoder,
     EntityIndex, EntityScanner, IfcType,
 };
 use ifc_lite_geometry::TessellationQuality;
@@ -279,17 +279,6 @@ fn populate_entity_job_metadata(
 // orchestrator, the canonical per-element producer (`crate::element`), and
 // (via `from_color`) the browser batch path.
 use crate::style::GeometryStyleInfo;
-
-/// Extract entity references from a list attribute.
-pub(crate) fn get_refs_from_list(entity: &DecodedEntity, index: usize) -> Option<Vec<u32>> {
-    let list = entity.get_list(index)?;
-    let refs: Vec<u32> = list.iter().filter_map(|v| v.as_entity_ref()).collect();
-    if refs.is_empty() {
-        None
-    } else {
-        Some(refs)
-    }
-}
 
 pub(super) fn normalize_optional_string(raw: Option<&str>) -> Option<String> {
     let value = raw?.trim();

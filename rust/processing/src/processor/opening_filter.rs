@@ -2,7 +2,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use super::{get_refs_from_list, normalize_optional_string, EntityJob, OpeningFilterMode};
+use super::{normalize_optional_string, EntityJob, OpeningFilterMode};
 use crate::style::GeometryStyleInfo;
 use ifc_lite_core::{EntityDecoder, IfcType, MAX_MAPPED_ITEM_DEPTH};
 use ifc_lite_geometry::meshed_representations;
@@ -132,13 +132,13 @@ fn is_opaque_opening(
     let reprs: Vec<_> = entity
         .get_ref(6)
         .and_then(|shape_id| decoder.decode_by_id(shape_id).ok())
-        .and_then(|shape| get_refs_from_list(&shape, 2))
+        .and_then(|shape| shape.get_refs(2))
         .unwrap_or_default()
         .into_iter()
         .filter_map(|repr_id| decoder.decode_by_id(repr_id).ok())
         .collect();
     let pending: Vec<(u32, u32)> = meshed_representations(&entity, &reprs)
-        .filter_map(|repr| get_refs_from_list(repr, 3))
+        .filter_map(|repr| repr.get_refs(3))
         .flatten()
         .map(|id| (id, 0))
         .collect();
@@ -217,7 +217,7 @@ fn scan_item_styles(
         else {
             continue;
         };
-        for child in get_refs_from_list(&mapped_repr, 3).unwrap_or_default() {
+        for child in mapped_repr.get_refs(3).unwrap_or_default() {
             pending.push((child, depth + 1));
         }
     }
