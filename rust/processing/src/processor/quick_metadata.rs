@@ -2,10 +2,13 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use crate::types::response::{QuickMetadataEntitySummary, QuickMetadataSpatialNode};
+use crate::types::response::{
+    QuickMetadataEntitySummary, QuickMetadataPrunedEdge, QuickMetadataPrunedEdgeKind as EdgeKind,
+    QuickMetadataSpatialNode,
+};
 use ifc_lite_core::limits::LARGE_COORD_THRESHOLD_METERS;
 use ifc_lite_core::{keyword_eq, IfcType, StepListItems, IFC_TYPES};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 #[derive(Clone)]
@@ -132,37 +135,48 @@ pub(super) fn build_quick_spatial_tree_node(
     express_id: u32,
     nodes: &HashMap<u32, QuickSpatialNodeEntry>,
     element_summaries: &HashMap<u32, QuickMetadataEntitySummary>,
-) -> Result<QuickMetadataSpatialNode, String> {
-    let mut placed = HashSet::with_capacity(nodes.len());
-    placed.insert(express_id);
-    build_quick_spatial_tree_node_inner(express_id, nodes, element_summaries, &mut placed)
+) -> Result<(QuickMetadataSpatialNode, Vec<QuickMetadataPrunedEdge>), String> {
+    let mut placed = HashMap::with_capacity(nodes.len());
+    placed.insert(express_id, None);
+    let mut pruned = Vec::new();
+    build_subtree(express_id, nodes, element_summaries, &mut placed, &mut pruned)
+        .map(|tree| (tree, pruned))
 }
 
 /// Each spatial node is emitted once, where the depth-first walk from the root
 /// first reaches it. A malformed IfcRelAggregates graph can list a child twice,
-/// under two parents, or as its own ancestor; `placed` spans the whole tree (a
-/// root-to-node path set stops only the last, and k repeats per level then emit
-/// k^depth nodes), so all three are skipped.
-fn build_quick_spatial_tree_node_inner(
+/// under two parents, or as its own ancestor; all three are skipped and recorded
+/// in `pruned` (#4662). `placed` spans the whole tree, not the root-to-node path
+/// (k repeats per level would emit k^depth nodes): `None` while a node is still
+/// being built, `Some(parent)` once it is finished.
+fn build_subtree(
     express_id: u32,
     nodes: &HashMap<u32, QuickSpatialNodeEntry>,
     element_summaries: &HashMap<u32, QuickMetadataEntitySummary>,
-    placed: &mut HashSet<u32>,
+    placed: &mut HashMap<u32, Option<u32>>,
+    pruned: &mut Vec<QuickMetadataPrunedEdge>,
 ) -> Result<QuickMetadataSpatialNode, String> {
     let node = nodes
         .get(&express_id)
         .ok_or_else(|| format!("Quick spatial node #{express_id} not found"))?;
     let mut children = Vec::with_capacity(node.children.len());
-    for child_id in &node.children {
-        if !placed.insert(*child_id) {
+    for &child_id in &node.children {
+        if let Some(&seen) = placed.get(&child_id) {
+            let kind = match seen {
+                None => EdgeKind::BackEdge,
+                Some(parent) if parent == express_id => EdgeKind::SiblingRepeat,
+                Some(_) => EdgeKind::SecondParent,
+            };
+            pruned.push(QuickMetadataPrunedEdge {
+                parent_express_id: express_id,
+                child_express_id: child_id,
+                kind,
+            });
             continue;
         }
-        children.push(build_quick_spatial_tree_node_inner(
-            *child_id,
-            nodes,
-            element_summaries,
-            placed,
-        )?);
+        placed.insert(child_id, None);
+        children.push(build_subtree(child_id, nodes, element_summaries, placed, pruned)?);
+        placed.insert(child_id, Some(express_id));
     }
     let elements = node
         .elements
@@ -243,8 +257,8 @@ mod tests {
         let tree = build_quick_spatial_tree_node(1, &nodes, &summaries);
         assert!(tree.is_ok(), "cyclic tree should build (cycle pruned), got {tree:?}");
         // #2 lists only the pruned back-edge, so it must not advertise children
-        // it does not carry.
-        let two = &tree.unwrap().children[0];
+        // it does not carry (its report is pinned in quick_metadata_aggregate_dedupe.rs).
+        let two = &tree.unwrap().0.children[0];
         assert!(two.children.is_empty() && !two.summary.has_children);
     }
 

@@ -1005,16 +1005,16 @@ pub fn process_geometry_streaming_filtered_with_options(
                     .map(|node| node.express_id)
                     .min()
             });
-        let spatial_tree = root_id
-            .map(|root| {
-                build_quick_spatial_tree_node(root, &spatial_nodes, &quick_element_summaries)
+        let (spatial_tree, pruned_aggregate_edges) = root_id
+            .and_then(|root| {
+                build_quick_spatial_tree_node(root, &spatial_nodes, &quick_element_summaries).ok()
             })
-            .transpose()
-            .unwrap_or(None);
+            .unzip();
         on_quick_metadata_bootstrap(&QuickMetadataBootstrap {
             schema_version: schema_version.clone(),
             entity_count: total_entities,
             spatial_tree,
+            pruned_aggregate_edges: pruned_aggregate_edges.unwrap_or_default(),
         });
     }
 
