@@ -9,8 +9,8 @@
 
 /// Largest rim noise the consolidation post-pass treats as noise, 2⁻¹² in the
 /// caller's unit (244 µm on the metre path): the cap on
-/// [`weld_near_coincident_2d`]'s weld distance, and the mean width under which
-/// [`ring_is_noise`] may drop a ring.
+/// [`weld_near_coincident_2d`]'s weld distance, and the `2·area / perimeter`
+/// under which [`ring_is_noise`] may drop a ring.
 const RIM_NOISE: f64 = 1.0 / 4096.0;
 
 /// Merge consecutive near-coincident 2D contour vertices BEFORE the union/earcut.
@@ -152,9 +152,11 @@ pub(super) fn clean_ring(
 /// Is a simplified 2D ring noise? `plane_area` is the summed area of the plane
 /// bucket it came from.
 ///
-/// Noise is a ring under [`NOISE_AREA`], or one that is both thinner than
-/// [`RIM_NOISE`] (mean width `2·area / perimeter`) and under [`NOISE_PLANE_SHARE`]
-/// of its plane. The width gate keeps a real opening on a large face, which the
+/// Noise is a ring under [`NOISE_AREA`], or one whose `2·area / perimeter` is
+/// under [`RIM_NOISE`] and whose area is under [`NOISE_PLANE_SHARE`] of its
+/// plane. `2·area / perimeter` is close to the width of a sliver and half the
+/// side of a square, so a compact hole under about twice [`RIM_NOISE`] across
+/// is still judged by its share. The width gate keeps a real opening on a large face, which the
 /// share alone filled (#4698); the share gate keeps a thin ring that is most of
 /// its plane, such as a µm-deep reveal lip. Fewer than three vertices is noise.
 pub(super) fn ring_is_noise(ring: &[nalgebra::Point2<f64>], plane_area: f64) -> bool {
