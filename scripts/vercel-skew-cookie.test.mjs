@@ -66,9 +66,16 @@ describe('Vercel Skew Protection document pin (#4649)', () => {
     );
   });
 
-  test('returns Vercel next responses and excludes asset/API routes', () => {
+  test('returns Vercel next responses while keeping dotted documents eligible', () => {
     const response = middleware(request({ accept: '*/*' }));
     assert.equal(response.headers.get('x-middleware-next'), '1');
-    assert.deepEqual(config.matcher, ['/((?!api(?:/|$)|assets(?:/|$)|.*\\.[^/]+$).*)']);
+    assert.deepEqual(config.matcher, ['/((?!api(?:/|$)|assets(?:/|$)).*)']);
+    assert.ok(deploymentPinHeaders(
+      new Request('https://www.ifclite.com/index.html', {
+        headers: { 'sec-fetch-dest': 'document' },
+      }),
+      DEPLOYMENT_ID,
+      '1',
+    )?.has('set-cookie'));
   });
 });

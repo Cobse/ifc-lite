@@ -51,9 +51,9 @@ export default function middleware(request) {
   return next(headers ? { headers } : undefined);
 }
 
-// Avoid running an Edge function for immutable assets, API calls, and files.
-// The conditional document check above remains the authority for extensionless
-// routes because client-side navigation fetches can share the same paths.
+// Avoid running an Edge function for immutable assets and API calls. Other
+// dotted paths must reach the request-level document check: /index.html is a
+// valid viewer entry point and must receive the same pin as `/` (#4649).
 export const config = {
-  matcher: ['/((?!api(?:/|$)|assets(?:/|$)|.*\\.[^/]+$).*)'],
+  matcher: ['/((?!api(?:/|$)|assets(?:/|$)).*)'],
 };
