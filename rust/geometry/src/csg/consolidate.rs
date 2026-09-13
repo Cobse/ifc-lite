@@ -9,7 +9,7 @@ mod ring_ops;
 
 use super::ClippingProcessor;
 use conform::{build_seam_map, conform_plans, count_open_boundary_edges_at, emit_plans, PlanBucket, PlanRegion};
-use ring_ops::{floor_pow2, simplify_2d_collinear, weld_near_coincident_2d};
+use ring_ops::{floor_pow2, ring_is_noise, simplify_2d_collinear, weld_near_coincident_2d};
 
 /// Is `v` a degenerate NEEDLE — its shortest edge a hairline relative to its
 /// longest? Such a triangle is a zero-area-intended sliver: the exact kernel
@@ -290,35 +290,9 @@ impl ClippingProcessor {
                 continue;
             }
 
-            // Total bucket area — used to filter sub-resolution shapes /
-            // holes (f64 noise leaves tiny spurious cavities after the
-            // i_overlay union).
-            let bucket_area: f64 = tris
-                .iter()
-                .map(|t| {
-                    let pts =
-                        project_to_2d_with_basis(&t.v, &u_axis, &v_axis, &origin);
-                    0.5_f64
-                        * ((pts[1].x - pts[0].x) * (pts[2].y - pts[0].y)
-                            - (pts[2].x - pts[0].x) * (pts[1].y - pts[0].y))
-                            .abs()
-                })
-                .sum();
-            let min_significant = (bucket_area * 1.0e-4).max(1.0e-8);
-
-            let signed_area_2d = |ring: &[nalgebra::Point2<f64>]| -> f64 {
-                let n = ring.len();
-                if n < 3 {
-                    return 0.0;
-                }
-                let mut s = 0.0;
-                for i in 0..n {
-                    let j = (i + 1) % n;
-                    s += ring[i].x * ring[j].y - ring[j].x * ring[i].y;
-                }
-                s * 0.5
-            };
-
+            // Sub-resolution shapes and holes (the f64 noise the i_overlay union
+            // leaves) are dropped by `ring_is_noise`, which reads each ring's own
+            // width, not its share of the plane.
             for shape in shapes {
                 if shape.is_empty() {
                     continue;
@@ -334,8 +308,7 @@ impl ClippingProcessor {
                 if outer_simplified.len() < 3 {
                     continue;
                 }
-                let outer_area = signed_area_2d(&outer_simplified).abs();
-                if outer_area < min_significant {
+                if ring_is_noise(&outer_simplified) {
                     continue;
                 }
                 let holes_simplified: Vec<Vec<nalgebra::Point2<f64>>> = shape
@@ -351,8 +324,7 @@ impl ClippingProcessor {
                         if simplified.len() < 3 {
                             return None;
                         }
-                        let area = signed_area_2d(&simplified).abs();
-                        if area < min_significant {
+                        if ring_is_noise(&simplified) {
                             return None;
                         }
                         Some(simplified)
@@ -488,6 +460,10 @@ impl ClippingProcessor {
         output
     }
 }
+
+#[cfg(test)]
+#[path = "consolidate_threshold_tests.rs"]
+mod threshold_tests;
 
 #[cfg(test)]
 mod tests {

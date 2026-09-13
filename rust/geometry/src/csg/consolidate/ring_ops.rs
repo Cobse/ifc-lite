@@ -131,6 +131,34 @@ pub(super) fn simplify_2d_collinear(ring: &[nalgebra::Point2<f64>]) -> Vec<nalge
         .collect()
 }
 
+/// Is a simplified 2D ring (a union shape's outer boundary or one of its holes)
+/// noise rather than geometry?
+///
+/// Noise here is the sliver or speck the i_overlay union leaves from f64 and
+/// snap scatter, and that scatter does not grow with the plane the ring lies on.
+/// So the test reads the ring itself: its mean width `2·area / perimeter`
+/// against the kernel's snap step ([`SNAP_GRID`], in the caller's unit), plus
+/// the absolute area floor. A ring narrower than one snap step cannot be told
+/// apart from the snap; anything wider is kept whatever the plane's size. The
+/// earlier rule dropped any ring under 1e-4 of the plane's total area, which
+/// filled a real 10 × 10 cm opening on a 200 m² face (#4698).
+pub(super) fn ring_is_noise(ring: &[nalgebra::Point2<f64>]) -> bool {
+    use crate::kernel::mesh_bridge::SNAP_GRID;
+    let n = ring.len();
+    if n < 3 {
+        return true;
+    }
+    let mut twice_signed_area = 0.0;
+    let mut perimeter = 0.0;
+    for i in 0..n {
+        let j = (i + 1) % n;
+        twice_signed_area += ring[i].x * ring[j].y - ring[j].x * ring[i].y;
+        perimeter += (ring[j] - ring[i]).norm();
+    }
+    let area = (twice_signed_area * 0.5).abs();
+    area < 1.0e-8 || 2.0 * area < perimeter * SNAP_GRID
+}
+
 pub(super) fn floor_pow2(x: f64) -> f64 {
     if !x.is_finite() || x <= 0.0 {
         return 0.0;
