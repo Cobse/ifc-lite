@@ -161,7 +161,7 @@ fn symbolic_cache_key_matches_writer_format() {
         let writer_cache_key = format!("{}-{}", hash, mode.cache_key_suffix());
         assert_eq!(
             symbolic_cache_key(&writer_cache_key),
-            format!("{}-symbolic-v2", writer_cache_key)
+            format!("{}-symbolic-v3", writer_cache_key)
         );
     }
 }
@@ -169,7 +169,7 @@ fn symbolic_cache_key_matches_writer_format() {
 #[test]
 fn symbolic_cache_key_default_filter() {
     let key = symbolic_cache_key("abc-default");
-    assert_eq!(key, "abc-default-symbolic-v2");
+    assert_eq!(key, "abc-default-symbolic-v3");
 }
 
 /// Round-trips a non-empty `SymbolicData` through `cache_symbolic_data` /

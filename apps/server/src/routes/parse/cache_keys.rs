@@ -262,6 +262,9 @@ async fn has_entry(cache: &DiskCache, key: &str) -> bool {
 /// Build the symbolic-data cache key for a given file cache key.
 /// v2 requires direct fill provenance (#4459); v1 remains decodable but is
 /// not a fresh extraction for 3D routing. Geometry namespaces stay unchanged.
+/// v3 re-bases the stream by the mesh frame selection, placement-bounds
+/// fallback included (#4665). A v2 entry for a model the sampler cannot read
+/// is left unshifted, up to the whole offset away from the meshes.
 ///
 /// The 2D symbol stream (`IfcAnnotation` + `IfcGrid`) is cached separately
 /// from geometry so binary-transport endpoints (Parquet, optimized Parquet,
@@ -270,10 +273,10 @@ async fn has_entry(cache: &DiskCache, key: &str) -> bool {
 /// is the full `{hash}-{opening_filter}` key, matching the value embedded in
 /// each response's metadata header.
 pub(crate) fn symbolic_cache_key(cache_key: &str) -> String {
-    format!("{}-symbolic-v2", cache_key)
+    format!("{}-symbolic-v3", cache_key)
 }
 
-/// Serialize symbolic data and write it to the cache under `{cache_key}-symbolic-v2`.
+/// Serialize symbolic data and write it to the cache under `{cache_key}-symbolic-v3`.
 ///
 /// Always stores the JSON (even when empty) so the fetch endpoint can return a
 /// definitive `200` with empty arrays rather than looping on `202`.

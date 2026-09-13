@@ -579,7 +579,7 @@ Cache keys are derived from file content:
 {SHA256}-{filter}-parquet-v6          # Geometry (parquet_layout=shared-shapes)
 {SHA256}-{filter}-parquet-metadata-v5 # Metadata header
 {SHA256}-{filter}-datamodel-v6        # Properties & hierarchy
-{SHA256}-{filter}-symbolic-v1         # 2D symbol stream
+{SHA256}-{filter}-symbolic-v3         # 2D symbol stream
 
 # POST /parse/parquet/optimized has its own pair (issue #3889): the optimized
 # payload is quantized and deduplicated, so a hit on one route must never

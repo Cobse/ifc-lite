@@ -418,8 +418,11 @@ async fn issue_4459_stale_symbolic_sidecar_refuses_stream_replay_until_refreshed
     state.cache.set_bytes(&format!("{key}-parquet-metadata-v5"),
         &serde_json::to_vec(&sample_metadata_header(key, 1)).unwrap()).await.unwrap();
     state.cache.set_bytes(&data_model_cache_key(key), b"current data model").await.unwrap();
-    state.cache.set_bytes(&format!("{key}-symbolic-v1"),
-        &serde_json::to_vec(&ifc_lite_processing::SymbolicData::default()).unwrap()).await.unwrap();
+    // Retired: v1 (#4459, no fill provenance), v2 (#4665, pre mesh-frame rebase).
+    for retired in ["-symbolic-v1", "-symbolic-v2"] {
+        state.cache.set_bytes(&format!("{key}{retired}"),
+            &serde_json::to_vec(&ifc_lite_processing::SymbolicData::default()).unwrap()).await.unwrap();
+    }
     assert!(state.cache.get_bytes(&symbolic_cache_key(key)).await.unwrap().is_none());
     assert!(try_cached_replay(&state, key, ParquetLayout::Flat).await.unwrap().is_none());
     cache_symbolic_data(&state.cache, key, &ifc_lite_processing::SymbolicDataWithProvenance::default()).await;

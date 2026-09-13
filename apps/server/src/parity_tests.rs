@@ -401,8 +401,16 @@ async fn issue_4459_old_symbolic_cache_cannot_keep_binary_routes_stale() {
         assert_eq!(first.status(), StatusCode::OK);
         let first_body = to_bytes(first.into_body(), usize::MAX).await.unwrap();
         let symbols = state.cache.get_bytes(&current).await.unwrap().unwrap();
-        state.cache.set_bytes(&format!("{key}-symbolic-v1"), &symbols).await.unwrap();
         state.cache.remove(&current).await.unwrap();
+        // v1 predates direct fill provenance (#4459); v2 predates the mesh-frame
+        // rebase (#4665). Neither may be served or replayed. Planted after the
+        // removal, so a reverted bump (where one of them IS `current`) cannot be
+        // removed here.
+        for retired in ["-symbolic-v1", "-symbolic-v2"] {
+            state.cache.set_bytes(&format!("{key}{retired}"), &symbols).await.unwrap();
+        }
+        let pending = get(&state, &format!("/api/v1/parse/symbolic/{key}")).await;
+        assert_eq!(pending.status(), StatusCode::ACCEPTED, "GET /symbolic must not serve a retired entry");
         let second = post_fixture(&state, endpoint).await;
         assert_eq!(second.status(), StatusCode::OK);
         let second_body = to_bytes(second.into_body(), usize::MAX).await.unwrap();
