@@ -13,6 +13,12 @@ function request(headers = {}, method = 'GET') {
   return new Request('https://www.ifclite.com/model/42', { headers, method });
 }
 
+function middlewareMatches(pathname) {
+  const matcher = config.matcher[0];
+  assert.ok(matcher?.startsWith('/'), 'middleware matcher must be rooted');
+  return new RegExp(`^${matcher.slice(1)}$`).test(pathname.replace(/^\//, ''));
+}
+
 describe('Vercel Skew Protection document pin (#4649)', () => {
   test('sets the serving deployment before browser subresource discovery', () => {
     const headers = deploymentPinHeaders(
@@ -69,7 +75,11 @@ describe('Vercel Skew Protection document pin (#4649)', () => {
   test('returns Vercel next responses while keeping dotted documents eligible', () => {
     const response = middleware(request({ accept: '*/*' }));
     assert.equal(response.headers.get('x-middleware-next'), '1');
-    assert.deepEqual(config.matcher, ['/((?!api(?:/|$)|assets(?:/|$)).*)']);
+    assert.equal(middlewareMatches('/'), true);
+    assert.equal(middlewareMatches('/model/42'), true);
+    assert.equal(middlewareMatches('/index.html'), true);
+    assert.equal(middlewareMatches('/assets/main.js'), false);
+    assert.equal(middlewareMatches('/api/epsg/2056'), false);
     assert.ok(deploymentPinHeaders(
       new Request('https://www.ifclite.com/index.html', {
         headers: { 'sec-fetch-dest': 'document' },
