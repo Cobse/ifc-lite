@@ -640,3 +640,39 @@ mod offset_anchor_tests {
         }
     }
 }
+
+/// `weld_near_coplanar_facets` moves only the vertices of the plane clusters
+/// it welds (#4698, C8). A pair of jittered coplanar facets gives it something
+/// to weld; a separate facet 5 m away carries two corners 20 µm apart that fall
+/// in one 100 µm dedup cell and belong to no cluster. The weld must hand those
+/// back exactly as they came in.
+#[test]
+fn weld_leaves_vertices_it_did_not_weld_where_they_were_4698() {
+    let j = 15.0e-6;
+    let tris: [[[f32; 3]; 3]; 4] = [
+        // Welded: a z = 0 slab split in two, the second triangle 15 µm high.
+        [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        [[1.0, 0.0, j], [1.0, 1.0, j], [0.0, 1.0, j]],
+        // Not welded: two facets on distinct planes far from the slab, sharing
+        // a dedup cell at (5.00002, 5, 5) and (5.00004, 5, 5).
+        [[5.00002, 5.0, 5.0], [6.0, 5.0, 5.0], [5.0, 6.0, 5.0]],
+        [[5.00004, 5.0, 5.0], [5.0, 5.0, 6.0], [6.0, 5.0, 5.5]],
+    ];
+    let mut mesh = Mesh::new();
+    for t in &tris {
+        let base = (mesh.positions.len() / 3) as u32;
+        for p in t {
+            mesh.positions.extend_from_slice(p);
+            mesh.normals.extend_from_slice(&[0.0, 0.0, 1.0]);
+        }
+        mesh.indices.extend_from_slice(&[base, base + 1, base + 2]);
+    }
+    let welded = weld_near_coplanar_facets(&mesh);
+    let z = |i: usize| welded.positions[i * 3 + 2];
+    assert_eq!(z(0), z(3), "the jittered slab must weld, or this test measures nothing");
+    assert_eq!(
+        welded.positions[18..],
+        mesh.positions[18..],
+        "vertices outside every welded cluster moved"
+    );
+}
