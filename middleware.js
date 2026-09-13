@@ -56,4 +56,5 @@ export default function middleware(request) {
 // valid viewer entry point and must receive the same pin as `/` (#4649).
 export const config = {
   matcher: ['/((?!api(?:/|$)|assets(?:/|$)).*)'],
+  runtime: 'nodejs',
 };

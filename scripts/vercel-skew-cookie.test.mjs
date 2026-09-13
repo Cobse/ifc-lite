@@ -75,6 +75,7 @@ describe('Vercel Skew Protection document pin (#4649)', () => {
   test('returns Vercel next responses while keeping dotted documents eligible', () => {
     const response = middleware(request({ accept: '*/*' }));
     assert.equal(response.headers.get('x-middleware-next'), '1');
+    assert.equal(config.runtime, 'nodejs');
     assert.equal(middlewareMatches('/'), true);
     assert.equal(middlewareMatches('/model/42'), true);
     assert.equal(middlewareMatches('/index.html'), true);
