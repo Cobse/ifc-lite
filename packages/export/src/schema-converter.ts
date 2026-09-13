@@ -26,6 +26,7 @@ import { ENTITIES_IFC2X3, ENTITIES_IFC4, ENTITIES_IFC4X3, type IfcEntityInfo } f
 import { resolveUnrepresentedEntity } from './schema-untranslatable.js';
 import { BY_NAME_ATTR_REMAP_TYPES, remapRenamedAttributesByName } from './schema-converter-attr-remap.js';
 import { splitTopLevelStepArguments } from './step-argument-parser.js';
+import type { OwnerHistoryFill } from './schema-converter-owner-history.js';
 
 export type IfcSchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
 
@@ -275,6 +276,10 @@ function requireTopLevelAttributes(attrsRaw: string): string[] {
  * @param random - Optional seeded `RandomSource` for the GlobalId of any
  *   IFCPROXY placeholder minted here. Omit for the default random path; pass
  *   a seeded source when the caller needs byte-reproducible output.
+ * @param ownerHistory - On a downgrade to IFC2X3, fills a `$` in the converted
+ *   record's mandatory `OwnerHistory` slot and counts the ones it cannot
+ *   (#4686); see {@link OwnerHistoryFill}. Every exporter in this package
+ *   passes one. Omitted, the slot keeps whatever the source wrote.
  * @returns Converted line (entities without valid target representation become IFCPROXY placeholders)
  */
 export function convertStepLine(
@@ -282,9 +287,21 @@ export function convertStepLine(
   fromSchema: IfcSchemaVersion,
   toSchema: IfcSchemaVersion,
   random?: RandomSource,
+  ownerHistory?: OwnerHistoryFill,
 ): string {
   if (fromSchema === toSchema) return line;
+  const converted = convertRecord(line, fromSchema, toSchema, random);
+  return toSchema === 'IFC2X3' && ownerHistory ? ownerHistory.apply(converted) : converted;
+}
 
+/** {@link convertStepLine} before the IFC2X3 OwnerHistory fill, between two
+ *  different schemas. */
+function convertRecord(
+  line: string,
+  fromSchema: IfcSchemaVersion,
+  toSchema: IfcSchemaVersion,
+  random?: RandomSource,
+): string {
   // Parse: #ID=TYPE(attrs);  — tolerate whitespace around `=` and before the
   // type (some exporters, e.g. Tekla, write `#34498= IFCOPENINGELEMENT(...)`).
   // Without this those lines passed through unconverted, so neither type renames

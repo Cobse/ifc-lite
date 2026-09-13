@@ -19,6 +19,7 @@ import { writeSourceEntityLines } from './step-source-iteration.js';
 import { writeOverlayCreatedEntities } from './step-overlay-entities.js';
 import { generatePropertyAndQuantitySetEntities } from './step-property-sets.js';
 import {
+  resolveFallbackOwnerHistoryRef,
   type OwnerHistoryCache,
   type PropertySetContext,
 } from './step-property-set-readers.js';
@@ -196,6 +197,12 @@ export class StepExporter {
     // A deltaOnly export with nothing to say is already finished.
     if (omission.kind === 'short-circuit') return omission.result;
     const { isOmittedFromOutput, mayNameOmittedRefs } = omission;
+
+    // The owner history an IFC2X3 downgrade reuses for `$` OwnerHistory slots
+    // (#4686): the same surviving one the generated property sets fall back to.
+    if (converting && schema === 'IFC2X3') {
+      pass.ownerHistory.prefer(resolveFallbackOwnerHistoryRef(this.propertySetContext(), pass.willBeEmitted, pass.effective));
+    }
 
     // Write every source-backed record this export keeps (#2475 step 2d),
     // preceded — inside that call — by the shared-atom retention that decides

@@ -18,6 +18,11 @@
 
 use super::*;
 
+/// A fill with no owner history to write: the conversion itself, unchanged.
+fn none() -> OwnerHistoryFill {
+    OwnerHistoryFill::new(None)
+}
+
 #[test]
 fn entity_type_renames() {
     assert_eq!(convert_entity_type("IFCBURNERTYPE", "IFC4", "IFC2X3"), "IFCGASTERMINALTYPE");
@@ -78,7 +83,7 @@ fn ifc4x3_and_ifc5_types_are_renamed_down_to_ifc4() {
 fn downgrade_trims_attributes() {
     // IfcWall in IFC4 has 9 attrs (trailing PredefinedType); IFC2X3 keeps 8.
     let line = "#5=IFCWALL('guid',$,'W1',$,$,#6,#7,'tag',.STANDARD.);";
-    let out = convert_step_line(line, "IFC4", "IFC2X3", 5);
+    let out = convert_step_line(line, "IFC4", "IFC2X3", 5, &mut none());
     assert!(out.starts_with("#5=IFCWALL("), "type kept");
     assert!(!out.contains(".STANDARD."), "9th attr (PredefinedType) trimmed");
     // 8 top-level attrs remain → 7 commas.
@@ -90,7 +95,7 @@ fn downgrade_trims_attributes() {
 fn nested_attrs_not_split_when_trimming() {
     // Commas inside a nested list must not count as top-level separators.
     let line = "#9=IFCWALL('g',$,$,$,$,(#1,#2,#3),#7,'t',.STANDARD.);";
-    let out = convert_step_line(line, "IFC4", "IFC2X3", 9);
+    let out = convert_step_line(line, "IFC4", "IFC2X3", 9, &mut none());
     assert!(out.contains("(#1,#2,#3)"), "nested list preserved intact");
     assert!(!out.contains(".STANDARD."), "trailing attr trimmed");
 }
@@ -98,7 +103,7 @@ fn nested_attrs_not_split_when_trimming() {
 #[test]
 fn alignment_becomes_proxy_on_downgrade() {
     let line = "#3=IFCALIGNMENTHORIZONTAL('g',$,$,$,$,#4);";
-    let out = convert_step_line(line, "IFC4X3", "IFC4", 3);
+    let out = convert_step_line(line, "IFC4X3", "IFC4", 3, &mut none());
     assert!(out.starts_with("#3=IFCPROXY("), "alignment → proxy");
     assert!(out.contains("'IFCALIGNMENTHORIZONTAL'"), "original type recorded as name");
 }
@@ -125,7 +130,7 @@ fn alignment_becomes_proxy_on_downgrade() {
 #[test]
 fn placeholder_guid_diverges_from_the_typescript_mint_pinned_not_fixed() {
     let line = "#42=IFCALIGNMENTSEGMENT('2K5H1$Zs9CQuKQFQKQFQKQ',#1,'A',$,$,#7,#9,$);";
-    let out = convert_step_line(line, "IFC4X3", "IFC4", 42);
+    let out = convert_step_line(line, "IFC4X3", "IFC4", 42, &mut none());
     let guid = out.split('\'').nth(1).expect("IFCPROXY line has a quoted GlobalId");
     assert_eq!(
         guid, "00000000000000000G000g",
@@ -143,7 +148,7 @@ fn placeholder_guid_diverges_from_the_typescript_mint_pinned_not_fixed() {
 #[test]
 fn no_conversion_is_identity() {
     let line = "#1=IFCWALL('g',$,$);";
-    assert_eq!(convert_step_line(line, "IFC4", "IFC4", 1), line);
+    assert_eq!(convert_step_line(line, "IFC4", "IFC4", 1, &mut none()), line);
     assert!(!needs_conversion("IFC4", "IFC4"));
     assert!(needs_conversion("IFC2X3", "IFC4"));
 }
@@ -158,7 +163,7 @@ fn ifcdoortype_maps_to_ifcdoorstyle_preserving_globalid_and_name() {
     // record, and #4200's splitter mojibaked it (`Ã¶` for `ö`).
     let line = "#1=IFCDOORTYPE('1mW6gHB0W7lxCAqIKVEzia',#2,'Türtyp Größe',$,$,(#3),(#4),'tag',\
                 $,.DOOR.,.SINGLE_SWING_LEFT.,.T.,$);";
-    let out = convert_step_line(line, "IFC4", "IFC2X3", 1);
+    let out = convert_step_line(line, "IFC4", "IFC2X3", 1, &mut none());
 
     assert!(!out.contains("IFCPROXY"), "must not fall back to a proxy: {out}");
     assert!(out.starts_with("#1=IFCDOORSTYLE("), "renamed to IfcDoorStyle: {out}");
@@ -193,7 +198,7 @@ fn door_and_window_downgrade_fill_mandatory_ifc2x3_slots_instead_of_dollar() {
     let door = "#1=IFCDOORTYPE('0DOORTYPE00000000000A',$,'DT',$,$,$,$,'tag',$,.DOOR.,\
                 .SINGLE_SWING_LEFT.,$,$);";
     assert_eq!(
-        convert_step_line(door, "IFC4", "IFC2X3", 1),
+        convert_step_line(door, "IFC4", "IFC2X3", 1, &mut none()),
         "#1=IFCDOORSTYLE('0DOORTYPE00000000000A',$,'DT',$,$,$,$,'tag',\
          .SINGLE_SWING_LEFT.,.NOTDEFINED.,.F.,.F.);"
     );
@@ -203,20 +208,20 @@ fn door_and_window_downgrade_fill_mandatory_ifc2x3_slots_instead_of_dollar() {
     let window = "#2=IFCWINDOWTYPE('0WINDOWTYPE000000000A',$,'WT',$,$,$,$,'tag',$,.WINDOW.,\
                   .SINGLE_PANEL.,.T.,$);";
     assert_eq!(
-        convert_step_line(window, "IFC4", "IFC2X3", 2),
+        convert_step_line(window, "IFC4", "IFC2X3", 2, &mut none()),
         "#2=IFCWINDOWSTYLE('0WINDOWTYPE000000000A',$,'WT',$,$,$,$,'tag',\
          .NOTDEFINED.,.NOTDEFINED.,.T.,.F.);"
     );
     // Control: the optional slots (Description, ApplicableOccurrence, ...)
     // are still `$`, so this is a mandatory-slot rule and not a blanket fill.
-    let out = convert_step_line(door, "IFC4", "IFC2X3", 1);
+    let out = convert_step_line(door, "IFC4", "IFC2X3", 1, &mut none());
     assert!(out.contains("'DT',$,$,$,$,'tag'"), "optional slots stay `$`: {out}");
     // A writer that puts a space after each comma: the splitter keeps the
     // padding, so the empty slot reads ` $`, and it is still the placeholder
     // (the TypeScript twin's splitter trims, and fills it).
     let spaced = "#3=IFCDOORTYPE('0DOORTYPE00000000000B',$,'DT',$,$,$,$,'tag',$,.DOOR.,\
                   .SINGLE_SWING_LEFT., $, $);";
-    let out = convert_step_line(spaced, "IFC4", "IFC2X3", 3);
+    let out = convert_step_line(spaced, "IFC4", "IFC2X3", 3, &mut none());
     assert!(out.ends_with(",.F.,.F.);"), "a padded `$` in a mandatory slot is filled: {out}");
 }
 
@@ -226,7 +231,7 @@ fn ifcwindowtype_maps_to_ifcwindowstyle_preserving_globalid_and_name() {
     // PartitioningType,ParameterTakesPrecedence,UserDefinedPartitioningType
     let line = "#1=IFCWINDOWTYPE('3Vnz8SzMO$_GklsTTZo$zj',#2,'Window Type',$,$,$,$,'tag',\
                 $,.WINDOW.,.SINGLE_PANEL.,.T.,$);";
-    let out = convert_step_line(line, "IFC4", "IFC2X3", 1);
+    let out = convert_step_line(line, "IFC4", "IFC2X3", 1, &mut none());
 
     assert!(!out.contains("IFCPROXY"), "must not fall back to a proxy: {out}");
     assert!(out.starts_with("#1=IFCWINDOWSTYLE("), "renamed to IfcWindowStyle: {out}");
@@ -240,7 +245,7 @@ fn ifcdoorstyle_upgrade_leg_is_a_pure_pass_through() {
     // never the buggy direction: no rename entry, no attribute remap.
     let line = "#1=IFCDOORSTYLE('1mW6gHB0W7lxCAqIKVEzia',#2,'Door Style',$,$,$,$,$,\
                 .SINGLE_SWING_LEFT.,$,.T.,$);";
-    let out = convert_step_line(line, "IFC2X3", "IFC4", 1);
+    let out = convert_step_line(line, "IFC2X3", "IFC4", 1, &mut none());
     assert_eq!(out, line, "upgrade leg is untouched: {out}");
 }
 
@@ -249,7 +254,7 @@ fn other_ifc2x3_downgrade_renames_still_use_positional_trim() {
     // Control: the by-name remap is scoped to exactly IFCDOORTYPE/
     // IFCWINDOWTYPE, not applied to every IFC4->IFC2X3 rename.
     let line = "#5=IFCCHIMNEY('g',$,'C1',$,$,#6,#7,'tag',.USERDEFINED.);";
-    let out = convert_step_line(line, "IFC4", "IFC2X3", 5);
+    let out = convert_step_line(line, "IFC4", "IFC2X3", 5, &mut none());
     assert!(out.starts_with("#5=IFCBUILDINGELEMENTPROXY("), "renamed via positional path: {out}");
     // IfcBuildingElementProxy caps at 9 IFC2X3 attrs; this line has exactly 9, so nothing trims.
     assert!(out.contains(".USERDEFINED."), "positional trim/pass-through unaffected: {out}");
@@ -258,23 +263,23 @@ fn other_ifc2x3_downgrade_renames_still_use_positional_trim() {
 #[test]
 fn schema_conversion_preserves_utf8_through_the_shared_slot_parser() {
     let line = "#5=IFCCHIMNEY('g',$,'Größe',$,$,#6,#7,'tag',.USERDEFINED.,$);";
-    let out = convert_step_line(line, "IFC4", "IFC2X3", 5);
+    let out = convert_step_line(line, "IFC4", "IFC2X3", 5, &mut none());
     assert!(out.contains("'Größe'"), "UTF-8 text must remain byte-correct: {out}");
 }
 
 #[test]
 fn schema_conversion_refuses_a_malformed_positional_split() {
     let line = "#1=IFCDOORTYPE('g',\"01,23\",$,$,$,$,$,$,$,$,$,$,$);";
-    assert_eq!(convert_step_line(line, "IFC4", "IFC2X3", 1), line);
+    assert_eq!(convert_step_line(line, "IFC4", "IFC2X3", 1, &mut none()), line);
 }
 
 #[test]
 fn schema_conversion_refuses_before_type_rename_or_proxy_replacement() {
     let rename = "#10=IFCBRIDGE('g',\"01,23\",$);";
-    assert_eq!(convert_step_line(rename, "IFC4X3", "IFC4", 10), rename);
+    assert_eq!(convert_step_line(rename, "IFC4X3", "IFC4", 10, &mut none()), rename);
 
     let proxy = "#99=IFCALIGNMENTCANT('g',\"01,23\",$);";
-    assert_eq!(convert_step_line(proxy, "IFC4X3", "IFC4", 99), proxy);
+    assert_eq!(convert_step_line(proxy, "IFC4X3", "IFC4", 99, &mut none()), proxy);
 }
 
 /// LTplus-AG/ifc-lite#4200: the deleted `split_top_level` rebuilt each
@@ -286,23 +291,155 @@ fn schema_conversion_refuses_before_type_rename_or_proxy_replacement() {
 #[test]
 fn ifc2x3_downgrade_keeps_an_untrimmed_non_ascii_line_byte_for_byte() {
     let untrimmed = "#1=IFCWALL('0abc',$,'Größe Wand',$,$,$,$,$);";
-    assert_eq!(convert_step_line(untrimmed, "IFC4", "IFC2X3", 1), untrimmed);
+    assert_eq!(convert_step_line(untrimmed, "IFC4", "IFC2X3", 1, &mut none()), untrimmed);
 }
 
 /// The same defect measured where a user meets it: `export_step` with an
-/// explicit IFC2X3 target, end to end over a whole file.
+/// explicit IFC2X3 target, end to end over a whole file. The file carries an
+/// owner history, so the `$` OwnerHistory slot IFC2X3 requires is filled from
+/// it (#4686); this used to pin `$` there, an invalid IFC2X3 record.
 #[test]
 fn export_step_ifc2x3_downgrade_does_not_mojibake_a_name() {
-    let src = "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\n\
-               FILE_NAME('a.ifc','',(''),(''),'','','');\nFILE_SCHEMA(('IFC4'));\nENDSEC;\n\
-               DATA;\n#1=IFCWALL('0abcdefghijklmnopqrstu',$,'Größe Wand',$,$,$,$,$,.SOLIDWALL.);\n\
-               ENDSEC;\nEND-ISO-10303-21;\n";
-    let out = crate::export_step(
+    let src = step_file(
+        "IFC4",
+        "#1=IFCWALL('0abcdefghijklmnopqrstu',$,'Größe Wand',$,$,$,$,$,.SOLIDWALL.);\n\
+         #9=IFCOWNERHISTORY(#7,#8,$,.NOCHANGE.,$,$,$,0);",
+    );
+    let out = downgrade(&src).0;
+    assert!(
+        out.contains("#1=IFCWALL('0abcdefghijklmnopqrstu',#9,'Größe Wand',$,$,$,$,$);"),
+        "{out}"
+    );
+}
+
+fn step_file(schema: &str, data: &str) -> String {
+    format!(
+        "ISO-10303-21;\nHEADER;\nFILE_DESCRIPTION((''),'2;1');\n\
+         FILE_NAME('a.ifc','',(''),(''),'','','');\nFILE_SCHEMA(('{schema}'));\nENDSEC;\n\
+         DATA;\n{data}\nENDSEC;\nEND-ISO-10303-21;\n"
+    )
+}
+
+fn downgrade(src: &str) -> (String, crate::StepStats) {
+    crate::export_step_with_stats(
         src.as_bytes(),
         &crate::StepOptions { schema: Some("IFC2X3".to_string()), ..Default::default() },
+    )
+}
+
+fn line_with_id<'a>(out: &'a str, id: &str) -> &'a str {
+    let prefix = format!("{id}=");
+    out.lines().find(|l| l.starts_with(&prefix)).unwrap_or_else(|| panic!("{id} in {out}"))
+}
+
+fn slot(line: &str, index: usize) -> String {
+    let open = line.find('(').unwrap() + 1;
+    let close = line.rfind(')').unwrap();
+    crate::step_slot::split_top_level_args(&line[open..close]).unwrap()[index].clone()
+}
+
+/// #4686: IfcRoot.OwnerHistory is optional in IFC4 and mandatory in IFC2X3.
+/// The shared vectors (reuse the first owner history, keep `$` and count it
+/// when there is none, the IFCPROXY placeholder, the by-name door remap) run
+/// through this exporter here and through `StepExporter` in
+/// `packages/export/src/schema-converter-owner-history.test.ts`.
+#[test]
+fn ifc2x3_owner_history_fill_matches_the_shared_vectors() {
+    let raw = include_str!("../tests/fixtures/ifc2x3_owner_history_vectors.json");
+    let doc: serde_json::Value = serde_json::from_str(raw).expect("fixture is valid JSON");
+    let cases = doc["cases"].as_array().expect("cases");
+    assert!(cases.len() >= 5, "the vector file lost cases");
+    for case in cases {
+        let why = case["why"].as_str().unwrap();
+        let data: Vec<&str> = case["data"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
+        let (out, stats) = downgrade(&step_file(case["schema"].as_str().unwrap(), &data.join("\n")));
+        for (id, want) in case["owner_history"].as_object().unwrap() {
+            let line = line_with_id(&out, &format!("#{id}"));
+            assert_eq!(slot(line, 1), want.as_str().unwrap(), "{why}: {line}");
+        }
+        assert_eq!(stats.owner_history_unfilled as u64, case["unfilled"].as_u64().unwrap(), "{why}\n{out}");
+    }
+}
+
+/// #4686: the owner history is found by its keyword in any case, as a STEP
+/// keyword is case-insensitive. Rust-only: the TypeScript parser does not
+/// index a record whose keyword is not upper case, so there is no shared
+/// vector for it.
+#[test]
+fn ifc2x3_downgrade_finds_an_owner_history_written_in_lower_case() {
+    let src = step_file(
+        "IFC4",
+        "#10=IFCWALL('2O2Fr$t4X7Zf8NOew3FLOH',$,'Wall',$,$,$,$,$,$);\n\
+         #5=ifcOwnerHistory($,$,$,.NOCHANGE.,$,$,$,0);\n\
+         #6=IFCOWNERHISTORY($,$,$,.NOCHANGE.,$,$,$,0);",
     );
+    let (out, stats) = downgrade(&src);
+    assert_eq!(slot(line_with_id(&out, "#10"), 1), "#5", "{out}");
+    assert_eq!(stats.owner_history_unfilled, 0);
+}
+
+/// #4686: a subset export writes only what its roots reach. An owner history
+/// nothing included names is not written, so pointing at it would dangle; the
+/// slot stays `$` and is counted instead.
+#[test]
+fn ifc2x3_subset_downgrade_never_points_at_an_owner_history_it_does_not_write() {
+    let src = step_file(
+        "IFC4",
+        "#5=IFCOWNERHISTORY(#1,#2,$,.NOCHANGE.,$,$,$,0);\n\
+         #10=IFCWALL('2O2Fr$t4X7Zf8NOew3FLOH',$,'Wall',$,$,$,$,$,$);",
+    );
+    let (out, stats) = crate::export_step_with_stats(
+        src.as_bytes(),
+        &crate::StepOptions {
+            schema: Some("IFC2X3".to_string()),
+            included: Some(vec![10]),
+            ..Default::default()
+        },
+    );
+    assert!(!out.contains("#5="), "{out}");
+    assert_eq!(slot(line_with_id(&out, "#10"), 1), "$");
+    assert_eq!(stats.owner_history_unfilled, 1);
+}
+
+/// #4686: an upgrade, and a downgrade that stops at IFC4, are left alone:
+/// OwnerHistory is optional there.
+#[test]
+fn owner_history_fill_only_applies_to_an_ifc2x3_target() {
+    let mut fill = OwnerHistoryFill::new(Some(9));
+    let wall = "#2=IFCWALL('2abcdefghijklmnopqrstu',$,'W',$,$,$,$,$);";
+    assert_eq!(slot(&convert_step_line(wall, "IFC2X3", "IFC4", 2, &mut fill), 1), "$");
+    let bridge = "#3=IFCBRIDGE('3abcdefghijklmnopqrstu',$,'B',$,$,$,$,$,$,$,$);";
+    assert_eq!(slot(&convert_step_line(bridge, "IFC4X3", "IFC4", 3, &mut fill), 1), "$");
+    assert_eq!(fill.unfilled(), 0);
+}
+
+/// #4686, merged export: a later model without an owner history of its own
+/// reuses the one an earlier model wrote. With none in any model the merge
+/// says so in `warnings`.
+#[test]
+fn merged_ifc2x3_downgrade_reuses_an_owner_history_across_models() {
+    let a = step_file(
+        "IFC4",
+        "#1=IFCOWNERHISTORY(#8,#9,$,.NOCHANGE.,$,$,$,0);\n\
+         #2=IFCWALL('1abcdefghijklmnopqrstu',$,'A',$,$,$,$,$,$);",
+    );
+    let b = step_file("IFC4", "#1=IFCWALL('2abcdefghijklmnopqrstu',$,'B',$,$,$,$,$,$);");
+    let opts = crate::MergedOptions { schema: Some("IFC2X3".to_string()), ..Default::default() };
+    let (out, stats) = crate::export_merged_with_stats(&[a.as_bytes(), b.as_bytes()], &opts);
+    let history = out.lines().find(|l| l.contains("IFCOWNERHISTORY(")).expect("owner history written");
+    let history_ref = &history[..history.find('=').unwrap()];
+    for name in ["'A'", "'B'"] {
+        let wall = out.lines().find(|l| l.contains(name)).unwrap_or_else(|| panic!("{name} in {out}"));
+        assert_eq!(slot(wall, 1), history_ref, "{wall}");
+    }
+    assert!(stats.warnings.iter().all(|w| !w.contains("OwnerHistory")), "{:?}", stats.warnings);
+
+    let (out, stats) = crate::export_merged_with_stats(&[b.as_bytes()], &opts);
+    let wall = out.lines().find(|l| l.contains("'B'")).unwrap_or_else(|| panic!("{out}"));
+    assert_eq!(slot(wall, 1), "$");
     assert!(
-        out.contains("#1=IFCWALL('0abcdefghijklmnopqrstu',$,'Größe Wand',$,$,$,$,$);"),
-        "{out}"
+        stats.warnings.iter().any(|w| w.starts_with("1 record(s) keep $ in OwnerHistory")),
+        "{:?}",
+        stats.warnings
     );
 }

@@ -326,11 +326,7 @@ export function writeSourceEntityLines(
 
       // Apply schema conversion if exporting to a different schema version
       if (pass.converting) {
-        const converted = convertStepLine(nextEntityText, pass.sourceSchema, pass.schema, options.guidRandom);
-        if (converted !== null) {
-          pass.entities.push(converted);
-        }
-        // null means entity should be skipped (no valid representation in target schema)
+        pass.entities.push(convertStepLine(nextEntityText, pass.sourceSchema, pass.schema, options.guidRandom, pass.ownerHistory));
       } else {
         pass.entities.push(nextEntityText);
       }

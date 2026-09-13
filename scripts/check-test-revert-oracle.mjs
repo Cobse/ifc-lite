@@ -29,7 +29,7 @@
  * VERDICTS.
  *   OBSERVED      assertions went red -> the change is covered. Exit 0.
  *   UNOBSERVED    everything still passes -> THE FINDING. Exit 1.
- *   INCONCLUSIVE  the reverted tests never loaded / never ran. Exit 3.
+ *   INCONCLUSIVE  the reverted tests never ran (REVERT-BROKE-BUILD: never loaded). Exit 3.
  *
  * THE INCONCLUSIVE CASE IS THE POINT. A blunt revert usually also deletes
  * test-only exports (`__resetCacheForTests`), so the test file dies at import
@@ -100,13 +100,13 @@ import {
 } from './lib/revert-oracle-result.mjs';
 import { planRuns } from './lib/revert-oracle-plan-runs.mjs';
 import { loadTypeScript, typeOnlyProduction, typecheckPlans, gitShow } from './lib/revert-oracle-type-only.mjs';
-import { runPlan } from './lib/revert-oracle-run-plan.mjs';
+import { realRoot, runPlan } from './lib/revert-oracle-run-plan.mjs';
 import { printHumanReport } from './lib/revert-oracle-human-report.mjs';
 import { buildExecutionLedger, ledgerVerdict, partitionRunnablePlans } from './lib/revert-oracle-ledger.mjs';
 
 const SELF_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const rootFlag = process.argv.indexOf('--root');
-const ROOT = rootFlag === -1 ? SELF_ROOT : resolve(process.argv[rootFlag + 1] ?? SELF_ROOT);
+const ROOT = realRoot(rootFlag === -1 ? SELF_ROOT : resolve(process.argv[rootFlag + 1] ?? SELF_ROOT));
 
 // Restoration state, declared before the first abort path can fire: `die()`
 // consults it, and a `let` in the temporal dead zone would throw instead.
@@ -590,7 +590,7 @@ process.exit(exitCode);
  *
  * 8. RUST IS COARSER STILL. `#[cfg(test)] mod tests` lives inside the file
  *    being reverted, so the automatic mode on a Rust branch will usually report
- *    INCONCLUSIVE (compile error). That is correct, not a bug; use --mutation.
+ *    REVERT-BROKE-BUILD (compile error). That is correct, not a bug; use --mutation.
  *
  * 9. NO WORKSPACE BUILD. If a package needs a built dependency (`dist/`), the
  *    baseline run fails and you get BASELINE-BROKEN. Build first.

@@ -206,7 +206,7 @@
    495 packages/cli/src/commands/create.ts
    458 packages/cli/src/commands/extract-entities.ts
    485 packages/cli/src/commands/query.ts
-   791 packages/cli/src/headless-backend.ts
+   790 packages/cli/src/headless-backend.ts
    457 packages/codegen/src/express-parser.ts
    660 packages/codegen/src/rust-generator.ts
    640 packages/codegen/src/typescript-generator.ts
@@ -250,10 +250,10 @@
    808 packages/drawing-2d/src/types.ts
    592 packages/export/src/effective-index.ts
    810 packages/export/src/ifc5-exporter.ts
-  1585 packages/export/src/merged-exporter.ts
+  1589 packages/export/src/merged-exporter.ts
    616 packages/export/src/parquet-exporter.ts
    976 packages/export/src/reference-collector.ts
-   523 packages/export/src/schema-converter.ts
+   487 packages/export/src/schema-converter.ts
    437 packages/extensions/src/testing/runner.ts
    625 packages/geometry/src/coordinate-handler.ts
   1560 packages/geometry/src/geometry-parallel.ts
@@ -330,7 +330,7 @@
    498 packages/sandbox/src/bridge-schema.ts
    673 packages/sandbox/src/sandbox.ts
    458 packages/sdk/src/namespaces/bsdd.ts
-   875 packages/sdk/src/types.ts
+   847 packages/sdk/src/types.ts
   1011 packages/server-client/src/client.ts
    784 packages/server-client/src/data-model-decoder.ts
    444 packages/server-client/src/parquet-tables.ts
