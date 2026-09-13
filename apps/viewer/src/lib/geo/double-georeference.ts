@@ -38,7 +38,12 @@ import type { MapConversion, ProjectedCRS } from '@ifc-lite/parser';
 import type { CoordinateInfo } from '@ifc-lite/geometry';
 
 import { computeModelCenterInIfcMeters, effectiveMapConversionForGeometry } from './map-absolute';
-import { getEffectiveAxisScales, resolveMapUnitToMetreScale } from './geo-scale';
+import {
+  authoredNonUnitFactors,
+  getEffectiveAxisScales,
+  resolveMapUnitToMetreScale,
+  type FactorName,
+} from './geo-scale';
 
 export interface DoubleGeoreference {
   /** Model centre in IFC world metres, Z-up (X ≈ easting, Y ≈ northing). */
@@ -101,6 +106,11 @@ export interface DoubleGeoreference {
    * foot/metre bridge is neither overridden nor mentioned.
    */
   scaleForExport: number | null;
+  /**
+   * Factors authored off 1. The guard clears every factor, so the export must
+   * set each to 1, including when Scale needs no change (#4675).
+   */
+  factorsForExport: FactorName[];
 }
 
 /**
@@ -156,7 +166,13 @@ export function detectDoubleGeoreference(
   // easting is 24 km of drift and a fraction-based band would wave it through.
   // One metre at the model's own distance from the origin is what matters.
   const worldMagnitude = Math.hypot(ifcX, ifcY);
-  const scaleIsUnit = Math.max(Math.abs(scaleX - 1), Math.abs(scaleY - 1)) * worldMagnitude <= 1;
+  const isUnit = ({ x, y }: { x: number; y: number }) =>
+    Math.max(Math.abs(x - 1), Math.abs(y - 1)) * worldMagnitude <= 1;
+  const factorsForExport = authoredNonUnitFactors(conversion);
+  // The export resets the factors to 1, so once any is named Scale must be
+  // right on its own: Scale 2 x factors 0.5 reads 1 now but 2 after (#4675).
+  const scaleIsUnit = isUnit({ x: scaleX, y: scaleY }) && (factorsForExport.length === 0
+    || isUnit(getEffectiveAxisScales({ scale: conversion.scale }, mapScale, lengthUnitScale)));
   const mapUnitScale = mapScale > 0 ? mapScale : 1;
   const lengthScale = lengthUnitScale > 0 ? lengthUnitScale : 1;
 
@@ -167,7 +183,48 @@ export function detectDoubleGeoreference(
     displacement: Math.hypot(appliedE - ifcX, appliedN - ifcY),
     overridesAuthoredRotation: !rotationIsIdentity,
     scaleForExport: scaleIsUnit ? null : lengthScale / mapUnitScale,
+    factorsForExport,
   };
+}
+
+/** "a", "a and b", "a, b, and c". */
+function joinSerial(items: string[]): string {
+  if (items.length <= 2) return items.join(' and ');
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`;
+}
+
+type ExportScaleFields = Pick<DoubleGeoreference, 'scaleForExport' | 'factorsForExport'>;
+
+/**
+ * The sentence saying the file's Scale and factors from
+ * {@link DoubleGeoreference.factorsForExport} are not applied, or null when
+ * neither is overridden.
+ */
+export function overriddenScaleNote(found: ExportScaleFields): string | null {
+  const names = [...(found.scaleForExport !== null ? ['Scale'] : []), ...found.factorsForExport];
+  if (names.length === 0) return null;
+  const [verb, pronoun] = names.length > 1 ? ['are', 'they'] : ['is', 'it'];
+  // Only a horizontal scale acts on the map-sized coordinates.
+  const why = found.scaleForExport !== null
+    ? `: on map-sized coordinates ${pronoun} would re-scale the model about the map origin`
+    : '';
+  return `Its ${joinSerial(names)} ${verb} not applied either${why}.`;
+}
+
+/**
+ * How to bake the neutralised conversion into an export: the offsets and
+ * rotation always, Scale when it is overridden. The panel does not edit the
+ * IfcMapConversionScaled factors, so any in
+ * {@link DoubleGeoreference.factorsForExport} are sent to the authoring tool.
+ */
+export function exportCorrectionInstruction(found: ExportScaleFields): string {
+  const fields = ['Eastings and Northings to 0', 'Angle to Grid North to 0'];
+  if (found.scaleForExport !== null) fields.push(`Scale to ${trimFloat(found.scaleForExport)}`);
+  const inApp = `set ${joinSerial(fields)}, then use Export IFC (with changes).`;
+  const factors = found.factorsForExport;
+  if (factors.length === 0) return inApp;
+  const [pronoun, verb] = factors.length > 1 ? ['them', 'are'] : ['it', 'is'];
+  return `${inApp} ${joinSerial(factors)} ${verb} not editable in ifc-lite; set ${pronoun} to 1 in the authoring tool, or the exported file is still scaled by ${pronoun}.`;
 }
 
 /**

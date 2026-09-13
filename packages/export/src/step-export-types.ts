@@ -31,6 +31,7 @@ import type { EffectiveEntityIndex } from './effective-index.js';
 // therefore correct and deliberate -- nothing here calls it, and the import
 // erases.
 import type { createSourceRefReader } from './source-ref-bounds.js';
+import type { OwnerHistoryFill } from './schema-converter-owner-history.js';
 
 /**
  * Options for STEP export
@@ -371,6 +372,10 @@ export interface ExportPass {
   readonly skipRelationshipIds: Set<number>;
   readonly newGeorefLines: string[];
   readonly warnings: string[];
+  /** The owner history an IFC2X3 downgrade writes into `$` OwnerHistory
+   *  slots (#4686). Settled by `export()` once `willBeEmitted` can answer,
+   *  before either writer converts a line; its warning joins the result. */
+  readonly ownerHistory: OwnerHistoryFill;
 
   // ---- the shared predicates (see item 1 above) ----
   readonly buildHeader: (modifications: number) => string;

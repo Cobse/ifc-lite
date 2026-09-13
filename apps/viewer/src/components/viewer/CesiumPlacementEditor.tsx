@@ -13,11 +13,11 @@ import {
   closestYOnVerticalLineFromRay,
   getMapUnitScale,
   intersectRayWithHorizontalPlane,
-  mapUnitsToMeters,
   metersToMapUnits,
   projectedDeltaToViewerDeltaForGeometry,
   viewerDeltaToProjectedDeltaForGeometry,
 } from '@/lib/geo/cesium-placement';
+import { orthogonalHeightDeltaToViewerDeltaForGeometry, viewerHeightDeltaToOrthogonalHeightDeltaForGeometry } from '@/lib/geo/viewer-up-scale';
 import { findClampAnchorY } from '@/lib/geo/clamp-anchor';
 import { effectiveMapConversionForGeometry } from '@/lib/geo/map-absolute';
 import { cn } from '@/lib/utils';
@@ -355,7 +355,6 @@ export function CesiumPlacementEditor({
   const deltaN = activeDraft.northings - baseMapConversion.northings;
   const deltaH = activeDraft.orthogonalHeight - baseMapConversion.orthogonalHeight;
   const deltaAngle = normalizeDegrees(activeAngle - baseAngle);
-  const deltaHeightMeters = mapUnitsToMeters(deltaH, projectedCRS, lengthUnitScale);
   const dirty = Math.abs(deltaE) > 1e-6 || Math.abs(deltaN) > 1e-6 || Math.abs(deltaH) > 1e-6 || Math.abs(deltaAngle) > 1e-6;
   const nudgeStep = round2(metersToMapUnits(1, projectedCRS, lengthUnitScale));
 
@@ -406,7 +405,8 @@ export function CesiumPlacementEditor({
 
     return {
       x: centerX + xyOffset.x,
-      y: anchorY + deltaHeightMeters,
+      y: anchorY + orthogonalHeightDeltaToViewerDeltaForGeometry(
+        deltaH, guardConversion, projectedCRS, lengthUnitScale, coordinateInfo),
       z: centerZ + xyOffset.z,
     };
   }, [
@@ -416,7 +416,7 @@ export function CesiumPlacementEditor({
     coordinateInfo,
     deltaE,
     deltaN,
-    deltaHeightMeters,
+    deltaH,
     lengthUnitScale,
     projectedCRS,
     storeyElevations,
@@ -517,17 +517,16 @@ export function CesiumPlacementEditor({
     const ray = rayFromPointerEvent(e.clientX, e.clientY);
     if (!ray) return;
 
+    // The session baseline under this gesture's frozen draft; see the XY note below.
+    const dragConversion = { ...baseMapConversion, ...dragState.startDraft };
     if (dragState.mode === 'height') {
       const worldY = closestYOnVerticalLineFromRay(ray, dragState.anchorX, dragState.anchorZ);
       if (worldY === null) return;
-      const deltaMeters = worldY - dragState.startWorldY;
       const mus = getMapUnitScale(projectedCRS, lengthUnitScale);
       updateDraft({
-        orthogonalHeight: roundToMm(
-          dragState.startDraft.orthogonalHeight
-            + metersToMapUnits(deltaMeters, projectedCRS, lengthUnitScale),
-          mus,
-        ),
+        orthogonalHeight: roundToMm(dragState.startDraft.orthogonalHeight
+          + viewerHeightDeltaToOrthogonalHeightDeltaForGeometry(
+            worldY - dragState.startWorldY, dragConversion, projectedCRS, lengthUnitScale, coordinateInfo), mus),
       });
       return;
     }
@@ -567,7 +566,7 @@ export function CesiumPlacementEditor({
     const projectedDelta = viewerDeltaToProjectedDeltaForGeometry(
       deltaX,
       deltaZ,
-      { ...baseMapConversion, ...dragState.startDraft },
+      dragConversion,
       projectedCRS,
       lengthUnitScale,
       coordinateInfo,

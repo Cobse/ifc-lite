@@ -47,7 +47,9 @@ impl ResolvedUnit {
 /// to the IFC-canonical SI default in [`ProjectUnits::unit_for_measure`].
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProjectUnits {
-    by_type: BTreeMap<String, ResolvedUnit>,
+    /// `None` for a declared unit whose scale could not be resolved (#4690):
+    /// it shows no unit rather than the SI default, which would mislabel it.
+    by_type: BTreeMap<String, Option<ResolvedUnit>>,
     monetary: Option<ResolvedUnit>,
 }
 
@@ -81,9 +83,9 @@ impl ProjectUnits {
             None => return units,
         };
         for unit_ref in refs {
-            if let Some((unit_type, resolved, monetary)) = resolve_unit_by_ref(decoder, unit_ref) {
+            if let Some((unit_type, resolved, monetary)) = resolve_declared_unit(decoder, unit_ref) {
                 if monetary {
-                    units.monetary = Some(resolved);
+                    units.monetary = resolved;
                 } else if let Some(t) = unit_type {
                     // First declaration of a unit-type wins (IFC allows only one
                     // per type anyway); don't let a later duplicate clobber it.
@@ -101,20 +103,19 @@ impl ProjectUnits {
     /// measures (ratios, counts) and non-measure value types (labels, ...).
     pub fn unit_for_measure(&self, measure_type: &str) -> Option<ResolvedUnit> {
         match measure_unit(measure_type)? {
-            MeasureUnit::Typed { unit_type, default_symbol } => Some(
-                self.by_type
-                    .get(unit_type)
-                    .cloned()
-                    .unwrap_or_else(|| ResolvedUnit::new(default_symbol, 1.0)),
-            ),
+            MeasureUnit::Typed { unit_type, default_symbol } => match self.by_type.get(unit_type) {
+                Some(declared) => declared.clone(),
+                None => Some(ResolvedUnit::new(default_symbol, 1.0)),
+            },
             MeasureUnit::Monetary => self.monetary.clone(),
             MeasureUnit::Dimensionless => None,
         }
     }
 
     /// The resolved unit the file declares for a raw unit-type token, if any.
+    /// A declared unit whose scale could not be resolved is `None` here too.
     pub fn resolved_for_unit_type(&self, unit_type: &str) -> Option<&ResolvedUnit> {
-        self.by_type.get(unit_type)
+        self.by_type.get(unit_type)?.as_ref()
     }
 
     /// The resolved monetary (currency) unit, if the file declares one.
@@ -139,6 +140,16 @@ pub fn resolve_unit_by_ref(
     decoder: &mut EntityDecoder,
     unit_ref: u32,
 ) -> Option<(Option<String>, ResolvedUnit, bool)> {
+    let (unit_type, resolved, monetary) = resolve_declared_unit(decoder, unit_ref)?;
+    Some((unit_type, resolved?, monetary))
+}
+
+/// `(unit_type_token, resolved, is_monetary)` where `resolved` is `None` for a
+/// unit whose type is readable but whose scale is not (#4690).
+type DeclaredUnit = (Option<String>, Option<ResolvedUnit>, bool);
+
+/// [`resolve_unit_by_ref`], keeping a declared unit whose scale is unresolved.
+fn resolve_declared_unit(decoder: &mut EntityDecoder, unit_ref: u32) -> Option<DeclaredUnit> {
     let mut walk = UnitWalk::default();
     let out = resolve_unit_by_ref_walk(decoder, unit_ref, &mut walk);
     // A budget trip stops the walk part-way through some element list, so
@@ -213,7 +224,7 @@ fn resolve_unit_by_ref_walk(
     decoder: &mut EntityDecoder,
     unit_ref: u32,
     walk: &mut UnitWalk,
-) -> Option<(Option<String>, ResolvedUnit, bool)> {
+) -> Option<DeclaredUnit> {
     if walk.path.len() >= MAX_UNIT_RESOLVE_DEPTH || walk.path.contains(&unit_ref) {
         walk.refused = true;
         return None;
@@ -231,7 +242,7 @@ fn resolve_unit_entity(
     decoder: &mut EntityDecoder,
     unit_ref: u32,
     walk: &mut UnitWalk,
-) -> Option<(Option<String>, ResolvedUnit, bool)> {
+) -> Option<DeclaredUnit> {
     let entity = decoder.decode_by_id(unit_ref).ok()?;
     match entity.ifc_type.as_str() {
         "IFCSIUNIT" => {
@@ -243,18 +254,25 @@ fn resolve_unit_entity(
                 .filter(|a| !a.is_null())
                 .and_then(|a| a.as_enum());
             let (symbol, scale) = si_unit_symbol_and_scale(name, prefix)?;
-            Some((unit_type, ResolvedUnit::new(symbol, scale), false))
+            Some((unit_type, Some(ResolvedUnit::new(symbol, scale)), false))
         }
         "IFCCONVERSIONBASEDUNIT" => {
             // [1]=UnitType, [2]=Name, [3]=ConversionFactor (IFCMEASUREWITHUNIT)
             let unit_type = entity.get(1).and_then(|a| a.as_enum()).map(str_token);
             let name = entity.get(2).and_then(|a| a.as_string()).unwrap_or("");
-            let symbol = conversion_unit_symbol(name);
-            let conv_ref = entity.get_ref(3);
-            let scale = conv_ref
+            // A factor the file does not resolve falls back to the name's known
+            // factor, from the linear table the geometry length scale reads, so
+            // only for a LENGTHUNIT; anything else is left unresolved rather
+            // than guessed at 1.0 (#4690).
+            let scale = entity
+                .get_ref(3)
                 .and_then(|r| conversion_factor_scale(decoder, r, walk))
-                .unwrap_or(1.0);
-            Some((unit_type, ResolvedUnit::new(symbol, scale), false))
+                .or_else(|| match unit_type.as_deref() {
+                    Some("LENGTHUNIT") => crate::unit_labels::get_conversion_based_unit_factor(name),
+                    _ => None,
+                });
+            let resolved = scale.map(|scale| ResolvedUnit::new(conversion_unit_symbol(name), scale));
+            Some((unit_type, resolved, false))
         }
         "IFCDERIVEDUNIT" => {
             // [0]=Elements (list of IFCDERIVEDUNITELEMENT), [1]=UnitType
@@ -278,7 +296,7 @@ fn resolve_unit_entity(
             if symbol.is_empty() {
                 return None;
             }
-            Some((unit_type, ResolvedUnit::new(symbol, scale), false))
+            Some((unit_type, Some(ResolvedUnit::new(symbol, scale)), false))
         }
         "IFCMONETARYUNIT" => {
             // [0]=Currency (IfcLabel string in IFC4+, IfcCurrencyEnum in IFC2x3).
@@ -286,7 +304,7 @@ fn resolve_unit_entity(
                 .get(0)
                 .and_then(|a| a.as_string().or_else(|| a.as_enum()))
                 .unwrap_or("");
-            Some((None, ResolvedUnit::new(currency_symbol(currency), 1.0), true))
+            Some((None, Some(ResolvedUnit::new(currency_symbol(currency), 1.0)), true))
         }
         _ => None,
     }
@@ -315,7 +333,7 @@ fn resolve_derived_element(
         .and_then(|a| a.as_int())
         .unwrap_or(1)
         .clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32;
-    let (_ut, resolved, _mon) = resolve_unit_by_ref_walk(decoder, unit_ref, walk)?;
+    let resolved = resolve_unit_by_ref_walk(decoder, unit_ref, walk)?.1?;
     Some((resolved.symbol, resolved.si_scale, exponent))
 }
 
@@ -343,12 +361,9 @@ fn conversion_factor_scale(
     if !(value.is_finite() && value > 0.0) {
         return None;
     }
-    let component_scale = measure
-        .get_ref(1)
-        .and_then(|r| resolve_unit_by_ref_walk(decoder, r, walk))
-        .map(|(_, resolved, _)| resolved.si_scale)
-        .unwrap_or(1.0);
-    Some(value * component_scale)
+    // An unresolved UnitComponent leaves the factor unknown, not SI (#4690).
+    let component = resolve_unit_by_ref_walk(decoder, measure.get_ref(1)?, walk)?.1?;
+    Some(value * component.si_scale)
 }
 
 /// Normalise a STEP enum token (`.LENGTHUNIT.`) to a bare uppercase token.

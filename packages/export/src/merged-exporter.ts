@@ -26,6 +26,7 @@ import {
 import { collectStyleEntities, STYLE_RESCUE_TYPES } from './style-closure.js';
 import { collectGeoreferencingEntities } from './georef-closure.js';
 import { convertStepLine, needsConversion, type IfcSchemaVersion } from './schema-converter.js';
+import { firstWrittenOwnerHistoryRef, OwnerHistoryFill } from './schema-converter-owner-history.js';
 import { assembleStepBytes, assembleStepBlob } from './step-file-assembly.js';
 import { getCompleteEntityIndex, getMaxExpressId, type CompleteEntityIndex, type ExportEntityRef } from './entity-iteration.js';
 import { StepExporter } from './step-exporter.js';
@@ -513,6 +514,7 @@ export class MergedExporter {
     let federatedModelCount = 0;
     let normalizedModelCount = 0;
     const normalizeWarnings = new Set<string>();
+    const ownerHistory = new OwnerHistoryFill(); // IFC2X3 `$` OwnerHistory slots (#4686)
 
     for (const model of models) {
       const offset = setup.modelOffsets.get(model.id)!;
@@ -529,20 +531,22 @@ export class MergedExporter {
       if (mode.normalized) { normalizedModelCount++; this.collectNormalizeCaveats(model, normalizeWarnings); }
       const plan = this.planModel(model, completeIndex, isFirstModel, mode.compatible, mode.lengthFactor, setup, guidToFinalId);
       this.applyContainerDrops(plan, containerDrops?.byModel.get(model.id));
+      const written = (id: number) => (visibility === null || visibility.included.has(id)) && !plan.skipEntityIds.has(id);
+      if (schema === 'IFC2X3') ownerHistory.prefer(firstWrittenOwnerHistoryRef(model.dataStore.entityIndex.byType.get('IFCOWNERHISTORY'), written, offset));
 
       const sourceSchema = (model.dataStore.schemaVersion as IfcSchemaVersion) || 'IFC4';
       for (const [expressId, entityRef] of completeIndex) {
-        if (visibility !== null && !visibility.included.has(expressId)) continue;
-        if (plan.skipEntityIds.has(expressId)) continue;
+        if (!written(expressId)) continue;
         const line = this.renderEntity(
           expressId, entityRef, source, offset, plan, sourceSchema, schema, guidToFinalId, mode,
-          visibility?.hiddenProductIds ?? null, completeIndex, visibility?.included ?? null,
+          visibility?.hiddenProductIds ?? null, completeIndex, visibility?.included ?? null, ownerHistory,
         );
         if (line !== null) allEntityLines.push(line);
       }
 
       isFirstModel = false;
     }
+    for (const warning of ownerHistory.unfilledWarnings()) normalizeWarnings.add(warning);
 
     // Assemble final file as Uint8Array chunks to avoid V8 string length limit
     if (onProgress) onProgress({ phase: 'assembling', percent: 0.9, entitiesProcessed: allEntityLines.length, entitiesTotal: allEntityLines.length });
@@ -639,6 +643,7 @@ export class MergedExporter {
     let normalizedModelCount = 0;
     const normalizeWarnings = new Set<string>();
     const YIELD_INTERVAL = 2000;
+    const ownerHistory = new OwnerHistoryFill(); // IFC2X3 `$` OwnerHistory slots (#4686)
 
     if (onProgress) onProgress({ phase: 'preparing', percent: 0, entitiesProcessed: 0, entitiesTotal: totalEntities });
 
@@ -665,16 +670,17 @@ export class MergedExporter {
       if (mode.normalized) { normalizedModelCount++; this.collectNormalizeCaveats(model, normalizeWarnings); }
       const plan = this.planModel(model, completeIndex, isFirstModel, mode.compatible, mode.lengthFactor, setup, guidToFinalId);
       this.applyContainerDrops(plan, containerDrops?.byModel.get(model.id));
+      const written = (id: number) => (visibility === null || visibility.included.has(id)) && !plan.skipEntityIds.has(id);
+      if (schema === 'IFC2X3') ownerHistory.prefer(firstWrittenOwnerHistoryRef(model.dataStore.entityIndex.byType.get('IFCOWNERHISTORY'), written, offset));
       const sourceSchema = (model.dataStore.schemaVersion as IfcSchemaVersion) || 'IFC4';
 
       let entityCount = 0;
       for (const [expressId, entityRef] of completeIndex) {
-        if (visibility !== null && !visibility.included.has(expressId)) continue;
-        if (plan.skipEntityIds.has(expressId)) continue;
+        if (!written(expressId)) continue;
 
         const line = this.renderEntity(
           expressId, entityRef, source, offset, plan, sourceSchema, schema, guidToFinalId, mode,
-          visibility?.hiddenProductIds ?? null, completeIndex, visibility?.included ?? null,
+          visibility?.hiddenProductIds ?? null, completeIndex, visibility?.included ?? null, ownerHistory,
         );
         if (line !== null) allEntityLines.push(line);
 
@@ -698,6 +704,7 @@ export class MergedExporter {
 
       isFirstModel = false;
     }
+    for (const warning of ownerHistory.unfilledWarnings()) normalizeWarnings.add(warning);
 
     // Assembly phase
     if (onProgress) {
@@ -1173,9 +1180,9 @@ export class MergedExporter {
    * Render one source entity into its final STEP line: apply id offset + shared
    * remaps, re-stamp a federated GlobalId if needed, apply schema conversion,
    * and register the emitted GlobalId so later models can reconcile against it.
-   * Returns `null` when schema conversion drops the entity, OR when
-   * `hiddenProductIds` withholds a relationship whose every named subject was
-   * hidden (below).
+   * Returns `null` when `hiddenProductIds` withholds a relationship whose
+   * every named subject was hidden (below). Schema conversion never drops an
+   * entity: an untranslatable one becomes an IFCPROXY or throws.
    */
   private renderEntity(
     localId: number,
@@ -1190,6 +1197,7 @@ export class MergedExporter {
     hiddenProductIds: ReadonlySet<number> | null,
     completeIndex: CompleteEntityIndex,
     includedIds: ReadonlySet<number> | null,
+    ownerHistory: OwnerHistoryFill,
   ): string | null {
     let entityText = decodeRange(source, entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength);
 
@@ -1264,11 +1272,7 @@ export class MergedExporter {
       finalText = rescaleEntityLengths(finalText, entityRef.type.toUpperCase(), mode.lengthFactor, mode.areaFactor, mode.volumeFactor);
     }
 
-    if (needsConversion(sourceSchema, targetSchema)) {
-      const converted = convertStepLine(finalText, sourceSchema, targetSchema);
-      if (converted === null) return null;
-      finalText = converted;
-    }
+    if (needsConversion(sourceSchema, targetSchema)) finalText = convertStepLine(finalText, sourceSchema, targetSchema, undefined, ownerHistory);
 
     // Record the emitted GlobalId → final express id + unit scale, for rooted
     // entities only. Read it from the FINAL line, not the source: schema

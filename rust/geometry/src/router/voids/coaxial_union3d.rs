@@ -4,7 +4,8 @@
 
 //! Bounded candidate selection for the 3D opening-union consumer (#3925).
 
-use super::{accept_single_cut, mesh_is_closed_exact, mesh_signed_volume, UnionCand};
+use super::{accept_cut, mesh_is_closed_exact, UnionCand};
+use super::super::sweep::mesh_to_keep;
 use crate::{ClippingProcessor, GeometryRouter, Mesh};
 
 pub(super) fn subtract(
@@ -36,10 +37,8 @@ pub(super) fn subtract(
             return false;
         }
     }
-    let tri_before = result.triangle_count();
-    let vol_before = mesh_signed_volume(result);
-    let Ok(cut) = clipper.subtract_mesh(result, &union) else {
+    let Some(cut) = mesh_to_keep(clipper.subtract_mesh(result, &union), result) else {
         return false;
     };
-    accept_single_cut(result, cut, tri_before, vol_before, f64::INFINITY)
+    accept_cut(result, cut, f64::INFINITY)
 }

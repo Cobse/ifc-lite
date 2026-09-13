@@ -27,7 +27,12 @@ import {
   resolveEpsetMapUnitScale,
   supportsStandardGeoreferencing,
 } from '@/lib/geo/effective-georef';
-import { detectDoubleGeoreference, formatApproxDistance, trimFloat } from '@/lib/geo/double-georeference';
+import {
+  detectDoubleGeoreference,
+  exportCorrectionInstruction,
+  formatApproxDistance,
+  overriddenScaleNote,
+} from '@/lib/geo/double-georeference';
 import { useIfc } from '@/hooks/useIfc';
 import { toast } from '@/components/ui/toast';
 import { resolveInstancedExportGate } from '@/utils/instancedExport';
@@ -738,21 +743,13 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
                   Angle to Grid North by hand if it looks wrong.
                 </>
               )}
-              {doubleGeoref.scaleForExport !== null && (
-                <>
-                  {' '}Its Scale is not applied either: on map-sized coordinates it would re-scale
-                  the model about the map origin.
-                </>
-              )}
+              {' '}{overriddenScaleNote(doubleGeoref)}
               {' '}The file&apos;s own values are shown below exactly as authored. The export is
               worth fixing at source; to bake the correction in here,{' '}
               {/* Zeroing the offsets is NOT enough when Scale is being
                   overridden: a spec-strict consumer reading the exported file
                   back would still multiply the map-sized coordinates by it. */}
-              {doubleGeoref.scaleForExport !== null
-                ? `set Eastings and Northings to 0, Angle to Grid North to 0, and Scale to ${trimFloat(doubleGeoref.scaleForExport)}`
-                : 'set Eastings and Northings to 0 and Angle to Grid North to 0'}
-              , then use Export IFC (with changes).
+              {exportCorrectionInstruction(doubleGeoref)}
             </span>
           </div>
         </div>
@@ -850,17 +847,18 @@ export function GeoreferencingPanel({ georef, modelId, enableEditing, schemaVers
                 }`}>
                   <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
                   <span>
-                    <strong>Scale inconsistent with project/map units.</strong>{' '}
-                    Per IFC schema, IfcMapConversion.Scale should bridge the unit
-                    difference between the project length unit and map CRS unit.
-                    Current Scale = {scaleMismatch.rawScale}; expected ≈{' '}
-                    {scaleMismatch.expectedScale.toPrecision(4)}.{' '}
+                    <strong>{scaleMismatch.attribute} inconsistent with project/map units.</strong>{' '}
+                    Per IFC schema, IfcMapConversion.Scale (times the IfcMapConversionScaled
+                    factor on each axis) should bridge the unit difference between the
+                    project length unit and map CRS unit.
+                    Current {scaleMismatch.attribute} = {scaleMismatch.authoredValue}; expected ≈{' '}
+                    {scaleMismatch.expectedValue.toPrecision(4)}.{' '}
                     {scaleMismatch.compensated
                       ? `ifc-lite compensates and places the geometry at 1× — no action needed here, but a
                          tool that follows the schema strictly will render this file at
                          ${scaleMismatch.specEffectiveScale.toPrecision(4)}× its physical size.`
                       : `Geometry is being placed at ${scaleMismatch.effectiveScale.toPrecision(4)}×
-                         its physical size — adjust Scale (or MapUnit) to fix.`}
+                         its physical size — adjust ${scaleMismatch.attribute === 'Scale' ? 'Scale (or MapUnit)' : scaleMismatch.attribute} to fix.`}
                   </span>
                 </div>
               )}

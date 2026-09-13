@@ -2,57 +2,36 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Post-cut hygiene for void subtraction (#1788): real-change detection and
-//! the stray-shard sweep against the original (pre-cut) host.
+//! Post-cut hygiene for void subtraction (#1788): which subtract result the
+//! host continues as, and the stray-shard sweep against the original (pre-cut)
+//! host.
 
-use super::geom::{
-    mesh_is_closed_exact, mesh_point, mesh_signed_volume_about, point_inside_mesh, volume_reference,
-};
+use super::geom::{mesh_is_closed_exact, mesh_point, point_inside_mesh};
+use crate::csg::GroupCut;
 use crate::{Mesh, Point3};
 
-/// Whether a SINGLE-cutter boolean produced a REAL change against the pre-cut
-/// host: the triangle count moved, or the enclosed volume moved beyond noise.
+/// The mesh the host continues as after a subtract, or `None` when it stays as
+/// it is and the caller's fallbacks decide.
 ///
-/// Only `ClippingProcessor::subtract_mesh` needs this: the kernel's binary
-/// `subtract` returns a `Mesh` unconditionally, and `subtract_mesh` hands the
-/// host back un-cut in that same shape on every bail. The group path does not
-/// go through here: `subtract_mesh_many` returns `GroupCut`, whose `Cut` arm
-/// already carries the kernel's own "changed" bit, exact where this decoder
-/// is a heuristic.
+/// Whether a cut happened comes from the kernel (#4692): a `Cut` is kept
+/// however little it removed. That used to be guessed from the triangle count
+/// and a 0.1 % volume change, which read a real same-count cut under 0.1 % of
+/// the host as no cut.
 ///
-/// Triangle count alone misreads two opposite cases (#1788):
-///  * an end/miter cut can replace a 12-tri box host with another 12-tri box —
-///    same count, 8.5% volume moved (ISSUE_129 `IGC_MUR` wedge); count-only
-///    detection threw the perfect cut away and the #635 AABB fallback then
-///    carved the cutter's axis-aligned world box instead;
-///  * a kernel short-circuit returns the host byte-identical — count AND
-///    volume are equal, which this test still (correctly) reads as unchanged.
-///
-/// Volumes are compared by MAGNITUDE: the kernel's `orient_outward`
-/// normalization can hand back a no-op subtraction of an inward-wound host
-/// with its winding flipped, and comparing raw signed values would read that
-/// as a ~2x volume change — accepting an UNCUT mesh and skipping the #635
-/// fallback (codex P1 on #1802).
-///
-/// The volume tolerance is deliberately COARSE (0.1% relative): a rejected /
-/// short-circuited subtract may return the host re-snapped rather than
-/// byte-identical, and reading that noise as "changed" would silently skip
-/// the #635 fallback machinery. A same-count REAL cut moves volume by orders
-/// of magnitude more (8.5% on the ISSUE_129 wedge); a real cut smaller than
-/// 0.1% of the host that ALSO keeps the triangle count identical stays on
-/// the (pre-existing) fallback path, no worse than before.
-///
-/// Both meshes are read about the host's one reference point, so a crack in
-/// an open host that the cut did not touch cancels (see
-/// [`mesh_signed_volume_about`], #4632).
-pub(super) fn cut_changed_mesh(result: &Mesh, host: &Mesh) -> bool {
-    if result.triangle_count() != host.triangle_count() {
-        return true;
+/// A `Retessellated` host (the cutter never reached the solid) is kept only
+/// when the arrangement changed its triangle count. That is not a verdict on
+/// the cut; it keeps the tessellation the router has always continued with.
+/// The old guess took exactly these re-tessellations as "changed", which also
+/// skipped the #635 fallback for them. The watertightness census depends on
+/// it: later cuts run on the consolidated host, and a miss sent to the
+/// fallback can box-cut. Changing either is a census decision, not part of
+/// telling a cut from a miss.
+pub(super) fn mesh_to_keep(outcome: GroupCut, host: &Mesh) -> Option<Mesh> {
+    match outcome {
+        GroupCut::Cut(cut) => Some(cut),
+        GroupCut::Retessellated(m) if m.triangle_count() != host.triangle_count() => Some(m),
+        GroupCut::Retessellated(_) | GroupCut::Rejected(_) => None,
     }
-    let reference = volume_reference(host);
-    let vol_before = mesh_signed_volume_about(host, &reference).abs();
-    let vol_after = mesh_signed_volume_about(result, &reference).abs();
-    (vol_after - vol_before).abs() > vol_before.max(1.0e-9) * 1.0e-3
 }
 
 /// Cap on `result_triangles x host_triangles` for the shard sweep. Every swept

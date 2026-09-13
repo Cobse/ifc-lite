@@ -434,17 +434,67 @@ END-ISO-10303-21;
   });
 
   describe('detectScaleUnitMismatch', () => {
-    it('checks every axis factor, and quotes the Scale the worst axis needs (#4615)', () => {
+    it('checks every axis factor, and names the factor unless every axis reads the same (#4615, #4675)', () => {
       // Feet project, metre map: Scale 1 x FactorX 0.3048 is spec-correct.
       const feet = { factorX: 0.3048, factorY: 0.3048, factorZ: 0.3048 };
       assert.strictEqual(detectScaleUnitMismatch({ scale: 1, ...feet }, 1, 0.3048), null);
-      // metre project and map, Scale 1 x FactorZ 2: the file needs Scale 0.5 on Z.
+      // metre project and map, Scale 1 x FactorZ 2: Scale already bridges the
+      // units, so the attribute to change is FactorZ (to 1). Advising Scale 0.5
+      // would halve X and Y.
       const found = detectScaleUnitMismatch({ scale: 1, factorZ: 2 }, 1, 1);
       assert.ok(found, 'a FactorZ-only deviation is reported');
-      assert.strictEqual(found!.rawScale, 1);
-      assert.strictEqual(found!.expectedScale, 0.5);
+      assert.strictEqual(found!.attribute, 'FactorZ');
+      assert.strictEqual(found!.authoredValue, 2);
+      assert.strictEqual(found!.expectedValue, 1);
       assert.strictEqual(found!.specEffectiveScale, 2);
       assert.strictEqual(found!.effectiveScale, 2);
+      // mm project, metre map, Scale $ (the #595 rule places X and Y at 1),
+      // FactorZ 2: Z is drawn at 2 because of FactorZ, not Scale. The Scale
+      // that would "fix" Z on paper, 0.0005, would draw X and Y at 0.5.
+      const unsetScale = detectScaleUnitMismatch({ factorZ: 2 }, 1, 0.001);
+      assert.ok(unsetScale);
+      assert.strictEqual(unsetScale!.effectiveScale, 2);
+      assert.strictEqual(unsetScale!.attribute, 'FactorZ');
+      assert.strictEqual(unsetScale!.expectedValue, 1);
+      // Every axis at 2: Scale fixes them all, so Scale is named.
+      const uniform = detectScaleUnitMismatch({ scale: 2 }, 1, 1);
+      assert.ok(uniform);
+      assert.strictEqual(uniform!.attribute, 'Scale');
+      assert.strictEqual(uniform!.authoredValue, 2);
+      assert.strictEqual(uniform!.expectedValue, 1);
+      // mm project, metre map, factors (0.001, 0.001, 1): X and Y are bridged
+      // by their factors and Z reads 1000. Scale 0.001 would put X and Y at
+      // 0.001; FactorZ 0.001 is the change that leaves them alone.
+      const mixed = detectScaleUnitMismatch({ factorX: 0.001, factorY: 0.001, factorZ: 1 }, 1, 0.001);
+      assert.ok(mixed);
+      assert.strictEqual(mixed!.attribute, 'FactorZ');
+      assert.strictEqual(mixed!.authoredValue, 1);
+      assert.ok(Math.abs(mixed!.expectedValue - 0.001) < 1e-12);
+      // Scale 2 x FactorZ 0.5: X reads 2 and Z reads 1. FactorX 0.5 fixes X
+      // without moving Z, where Scale 1 would put Z at 0.5. An absent factor reads 1.
+      const scaleAndFactor = detectScaleUnitMismatch({ scale: 2, factorZ: 0.5 }, 1, 1);
+      assert.ok(scaleAndFactor);
+      assert.strictEqual(scaleAndFactor!.attribute, 'FactorX');
+      assert.strictEqual(scaleAndFactor!.authoredValue, 1);
+      assert.strictEqual(scaleAndFactor!.expectedValue, 0.5);
+      // Scale 0 reads 0 on every axis: Scale is named, not a factor divided by 0.
+      const zero = detectScaleUnitMismatch({ scale: 0 }, 1, 1);
+      assert.ok(zero);
+      assert.strictEqual(zero!.attribute, 'Scale');
+      assert.strictEqual(zero!.expectedValue, 1);
+      // mm project, Scale 1 x factors (1, 1, 1): compensated, so the advice is
+      // for a spec-strict tool, which reads 1000 on every axis: Scale 0.001.
+      const unitFactors = detectScaleUnitMismatch({ scale: 1, factorX: 1, factorY: 1, factorZ: 1 }, 1, 0.001);
+      assert.ok(unitFactors);
+      assert.strictEqual(unitFactors!.compensated, true);
+      assert.strictEqual(unitFactors!.attribute, 'Scale');
+      assert.strictEqual(unitFactors!.expectedValue, 0.001);
+      // Compensated with factors 0.8% apart: still Scale. FactorZ 0.001 would
+      // bridge the units, turn the #595 rule off, and draw X and Y at 996.
+      const spread = detectScaleUnitMismatch({ factorX: 0.996, factorY: 0.996, factorZ: 1.004 }, 1, 0.001);
+      assert.ok(spread);
+      assert.strictEqual(spread!.compensated, true);
+      assert.strictEqual(spread!.attribute, 'Scale');
       // mm project, metre map, Scale $, factors (0.5, 0.5, 1): Z is furthest
       // from 1 on paper (1000) and compensated, but X and Y are drawn at 0.5.
       const partly = detectScaleUnitMismatch({ factorX: 0.5, factorY: 0.5, factorZ: 1 }, 1, 0.001);
@@ -472,11 +522,12 @@ END-ISO-10303-21;
       // warning was the only thing the panel said about the #2526 file.
       const m = detectScaleUnitMismatch({ scale: 1 }, 1, 0.001);
       assert.ok(m, 'expected a mismatch report');
-      assert.strictEqual(m!.rawScale, 1);
+      assert.strictEqual(m!.attribute, 'Scale');
+      assert.strictEqual(m!.authoredValue, 1);
       assert.strictEqual(m!.specEffectiveScale, 1000);
       assert.strictEqual(m!.effectiveScale, 1);
       assert.strictEqual(m!.compensated, true);
-      assert.strictEqual(m!.expectedScale, 0.001);
+      assert.strictEqual(m!.expectedValue, 0.001);
     });
 
     it('flags Scale omitted when units differ as COMPENSATED', () => {
