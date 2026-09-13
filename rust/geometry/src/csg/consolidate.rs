@@ -110,6 +110,20 @@ impl ClippingProcessor {
     /// Returns the input mesh unchanged if the consolidate fails or yields
     /// nothing — never worse than the raw kernel output.
     pub(crate) fn consolidate_coplanar(mesh: Mesh) -> Mesh {
+        Self::consolidate_coplanar_with_unit_scale(mesh, 1.0)
+    }
+
+    /// Construct a clipper for operands that are still expressed in file units.
+    pub(crate) fn with_unit_scale(length_unit_scale: f64) -> Self {
+        Self { length_unit_scale, ..Self::new() }
+    }
+
+    /// Consolidate using this processor's caller-unit-to-metre scale.
+    pub(crate) fn consolidate(&self, mesh: Mesh) -> Mesh {
+        Self::consolidate_coplanar_with_unit_scale(mesh, self.length_unit_scale)
+    }
+
+    fn consolidate_coplanar_with_unit_scale(mesh: Mesh, length_unit_scale: f64) -> Mesh {
         use crate::grid::NORMAL_QUANT_F64 as NORMAL_QUANT;
         use crate::triangulation::project_to_2d_with_basis;
         use i_overlay::core::fill_rule::FillRule;
@@ -296,12 +310,16 @@ impl ClippingProcessor {
             }
 
             for shape in shapes {
-                let Some(outer_simplified) = shape.first().and_then(|c| clean_ring(c, plane_area))
+                let Some(outer_simplified) =
+                    shape.first().and_then(|c| clean_ring(c, plane_area, length_unit_scale))
                 else {
                     continue;
                 };
                 let holes_simplified: Vec<Vec<nalgebra::Point2<f64>>> =
-                    shape[1..].iter().filter_map(|c| clean_ring(c, plane_area)).collect();
+                    shape[1..]
+                        .iter()
+                        .filter_map(|c| clean_ring(c, plane_area, length_unit_scale))
+                        .collect();
 
                 plan.regions.push(PlanRegion {
                     changed: false,

@@ -76,8 +76,9 @@ impl BooleanClippingProcessor {
         mesh: &Mesh,
         bound_mesh: &Mesh,
         solo_step: bool,
+        length_unit_scale: f64,
     ) -> SingleCutterSubtract {
-        let clipper = ClippingProcessor::new();
+        let clipper = ClippingProcessor::with_unit_scale(length_unit_scale);
         let mark = clipper.failure_count();
         let checked = Self::subtract_checked(&clipper, mesh, bound_mesh);
         // Distinguish an accept-gate rejection from the pre-existing

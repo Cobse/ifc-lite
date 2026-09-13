@@ -7,16 +7,12 @@
 //!
 //! Split out of `consolidate.rs` to keep it under the module-size ratchet.
 
-/// Rim noise as a fraction of a ring's own size, `2⁻¹³`: the fraction
-/// [`weld_near_coincident_2d`] welds rim duplicates at, and the width under
-/// which [`ring_is_noise`] may drop a ring. The weld caps its distance at
-/// [`RIM_NOISE_CAP`]; `ring_is_noise` does not, because a cap in mesh units is
-/// the unit blindness it exists to avoid, so on rings over about 2 m in a metre
-/// file it is the looser of the two.
+/// Rim noise as a fraction of a ring's own size, `2⁻¹³`, used by
+/// [`weld_near_coincident_2d`] before its absolute cap is applied.
 const RIM_NOISE_OF_SIZE: f64 = 1.0 / 8192.0;
 
-/// Absolute cap on [`weld_near_coincident_2d`]'s weld distance, 2⁻¹² in the
-/// caller's unit.
+/// Physical ring-width noise limit, `2⁻¹²` metres. The legacy rim weld also
+/// uses this numeric value as a cap in caller units; its behavior is unchanged.
 const RIM_NOISE_CAP: f64 = 1.0 / 4096.0;
 
 /// Merge consecutive near-coincident 2D contour vertices BEFORE the union/earcut.
@@ -149,40 +145,34 @@ pub(super) fn simplify_2d_collinear(ring: &[nalgebra::Point2<f64>]) -> Vec<nalge
 pub(super) fn clean_ring(
     ring: &[[f64; 2]],
     plane_area: f64,
+    length_unit_scale: f64,
 ) -> Option<Vec<nalgebra::Point2<f64>>> {
     let pts: Vec<_> = ring.iter().map(|p| nalgebra::Point2::new(p[0], p[1])).collect();
     let simplified = simplify_2d_collinear(&weld_near_coincident_2d(&pts));
-    (!ring_is_noise(&simplified, plane_area)).then_some(simplified)
+    (!ring_is_noise(&simplified, plane_area, length_unit_scale)).then_some(simplified)
 }
 
 /// Is a simplified 2D ring noise? `plane_area` is the summed area of the plane
-/// bucket it came from.
+/// bucket it came from. `length_unit_scale` is metres per caller unit; only the
+/// new width comparison is normalized, not the pre-existing absolute area floor
+/// or rim weld.
 ///
-/// Noise is a ring under [`NOISE_AREA`], or one that is BOTH hairline for its
-/// own size and under [`NOISE_PLANE_SHARE`] of its plane. Hairline compares the
-/// ring's width `2·area / perimeter` against [`RIM_NOISE_OF_SIZE`] of its own
-/// size, taken as `perimeter / 4`: the side of a square, about half the length of
-/// a sliver. Both terms are lengths read off the ring itself, so the test is
-/// rotation-invariant in the plane and EXACTLY invariant under a change of unit
-/// (scaling the ring by k scales area by k² and perimeter by k, and the
-/// comparison by k² on both sides).
-///
-/// Unit invariance is the point: consolidation runs before
-/// `GeometryRouter::scale_mesh` converts file units to metres, so the same
-/// building arrives a thousand times larger in a millimetre file, and a cutoff
-/// fixed in mesh units would be a thousand times off on one of the two paths
-/// (the `SNAP_GRID` divergence of #2684).
+/// Noise is a ring under [`NOISE_AREA`], or one whose mean width
+/// `2·area / perimeter` is under [`RIM_NOISE_CAP`] metres and whose area is
+/// under [`NOISE_PLANE_SHARE`] of its plane. Multiplying area by metres per
+/// caller unit puts that width comparison in metres without changing the
+/// pre-existing caller-unit tests.
 ///
 /// The width gate is what keeps a real opening on a large face, which the plane
 /// share alone filled (#4698). The share gate is what keeps a hairline ring that
 /// is most of its plane, such as a µm-deep reveal lip. Fewer than three vertices
 /// is noise.
 ///
-/// What is still dropped, as on origin/main: a genuinely thin strip that is also
-/// a small part of its plane, say 1.9 mm across a 20 m run of a 500 m² face.
-/// This rule only ever keeps rings the plane share alone would have dropped; it
-/// never drops one that rule kept.
-pub(super) fn ring_is_noise(ring: &[nalgebra::Point2<f64>], plane_area: f64) -> bool {
+pub(super) fn ring_is_noise(
+    ring: &[nalgebra::Point2<f64>],
+    plane_area: f64,
+    length_unit_scale: f64,
+) -> bool {
     let n = ring.len();
     if n < 3 {
         return true;
@@ -197,15 +187,14 @@ pub(super) fn ring_is_noise(ring: &[nalgebra::Point2<f64>], plane_area: f64) -> 
         return false;
     }
     let perimeter: f64 = edges().map(|(a, b)| (b - a).norm()).sum();
-    let hairline = perimeter * 0.25 * RIM_NOISE_OF_SIZE;
-    2.0 * area < perimeter * hairline
+    2.0 * area * length_unit_scale < perimeter * RIM_NOISE_CAP
 }
 
 /// Absolute area floor for [`ring_is_noise`], in squared mesh units. Inherited
-/// from origin/main and the one part of the rule that is NOT unit-free: it drops
-/// a compact speck under 0.1 mm across on the metre path and under 0.1 µm on the
-/// file-unit path. The width gate cannot cover it — for a compact ring
-/// `2·area / perimeter` is about a quarter of its size, never under 2⁻¹³ of it.
+/// from origin/main and still caller-unit-based. The physical width/share gate
+/// also catches small compact rings that occupy only a tiny share of their
+/// plane; the legacy floor can still differ by unit when that share gate is
+/// deliberately bypassed.
 const NOISE_AREA: f64 = 1.0e-8;
 
 /// Share of its plane under which a thin ring counts as noise ([`ring_is_noise`]).

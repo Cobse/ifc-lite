@@ -76,7 +76,7 @@ impl ClippingProcessor {
         // fall back to a plain merge (overlap not removed) + record the failure,
         // preserving the legacy never-Err contract.
         let raw_u = crate::kernel::mesh_bridge::union(mesh_a, mesh_b);
-        let result = Self::consolidate_coplanar(raw_u);
+        let result = self.consolidate(raw_u);
         if result.is_empty() || !self.validate_mesh(&result) {
             self.record_failure(BoolOp::Union, BoolFailureReason::KernelOutputInvalid);
             let mut merged = mesh_a.clone();
