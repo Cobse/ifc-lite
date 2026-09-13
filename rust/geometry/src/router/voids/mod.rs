@@ -32,7 +32,7 @@ use malformed_opening_repair::{
     cutter_is_closed_manifold, opening_obb_if_malformed, recut_malformed_openings,
     translate_cutter_mesh, world_host_bounds, OpeningBox,
 };
-use sweep::{cut_changed_mesh, drop_faces_outside_host};
+use sweep::{drop_faces_outside_host, mesh_to_keep};
 mod sweep;
 
 /// Epsilon for normalizing direction vectors (guards against zero-length).
@@ -1399,10 +1399,6 @@ impl GeometryRouter {
                     let tri_before = result.triangle_count();
                     let failures_before = clipper.failure_count();
                     let mut csg_succeeded = false;
-                    // Tracks whether CSG returned the host *unchanged* (the kernel
-                    // either found no real intersection, or errored on a grazing/
-                    // coplanar cutter and returned the un-cut host).
-                    let mut csg_unchanged = false;
                     // PENETRATING CUTTER (PART A): push the opening's caps a hair
                     // PAST the host along its depth axis so a flush cap becomes a
                     // clean transversal crossing — the exact kernel then cuts the
@@ -1419,15 +1415,14 @@ impl GeometryRouter {
                         depth_dir,
                     );
                     let cutter = &extended_opening;
-                    if let Ok(csg_result) = clipper.subtract_mesh(&result, cutter) {
+                    let kept = mesh_to_keep(clipper.subtract_mesh(&result, cutter), &result);
+                    // The host is still un-cut: the kernel found no real
+                    // intersection, or bailed on a grazing/coplanar cutter.
+                    let csg_unchanged = kept.is_none();
+                    if let Some(csg_result) = kept {
                         let min_tris = (tri_before / CSG_TRIANGLE_RETENTION_DIVISOR)
                             .max(MIN_VALID_TRIANGLES);
-                        let changed = cut_changed_mesh(&csg_result, &result);
-                        csg_unchanged = !changed;
-                        if !csg_result.is_empty()
-                            && csg_result.triangle_count() >= min_tris
-                            && changed
-                        {
+                        if !csg_result.is_empty() && csg_result.triangle_count() >= min_tris {
                             result = csg_result;
                             host_mutated = true;
                             csg_succeeded = true;
@@ -1734,3 +1729,5 @@ mod flap_clip_tests;
 mod batch_cutter_tests;
 #[cfg(test)]
 mod cut_effect_count_tests;
+#[cfg(test)]
+mod single_cut_outcome_tests;

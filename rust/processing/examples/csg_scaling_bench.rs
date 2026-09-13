@@ -26,7 +26,7 @@
 //!     -- tests/models/ara3d/C20-Institute-Var-2.ifc
 //!   (or set CSG_BENCH_FIXTURE / CSG_BENCH_ITERS)
 
-use ifc_lite_geometry::csg::{ClippingProcessor, GroupCut};
+use ifc_lite_geometry::csg::ClippingProcessor;
 use ifc_lite_geometry::csg_capture::{drain, CapturedCsgJob};
 use ifc_lite_geometry::mesh::Mesh;
 use ifc_lite_processing::process_geometry;
@@ -38,17 +38,14 @@ use std::time::Instant;
 fn replay(job: &CapturedCsgJob) -> usize {
     let csg = ClippingProcessor::new();
     match job {
-        CapturedCsgJob::Single { host, cutter } => {
-            csg.subtract_mesh(host, cutter).map(|m| m.indices.len()).unwrap_or(0)
-        }
+        CapturedCsgJob::Single { host, cutter } => csg.subtract_mesh(host, cutter),
         CapturedCsgJob::Many { host, cutters } => {
             let refs: Vec<&Mesh> = cutters.iter().collect();
-            match csg.subtract_mesh_many(host, &refs) {
-                GroupCut::Cut(m) => m.indices.len(),
-                GroupCut::Rejected(_) => 0,
-            }
+            csg.subtract_mesh_many(host, &refs)
         }
     }
+    .into_mesh()
+    .map_or(0, |m| m.indices.len())
 }
 
 fn run_pool(jobs: &[CapturedCsgJob], threads: usize) -> (u128, usize) {

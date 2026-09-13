@@ -211,10 +211,11 @@ fn flush_cap_is_not_pushed_into_a_pre_cut_jamb() {
     let extended = GeometryRouter::extend_opening_mesh_through_host(&cutter, &host, dir);
     let clipper = ClippingProcessor::new();
     let before = mesh_signed_volume(&host).abs();
-    let cut = clipper
+    // A rejection leaves the host as it is, which removes nothing.
+    let removed = clipper
         .subtract_mesh(&host, &extended)
-        .expect("subtract must not error on two closed boxes");
-    let removed = before - mesh_signed_volume(&cut).abs();
+        .into_mesh()
+        .map_or(0.0, |cut| before - mesh_signed_volume(&cut).abs());
 
     assert!(
         removed.abs() < 1.0e-3,

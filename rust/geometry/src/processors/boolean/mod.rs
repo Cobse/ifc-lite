@@ -869,9 +869,10 @@ impl BooleanClippingProcessor {
                 return Ok((mesh, false));
             }
             let clipper = ClippingProcessor::new();
-            let result = clipper.subtract_mesh(&mesh, &second_mesh);
+            let outcome = clipper.subtract_mesh(&mesh, &second_mesh);
             self.absorb_failures(clipper.take_failures());
-            return result.map(|m| (m, false));
+            // A rejection keeps the host un-cut; any failure is on record above.
+            return Ok((outcome.into_mesh().unwrap_or(mesh), false));
         }
 
         // Handle UNION operation — a real CSG union (overlap removed) on the

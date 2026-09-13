@@ -2,33 +2,54 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-//! Group subtraction (disjoint-cutter batching) and its outcome type.
+//! Group subtraction (disjoint-cutter batching) and the outcome type it shares
+//! with the single-cutter `subtract_mesh`.
 //!
-//! [`GroupCut`] says whether the group was cut and, if not, why, so the router
+//! [`GroupCut`] says whether the host was cut and, if not, why, so the router
 //! matches on it instead of comparing the returned mesh against the host (the
-//! triangle-count and 0.1 % volume decoder of #1788, `router/voids/sweep.rs`,
-//! which still serves the single-cutter path).
+//! triangle-count and 0.1 % volume decoder of #1788, deleted in #4692).
 
 use super::{record_csg_op, ClippingProcessor};
 use crate::diagnostics::{BoolFailureReason, BoolOp};
 use crate::kernel::mesh_bridge::{subtract_many, BatchSubtract};
 use crate::mesh::Mesh;
 
-/// Outcome of [`ClippingProcessor::subtract_mesh_many`].
+/// Outcome of [`ClippingProcessor::subtract_mesh_many`] and of
+/// [`ClippingProcessor::subtract_mesh`], which is a group of one.
 #[must_use]
 #[derive(Debug, Clone)]
 pub enum GroupCut {
-    /// The whole group was cut in conforming arrangements and every
-    /// intermediate passed validation and the accept gates. Empty when the
-    /// cutters engulf the host.
+    /// The kernel classified a cut, and every produced intermediate passed
+    /// validation and the accept gates. Single-cutter arrangements are lenient;
+    /// group cuts additionally require conformity or the kernel's volume oracle.
+    /// Empty when the cutters engulf the host.
     Cut(Mesh),
+    /// Single cutter only: the kernel classified the cutter as not reaching
+    /// the host solid, and this is the host re-tessellated along the
+    /// arrangement, consolidated, validated and gated like a `Cut`. Same solid
+    /// as the host, different triangles. Whether to keep it is the caller's
+    /// choice; the void router has kept it when it changed the triangle count,
+    /// and the watertightness census depends on that (#4692).
+    Retessellated(Mesh),
     /// The host is untouched; the caller cuts the members one by one.
     Rejected(GroupReject),
 }
 
-/// Why a group was not cut. Only `InvalidOutput` and `GateRejected` record a
-/// [`crate::diagnostics::BoolFailure`]: the others are the expected, handled
-/// outcome (see [`ClippingProcessor::subtract_mesh_many`]).
+impl GroupCut {
+    /// The mesh the subtract produced, a cut or a re-tessellated miss; `None`
+    /// for a rejection.
+    pub fn into_mesh(self) -> Option<Mesh> {
+        match self {
+            Self::Cut(m) | Self::Retessellated(m) => Some(m),
+            Self::Rejected(_) => None,
+        }
+    }
+}
+
+/// Why a group was not cut. For a group, only `InvalidOutput` and
+/// `GateRejected` record a [`crate::diagnostics::BoolFailure`]: the others are
+/// the expected, handled outcome (see [`ClippingProcessor::subtract_mesh_many`]).
+/// The single cutter records more; see [`ClippingProcessor::subtract_mesh`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupReject {
     /// The host has no triangles.
@@ -38,10 +59,12 @@ pub enum GroupReject {
     /// The #1109 escalation budget tripped inside one chunk's arrangement.
     BudgetTripped,
     /// A chunk's arrangement left an unrecovered constraint and its lenient
-    /// batch failed the kernel's volume oracle.
+    /// batch failed the kernel's volume oracle. Group only: the single cutter
+    /// does not gate on conformity.
     Nonconforming,
     /// Every chunk's arrangement conformed, but no cutter reaches the host
-    /// solid: the kernel kept every host face and no cutter face.
+    /// solid: the kernel kept every host face and no cutter face. Group only:
+    /// the single cutter returns [`GroupCut::Retessellated`] instead.
     Unchanged,
     /// A chunk's intermediate failed [`ClippingProcessor::validate_mesh`]
     /// (recorded as `KernelOutputInvalid`).
