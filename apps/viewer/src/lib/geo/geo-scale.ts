@@ -42,6 +42,13 @@ type Axis = 'x' | 'y' | 'z';
 type AxisScales = Record<Axis, number>;
 const AXES: readonly Axis[] = ['x', 'y', 'z'];
 const FACTOR_KEY = { x: 'factorX', y: 'factorY', z: 'factorZ' } as const;
+const FACTOR_NAME = { x: 'FactorX', y: 'FactorY', z: 'FactorZ' } as const;
+/** An IfcMapConversionScaled factor attribute, by its EXPRESS name. */
+export type FactorName = (typeof FACTOR_NAME)[Axis];
+/** The factors the conversion authors at a value other than exactly 1, by name. */
+export function authoredNonUnitFactors(conversion: ScaleFields): FactorName[] {
+  return AXES.filter((a) => (conversion[FACTOR_KEY[a]] ?? 1) !== 1).map((a) => FACTOR_NAME[a]);
+}
 /** A coefficient this close to 1 bridges the units (and raises no warning). */
 const NEAR_UNITY = 0.005;
 const offUnity = (value: number) => Math.abs(value - 1);
@@ -123,18 +130,24 @@ export interface ScaleUnitMismatch {
    * unmentioned.
    */
   compensated: boolean;
-  /** Raw IfcMapConversion.Scale (or 1 if absent). */
-  rawScale: number;
+  /**
+   * The attribute to change on the reported axis. Scale when compensated or
+   * when every axis reads the same (changing it fixes all of them); otherwise that axis's
+   * IfcMapConversionScaled factor, since a new Scale would move the axes that
+   * are already right.
+   */
+  attribute: 'Scale' | FactorName;
+  /** The file's value of `attribute` (absent reads as 1). */
+  authoredValue: number;
+  /**
+   * The value of `attribute` that brings the reported axis to 1. For Scale:
+   * lengthUnitScale / mapUnitScale, divided by that axis's factor.
+   */
+  expectedValue: number;
   /** Map unit → metres factor (e.g. 1 for METRE, 0.001 for MILLIMETRE). */
   mapUnitScale: number;
   /** Project length unit → metres factor. */
   lengthUnitScale: number;
-  /**
-   * Scale value the file would need for the IFC formula to map local→map
-   * coordinates without any extra scaling on the reported axis
-   * (lengthUnitScale / mapUnitScale, divided by that axis's factor).
-   */
-  expectedScale: number;
 }
 
 /**
@@ -168,15 +181,24 @@ export function detectScaleUnitMismatch(
   const placed = getEffectiveAxisScales(conversion, mus, lus);
   const placedAxis = worstAxis(placed);
   const compensated = offUnity(placed[placedAxis]) <= NEAR_UNITY;
-  const axis = compensated ? specAxis : placedAxis;
+  const [axis, scales] = compensated ? [specAxis, spec] : [placedAxis, placed];
+  // Advise Scale only when the axes agree (#4675): with Scale 1 x FactorZ 2 in
+  // a metre file, Scale 0.5 would halve X and Y, and FactorZ 1 is the fix.
+  // When compensated, always Scale: a factor that bridges the units switches
+  // the #595 rule off for every axis, which would mis-size a file drawn right.
+  const reported = scales[axis];
+  const factor = conversion[FACTOR_KEY[axis]] ?? 1;
+  const uniform = AXES.every((a) => Math.abs(scales[a] - reported) <= NEAR_UNITY * Math.abs(reported));
+  const fix = compensated || uniform
+    ? { attribute: 'Scale' as const, authoredValue: conversion.scale ?? 1.0, expectedValue: lus / mus / factor }
+    : { attribute: FACTOR_NAME[axis], authoredValue: factor, expectedValue: factor / reported };
   return {
     effectiveScale: placed[axis],
     specEffectiveScale: spec[axis],
     compensated,
-    rawScale: conversion.scale ?? 1.0,
+    ...fix,
     mapUnitScale: mus,
     lengthUnitScale: lus,
-    expectedScale: lus / mus / (conversion[FACTOR_KEY[axis]] ?? 1),
   };
 }
 
