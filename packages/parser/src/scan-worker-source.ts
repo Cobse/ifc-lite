@@ -157,11 +157,12 @@ ${WORKER_LEXING}
       }
       if (opensCommentAt(pos)) { pos = skipTriviaAt(pos); if (pos < 0) { stopped = true; break; } }
 
-      // Read type name. Must start A-Z; a bad start byte with buffer left
-      // clears declOpen for the same reason as the '=' check.
+      // Read type name. Must start with a letter of either case (#4713); a
+      // bad start byte with buffer left clears declOpen for the same reason
+      // as the '=' check.
       var typeStart = pos;
       if (pos >= len) continue;
-      if (buf[pos] < 0x41 || buf[pos] > 0x5A) { declOpen = false; continue; }
+      if (!isKeywordLeadByteAt(pos)) { declOpen = false; continue; }
 
       while (pos < len) {
         var c4 = buf[pos];
@@ -177,11 +178,13 @@ ${WORKER_LEXING}
       // Cache type name — use length + hash compound key and verify the actual
       // bytes on a hit. Length alone can't disambiguate a 32-bit hash collision
       // (e.g. "Aa"/"BB"), so without the byte compare a crafted/unlucky file
-      // could have one type silently misread as another. Mirrors tokenizer.ts.
+      // could have one type silently misread as another. Mirrors tokenizer.ts,
+      // including its case fold (#4713): the cached name is upper case, and
+      // the loop above satisfies upperKeywordByte's [A-Za-z0-9_] precondition.
       var typeLen = pos - typeStart;
       var typeHash = typeLen;
       for (var i = typeStart; i < pos; i++) {
-        typeHash = (typeHash * 31 + buf[i]) | 0;
+        typeHash = (typeHash * 31 + upperKeywordByte(buf[i])) | 0;
       }
       var cacheKey = typeLen + ':' + typeHash;
       var typeName = typeCache.get(cacheKey);
@@ -189,14 +192,14 @@ ${WORKER_LEXING}
       if (typeName !== undefined && typeName.length === typeLen) {
         cacheHitMatches = true;
         for (var v = 0; v < typeLen; v++) {
-          if (typeName.charCodeAt(v) !== buf[typeStart + v]) {
+          if (typeName.charCodeAt(v) !== upperKeywordByte(buf[typeStart + v])) {
             cacheHitMatches = false;
             break;
           }
         }
       }
       if (typeName === undefined || !cacheHitMatches) {
-        typeName = String.fromCharCode.apply(null, buf.subarray(typeStart, pos));
+        typeName = String.fromCharCode.apply(null, buf.subarray(typeStart, pos)).toUpperCase();
         typeCache.set(cacheKey, typeName);
       }
 

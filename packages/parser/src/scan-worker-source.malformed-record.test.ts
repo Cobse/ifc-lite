@@ -16,6 +16,7 @@
 import { describe, expect, it } from 'vitest';
 import { WORKER_CODE } from './scan-worker-source.js';
 import {
+  KEYWORD_CASE_CASE,
   LEGAL_BODIES,
   LINE_NUMBER_CASE,
   NEXT_DECLARATION_CASE,
@@ -39,6 +40,7 @@ interface WorkerScanMessage {
   count: number;
   oversizedIds: number;
   malformedRecords: number;
+  types: string[];
 }
 
 /** Runs `WORKER_CODE` against a mock `self`, the same way the Blob worker
@@ -283,4 +285,14 @@ describe('scan-worker-source WORKER_CODE: record-boundary guards (#4179)', () =>
       }, 120_000);
     },
   );
+});
+
+describe('scan-worker-source WORKER_CODE: entity keyword case (#4713)', () => {
+  it('finds every record and names its type in upper case, like tokenizer.ts', () => {
+    const result = runWorkerCode(KEYWORD_CASE_CASE.text);
+    const ids = new Uint32Array(result.ids);
+    const records = result.types.map((type, i) => [ids[i], type] as const);
+    expect(records).toEqual(KEYWORD_CASE_CASE.records);
+    expect(result.malformedRecords).toBe(0);
+  });
 });

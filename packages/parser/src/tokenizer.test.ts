@@ -5,6 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { StepTokenizer } from './tokenizer.js';
 import {
+  KEYWORD_CASE_CASE,
   LEGAL_BODIES,
   LINE_NUMBER_CASE,
   NEXT_DECLARATION_CASE,
@@ -308,4 +309,16 @@ describe('StepTokenizer.scanEntitiesFast: record-boundary guards (#4179)', () =>
       }, 120_000);
     },
   );
+});
+
+describe('StepTokenizer: entity keyword case (#4713)', () => {
+  it.each([
+    ['scanEntitiesFast', (t: StepTokenizer) => t.scanEntitiesFast()],
+    ['scanEntities', (t: StepTokenizer) => t.scanEntities()],
+  ] as const)('%s finds every record and names its type in upper case', (_label, scan) => {
+    const tokenizer = new StepTokenizer(new TextEncoder().encode(KEYWORD_CASE_CASE.text));
+    const records = Array.from(scan(tokenizer), (r) => [r.expressId, r.type] as const);
+    expect(records).toEqual(KEYWORD_CASE_CASE.records);
+    expect(tokenizer.malformedRecordCount).toBe(0);
+  });
 });
