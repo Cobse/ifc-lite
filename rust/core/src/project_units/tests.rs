@@ -388,3 +388,17 @@ fn derived_unit_element_exponent_i32_min_resolves_without_panic() {
     let (_, saturated, _) = resolve_unit_by_ref(&mut decoder, 20).expect("resolves");
     assert_eq!(saturated.symbol, resolved.symbol);
 }
+
+/// #4690: a conversion-based unit whose factor does not resolve and whose name
+/// has no known factor is not a resolved unit through either accessor. The
+/// display cases (FOOT, CUBIT) are the shared `unit_symbol_vectors.json` rows.
+#[test]
+fn issue_4690_an_unresolved_conversion_unit_is_not_a_resolved_unit() {
+    let unknown = "DATA;\n#1=IFCPROJECT('guid',$,'Test',$,$,$,$,$,#2);\n#2=IFCUNITASSIGNMENT((#3));\n\
+                   #3=IFCCONVERSIONBASEDUNIT(#4,.LENGTHUNIT.,'CUBIT',#5);\n\
+                   #4=IFCDIMENSIONALEXPONENTS(1,0,0,0,0,0,0);\n\
+                   #5=IFCMEASUREWITHUNIT(IFCLENGTHMEASURE(457.2),#99);\nENDSEC;\n";
+    assert_eq!(units_of(unknown).resolved_for_unit_type("LENGTHUNIT"), None);
+    let mut decoder = EntityDecoder::new(unknown);
+    assert!(resolve_unit_by_ref(&mut decoder, 3).is_none());
+}
