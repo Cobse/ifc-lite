@@ -37,8 +37,8 @@ fn area_facing(mesh: &Mesh, n: Vector3<f64>) -> f64 {
 /// a large one alike. The filter used to drop any hole under 1e-4 of the
 /// plane's total area: 2e-4 m² on the 2 × 1 m wall, so the hole stayed, but
 /// 0.02 m² on the 20 × 10 m wall, so the hole was filled and the front face
-/// read the full 200 m². Mutation: restore `bucket_area * 1e-4` as the floor
-/// and the 20 m case fails.
+/// read the full 200 m². Mutation: make the plane share decide alone again and
+/// the 20 m case fails.
 #[test]
 fn a_small_opening_keeps_its_hole_on_a_large_face_4698() {
     for (width, height) in [(2.0, 1.0), (20.0, 10.0)] {
@@ -56,19 +56,24 @@ fn a_small_opening_keeps_its_hole_on_a_large_face_4698() {
     }
 }
 
-/// The noise the filter exists for is still dropped: a ring narrower than one
-/// snap step, however long, and a speck under the absolute area floor. A ring
-/// one snap step wide or more is kept.
+/// Where the plane share still decides, and where it no longer does. Each case
+/// is a ring the census or review met: a wide opening on a big face (kept, the
+/// #4698 fix), a 50 µm rim sliver on the same face (still filled, as on main), a
+/// 1.67 µm reveal lip that is its whole plane bucket (still kept, as on main:
+/// ISSUE_159 #6012 re-tessellated from 1176 to 374 triangles when a pure width
+/// rule dropped it), and a speck under the absolute floor. Mutations: the old
+/// share-only rule fails the first case; a width-only rule at the snap step
+/// (this PR's first revision) fails the second and third.
 #[test]
-fn ring_noise_is_judged_by_width_not_by_the_plane_4698() {
-    use crate::kernel::mesh_bridge::SNAP_GRID;
+fn ring_noise_needs_both_thin_and_a_small_share_of_the_plane_4698() {
     use nalgebra::Point2;
     let rect = |w: f64, h: f64| {
         vec![Point2::new(0.0, 0.0), Point2::new(w, 0.0), Point2::new(w, h), Point2::new(0.0, h)]
     };
-    // Mean width 2·A/P of a long w × h strip is just under h.
-    assert!(ring_is_noise(&rect(10.0, SNAP_GRID / 2.0)), "a half-snap-wide sliver is noise");
-    assert!(!ring_is_noise(&rect(10.0, SNAP_GRID * 2.0)), "a two-snap-wide strip is geometry");
-    assert!(!ring_is_noise(&rect(0.1, 0.1)), "a 10 cm square is geometry");
-    assert!(ring_is_noise(&rect(5.0e-5, 5.0e-5)), "a 50 µm speck is under the area floor");
+    let facade = 200.0;
+    assert!(!ring_is_noise(&rect(0.1, 0.1), facade), "a 10 cm opening on a 200 m² face is geometry");
+    assert!(ring_is_noise(&rect(1.0, 50.0e-6), facade), "a 50 µm sliver on a 200 m² face is noise");
+    let lip = rect(2.35, 1.67e-6);
+    assert!(!ring_is_noise(&lip, 2.35 * 1.67e-6), "a reveal lip that is its whole plane is kept");
+    assert!(ring_is_noise(&rect(5.0e-5, 5.0e-5), facade), "a 50 µm speck is under the area floor");
 }

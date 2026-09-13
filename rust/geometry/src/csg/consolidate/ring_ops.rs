@@ -132,19 +132,22 @@ pub(super) fn simplify_2d_collinear(ring: &[nalgebra::Point2<f64>]) -> Vec<nalge
 }
 
 /// Is a simplified 2D ring (a union shape's outer boundary or one of its holes)
-/// noise rather than geometry?
+/// noise rather than geometry? `plane_area` is the summed area of the plane
+/// bucket the ring came from.
 ///
-/// Noise here is the sliver or speck the i_overlay union leaves from f64 and
-/// snap scatter, and that scatter does not grow with the plane the ring lies on.
-/// So the test reads the ring itself: its mean width `2·area / perimeter`
-/// against the kernel's snap step ([`SNAP_GRID`], in the caller's unit), plus
-/// the absolute area floor. A ring narrower than one snap step cannot be told
-/// apart from the snap; anything wider is kept whatever the plane's size. The
-/// earlier rule dropped any ring under 1e-4 of the plane's total area, which
-/// filled a real 10 × 10 cm opening on a 200 m² face (#4698). A ring of fewer
-/// than three vertices is noise, so callers need no separate length check.
-pub(super) fn ring_is_noise(ring: &[nalgebra::Point2<f64>]) -> bool {
-    use crate::kernel::mesh_bridge::SNAP_GRID;
+/// Noise is the sliver or speck the i_overlay union leaves from f64 and f32
+/// scatter. A ring is noise when its area is under the absolute `1e-8` floor, or
+/// when it is BOTH thinner than [`NOISE_WIDTH`] (mean width `2·area / perimeter`)
+/// AND under `1e-4` of its plane's area. The plane share alone used to decide,
+/// which filled a real 10 × 10 cm opening on a 200 m² face (#4698): no real
+/// opening is thinner than the width floor, so a wide ring is now kept whatever
+/// the plane's size. The share still decides for thin rings, in both directions:
+/// a 30 to 70 µm rim sliver on a large face is still filled, and a µm-deep
+/// reveal lip that is its plane's whole area is still kept, as before (the
+/// census measured both: dropping those lips re-tessellated ISSUE_159 walls, and
+/// a pure width rule at 2⁻¹² opened rvt01 #31156). A ring of fewer than three
+/// vertices is noise, so callers need no separate length check.
+pub(super) fn ring_is_noise(ring: &[nalgebra::Point2<f64>], plane_area: f64) -> bool {
     let n = ring.len();
     if n < 3 {
         return true;
@@ -157,8 +160,12 @@ pub(super) fn ring_is_noise(ring: &[nalgebra::Point2<f64>]) -> bool {
         perimeter += (ring[j] - ring[i]).norm();
     }
     let area = (twice_signed_area * 0.5).abs();
-    area < 1.0e-8 || 2.0 * area < perimeter * SNAP_GRID
+    area < 1.0e-8 || (2.0 * area < perimeter * NOISE_WIDTH && area < plane_area * 1.0e-4)
 }
+
+/// Mean-width floor under which [`ring_is_noise`] lets the plane share decide:
+/// 2⁻¹², the same cap [`weld_near_coincident_2d`] puts on rim-duplicate noise.
+const NOISE_WIDTH: f64 = 1.0 / 4096.0;
 
 pub(super) fn floor_pow2(x: f64) -> f64 {
     if !x.is_finite() || x <= 0.0 {

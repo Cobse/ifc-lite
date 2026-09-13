@@ -290,9 +290,17 @@ impl ClippingProcessor {
                 continue;
             }
 
-            // Sub-resolution shapes and holes (the f64 noise the i_overlay union
-            // leaves) are dropped by `ring_is_noise`, which reads each ring's own
-            // width, not its share of the plane.
+            // The plane's total area, for `ring_is_noise`'s share test on thin rings.
+            let plane_area: f64 = tris
+                .iter()
+                .map(|t| {
+                    let pts = project_to_2d_with_basis(&t.v, &u_axis, &v_axis, &origin);
+                    0.5_f64
+                        * ((pts[1].x - pts[0].x) * (pts[2].y - pts[0].y)
+                            - (pts[2].x - pts[0].x) * (pts[1].y - pts[0].y))
+                            .abs()
+                })
+                .sum();
             for shape in shapes {
                 if shape.is_empty() {
                     continue;
@@ -305,7 +313,7 @@ impl ClippingProcessor {
                 // diagonal-sliver source), THEN drop collinear phantoms.
                 let outer_welded = weld_near_coincident_2d(&outer_2d);
                 let outer_simplified = simplify_2d_collinear(&outer_welded);
-                if ring_is_noise(&outer_simplified) {
+                if ring_is_noise(&outer_simplified, plane_area) {
                     continue;
                 }
                 let holes_simplified: Vec<Vec<nalgebra::Point2<f64>>> = shape
@@ -318,7 +326,7 @@ impl ClippingProcessor {
                             .collect();
                         let welded = weld_near_coincident_2d(&pts);
                         let simplified = simplify_2d_collinear(&welded);
-                        if ring_is_noise(&simplified) {
+                        if ring_is_noise(&simplified, plane_area) {
                             return None;
                         }
                         Some(simplified)
