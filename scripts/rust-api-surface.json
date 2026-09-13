@@ -387,12 +387,7 @@
     "export_csv": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "export_dfjson": "fn",
     "export_dfjson_with_stats": "fn",
-    "export_glb": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "export_glb_from_meshes": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
-    "export_glb_streaming_bounded": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
-    "export_glb_streaming_bounded_with_index": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
-    "export_glb_with_stats": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
-    "export_glb_with_stats_with_index": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "export_gltf_streaming": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "export_gltf_streaming_with_index": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "export_hbjson": "fn",
@@ -426,6 +421,7 @@
     "try_export_glb_streaming_bounded": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "try_export_glb_streaming_bounded_with_index": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "try_export_glb_with_stats": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
+    "try_export_glb_with_stats_with_index": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "try_export_kmz_collada_from_meshes": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)"
   },
   "ifc-lite-ffi": {
