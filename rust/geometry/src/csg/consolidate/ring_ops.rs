@@ -141,7 +141,8 @@ pub(super) fn simplify_2d_collinear(ring: &[nalgebra::Point2<f64>]) -> Vec<nalge
 /// the absolute area floor. A ring narrower than one snap step cannot be told
 /// apart from the snap; anything wider is kept whatever the plane's size. The
 /// earlier rule dropped any ring under 1e-4 of the plane's total area, which
-/// filled a real 10 × 10 cm opening on a 200 m² face (#4698).
+/// filled a real 10 × 10 cm opening on a 200 m² face (#4698). A ring of fewer
+/// than three vertices is noise, so callers need no separate length check.
 pub(super) fn ring_is_noise(ring: &[nalgebra::Point2<f64>]) -> bool {
     use crate::kernel::mesh_bridge::SNAP_GRID;
     let n = ring.len();

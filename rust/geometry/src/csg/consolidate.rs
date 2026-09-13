@@ -305,9 +305,6 @@ impl ClippingProcessor {
                 // diagonal-sliver source), THEN drop collinear phantoms.
                 let outer_welded = weld_near_coincident_2d(&outer_2d);
                 let outer_simplified = simplify_2d_collinear(&outer_welded);
-                if outer_simplified.len() < 3 {
-                    continue;
-                }
                 if ring_is_noise(&outer_simplified) {
                     continue;
                 }
@@ -321,9 +318,6 @@ impl ClippingProcessor {
                             .collect();
                         let welded = weld_near_coincident_2d(&pts);
                         let simplified = simplify_2d_collinear(&welded);
-                        if simplified.len() < 3 {
-                            return None;
-                        }
                         if ring_is_noise(&simplified) {
                             return None;
                         }
