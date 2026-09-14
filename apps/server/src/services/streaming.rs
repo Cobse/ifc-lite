@@ -24,7 +24,7 @@ use crate::types::StreamEvent;
 use async_stream::stream;
 use futures::Stream;
 use ifc_lite_processing::{
-    extract_symbolic_data_with_provenance, process_geometry_streaming_filtered_with_options, OpeningFilterMode,
+    extract_symbolic_data_with_provenance_in_frame, process_geometry_streaming_filtered_with_options, OpeningFilterMode,
     StreamingOptions, TessellationQuality,
 };
 use std::pin::Pin;
@@ -198,7 +198,12 @@ pub fn process_streaming(
         // 2D symbolic stream (IfcAnnotation + IfcGrid) on the same blocking
         // thread — parity with the synchronous endpoints (issue #900).
         // Georeferencing already rides in `result.metadata`.
-        let symbolic_data = extract_symbolic_data_with_provenance(&content);
+        //
+        // In the frame the batches above were meshed in: the `Complete` event
+        // carries the symbols and `mesh_coordinate_space` together, so they
+        // must agree (#4706).
+        let symbolic_data =
+            extract_symbolic_data_with_provenance_in_frame(&content, result.frame);
 
         let _ = tx.blocking_send(StreamEvent::Complete {
             stats: result.stats,

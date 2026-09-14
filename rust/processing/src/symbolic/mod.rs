@@ -43,12 +43,16 @@
 //! - Per-representation `ContextOfItems.WorldCoordinateSystem` is
 //!   composed in when present (Plan reps occasionally use a different
 //!   WCS than Body).
-//! - The RTC offset comes from the browser mesh frame selection
-//!   (`MeshFrame::for_overlay`).
+//! - The frame comes from the caller when it has one of its own — the native
+//!   server, whose meshes travel in the same response, hands in
+//!   `ProcessingResult::frame` (#4706) — and from the browser mesh frame
+//!   selection (`MeshFrame::for_overlay`) otherwise.
 //! - The whole RTC offset is subtracted — easting and northing into the
 //!   plan pair (whose Y axis is flipped to match the renderer's section-cut
-//!   handedness), elevation into `world_y`. `rebase::RenderFrameRebase` is
-//!   the single place that conversion happens.
+//!   handedness), elevation into `world_y` — and the frame's rotation, which
+//!   only the site tier carries, comes out of the plan pair and out of the
+//!   text baselines with it. `rebase::RenderFrameRebase` is the single place
+//!   either conversion happens.
 //!
 //! Style resolution:
 //!
@@ -117,6 +121,13 @@ where
 }
 
 /// Extract symbols with ordinal-bound direct fill provenance, preserving the legacy data shape.
+///
+/// Resolves the OVERLAY frame (`MeshFrame::for_overlay`): the frame a consumer
+/// that only parses the file can know. That is the browser's frame, and the
+/// wasm binding (`rust/wasm-bindings/src/api/symbolic.rs`) is its caller. A
+/// caller that also ran the native geometry pipeline must use
+/// [`extract_symbolic_data_with_provenance_in_frame`] instead, or its symbols
+/// and its meshes end up in two different frames (#4706).
 pub fn extract_symbolic_data_with_provenance<T>(content: &T) -> SymbolicDataWithProvenance
 where
     T: AsRef<[u8]> + ?Sized,
@@ -126,13 +137,46 @@ where
     out.into_provenance()
 }
 
-/// The extraction itself, writing into a caller-supplied accumulator.
+/// Extract symbols in a frame the caller already chose: the native pipeline's
+/// [`crate::ProcessingResult::frame`].
+///
+/// The server ships both streams in one response, so both must be in one
+/// frame. `process_geometry` selects `MeshFrame::SiteLocal` for a translated
+/// `IfcSite` and bakes its meshes as `Rᵀ · (P − t_site)`; before #4706 the
+/// symbolic stream resolved its own frame here and kept both the site
+/// translation and the site rotation the meshes had dropped. The frame is
+/// handed in rather than re-derived so the two answers cannot differ.
+pub fn extract_symbolic_data_with_provenance_in_frame<T>(
+    content: &T,
+    frame: crate::MeshFrame,
+) -> SymbolicDataWithProvenance
+where
+    T: AsRef<[u8]> + ?Sized,
+{
+    let mut out = SymbolicAccumulator::new();
+    extract_symbolic_data_into_frame(content, Some(frame), &mut out);
+    out.into_provenance()
+}
+
+/// The overlay-frame extraction, writing into a caller-supplied accumulator.
 ///
 /// Split out so a test can supply an accumulator with a small injected cap
 /// and exercise the real path, instead of building a fixture that emits two
-/// million primitives to reach `MAX_SYMBOLIC_ELEMENTS`. Production has exactly
-/// one caller, above, which supplies the real cap via `Default`.
+/// million primitives to reach `MAX_SYMBOLIC_ELEMENTS`.
 fn extract_symbolic_data_into<T>(content: &T, out: &mut SymbolicAccumulator)
+where
+    T: AsRef<[u8]> + ?Sized,
+{
+    extract_symbolic_data_into_frame(content, None, out)
+}
+
+/// The extraction itself. `frame` is `None` when the caller has no frame of
+/// its own and this must resolve the overlay one.
+fn extract_symbolic_data_into_frame<T>(
+    content: &T,
+    frame: Option<crate::MeshFrame>,
+    out: &mut SymbolicAccumulator,
+)
 where
     T: AsRef<[u8]> + ?Sized,
 {
@@ -145,10 +189,11 @@ where
     let router = ifc_lite_geometry::GeometryRouter::with_units(content, &mut decoder);
     let unit_scale = router.unit_scale() as f32;
 
-    // Re-based by the browser mesh frame (`MeshFrame::for_overlay`). The
-    // native server's site-local meshes also remove the site translation and
-    // rotation, which this stream does not (#4706).
-    let rebase = RenderFrameRebase::from_frame(crate::MeshFrame::for_overlay(&router, content, &mut decoder));
+    // Re-based by the frame the caller's meshes are in, or - when it has none
+    // - by the browser mesh frame this can resolve for itself (#4706).
+    let frame =
+        frame.unwrap_or_else(|| crate::MeshFrame::for_overlay(&router, content, &mut decoder));
+    let rebase = RenderFrameRebase::from_frame(frame);
 
     // Pre-pass: build a reverse index from "styled representation-item id"
     // to "list of style refs". Walked once at parse start (O(n)) so per-

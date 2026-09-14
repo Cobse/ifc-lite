@@ -117,8 +117,21 @@ pub struct ProcessingResult {
     /// and each occurrence here places it by a template-relative transform. Always
     /// empty when instancing is off, so exporters/determinism see the flat output.
     pub instances: Vec<InstanceRecord>,
-    /// The frame the mesh vertices are expressed in.
+    /// The frame the mesh vertices are expressed in, as its wire tag.
+    ///
+    /// Always `frame.coordinate_space()`: the constructor below is the only
+    /// writer of either field, and `issue_4706_symbolic_shares_the_mesh_frame`
+    /// asserts they agree on a live parse.
     pub mesh_coordinate_space: MeshCoordinateSpace,
+    /// The frame itself: the tag above PLUS the translation that was
+    /// subtracted and the site rotation that was removed.
+    ///
+    /// A second consumer of the same bytes that has to land in the same frame
+    /// reads it here rather than re-deriving the three-tier selection from
+    /// `site_transform` and the metadata's origin shift. The server's symbolic
+    /// stream is that consumer (#4706): it hands this to
+    /// `extract_symbolic_data_with_provenance_in_frame`.
+    pub frame: MeshFrame,
     /// IfcSite ObjectPlacement as column-major 4x4 matrix (in meters).
     pub site_transform: Option<Vec<f64>>,
     /// IfcBuilding ObjectPlacement as column-major 4x4 matrix (in meters).
@@ -1076,10 +1089,7 @@ pub fn process_geometry_streaming_filtered_with_options(
 
     // The three-tier frame selection lives on `MeshFrame::select`; this is
     // the site-tier caller (the browser pre-pass passes no site).
-    let site_translation = site_transform
-        .as_ref()
-        .map(|st| (st[12], st[13], st[14])); // column-major: translation at 12,13,14
-    let frame = MeshFrame::select(site_translation, detected_rtc_offset);
+    let frame = MeshFrame::select(site_transform.as_deref(), detected_rtc_offset);
     let coord_space = frame.coordinate_space();
     let has_rtc_offset = frame.needs_shift();
     router.set_rtc_offset(frame.rtc_offset());
@@ -1591,6 +1601,7 @@ pub fn process_geometry_streaming_filtered_with_options(
         meshes,
         instances,
         mesh_coordinate_space: coord_space,
+        frame,
         site_transform,
         building_transform,
         metadata: ModelMetadata {

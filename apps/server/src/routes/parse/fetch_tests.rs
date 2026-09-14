@@ -375,8 +375,11 @@ async fn issue_4459_hash_check_requires_fresh_symbols_before_skipping_upload() {
     state.cache.set_bytes(&geometry, b"unchanged geometry").await.unwrap();
     seed_current_metadata(&state, hash, OpeningFilterMode::Default).await;
     state.cache.set_bytes(&data_model_cache_key(&seed), b"current data model").await.unwrap();
-    // Retired: v1 (#4459, no fill provenance), v2 (#4665, pre mesh-frame rebase).
-    for retired in ["-symbolic-v1", "-symbolic-v2"] {
+    // Retired: v1 (#4459, no fill provenance), v2 (#4665, pre mesh-frame
+    // rebase), v3 (#4706, pre the site tier's translation and rotation coming
+    // out of the stream). The list has to keep up with `symbolic_cache_key`:
+    // a suffix missing here is a bump this guard cannot catch.
+    for retired in ["-symbolic-v1", "-symbolic-v2", "-symbolic-v3"] {
         state.cache.set_bytes(&format!("{seed}{retired}"), b"{}").await.unwrap();
     }
     assert_eq!(get(&state, &format!("/api/v1/cache/check/{hash}")).await.status(), StatusCode::NOT_FOUND);

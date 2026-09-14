@@ -2,45 +2,12 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use crate::mesh_frame::{MeshCoordinateSpace, PLACEMENT_IDENTITY_EPSILON};
+use crate::mesh_frame::MeshCoordinateSpace;
 use crate::types::mesh::MeshData;
-/// True when a column-major 4x4 matrix's 3×3 rotation block is (within
-/// [`PLACEMENT_IDENTITY_EPSILON`]) the identity — i.e. the placement it came
-/// from is a pure translation, contributing no rotation of its own.
-///
-/// A matrix shorter than 16 elements is treated conservatively as NOT
-/// identity (callers that gate a "safe to keep" decision on this should keep
-/// dropping rather than assume something about a shape they can't read).
-///
-/// Shared by [`apply_inverse_rotation_in_place`] (skip the no-op rotation
-/// pass) and `element.rs`'s instancing/local-bounds guard (#4118: a pure
-/// translation site placement never rotates positions, so metadata captured
-/// before `convert_mesh_to_site_local` runs is never invalidated by it).
-#[inline]
-pub(super) fn rotation_is_identity(column_major_matrix: &[f64]) -> bool {
-    if column_major_matrix.len() < 16 {
-        return false;
-    }
-    let r00 = column_major_matrix[0];
-    let r10 = column_major_matrix[1];
-    let r20 = column_major_matrix[2];
-    let r01 = column_major_matrix[4];
-    let r11 = column_major_matrix[5];
-    let r21 = column_major_matrix[6];
-    let r02 = column_major_matrix[8];
-    let r12 = column_major_matrix[9];
-    let r22 = column_major_matrix[10];
-
-    (r00 - 1.0).abs() < PLACEMENT_IDENTITY_EPSILON
-        && r10.abs() < PLACEMENT_IDENTITY_EPSILON
-        && r20.abs() < PLACEMENT_IDENTITY_EPSILON
-        && r01.abs() < PLACEMENT_IDENTITY_EPSILON
-        && (r11 - 1.0).abs() < PLACEMENT_IDENTITY_EPSILON
-        && r21.abs() < PLACEMENT_IDENTITY_EPSILON
-        && r02.abs() < PLACEMENT_IDENTITY_EPSILON
-        && r12.abs() < PLACEMENT_IDENTITY_EPSILON
-        && (r22 - 1.0).abs() < PLACEMENT_IDENTITY_EPSILON
-}
+/// The rotation-removal condition, spelled once beside the frame it belongs
+/// to. Re-exported here because this module's converter and `element.rs`'s
+/// guard are its other two readers.
+pub(super) use crate::mesh_frame::rotation_is_identity;
 
 /// #1474: `element_mesh_build.rs` captures a mesh's local-bounds and
 /// local-to-world transform BEFORE [`convert_mesh_to_site_local`] runs, because

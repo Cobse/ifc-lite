@@ -88,7 +88,14 @@ pub async fn parse_full(
     let (body, symbolic_data, _admission) = tokio::task::spawn_blocking(move || {
         let result =
             process_geometry_filtered_with_quality(&content, opening_filter, tessellation_quality);
-        let symbolic = ifc_lite_processing::extract_symbolic_data_with_provenance(&content);
+        // In the frame the meshes above were baked in, not one this re-derives
+        // for itself: the two travel in one response, so a site-local model's
+        // symbols have to lose the same site translation and rotation its
+        // meshes did (#4706).
+        let symbolic = ifc_lite_processing::extract_symbolic_data_with_provenance_in_frame(
+            &content,
+            result.frame,
+        );
         drop(content);
 
         // Emit the SAME Y-up wire frame as the parquet transports (issue #1841).
@@ -117,7 +124,7 @@ pub async fn parse_full(
     .await??;
 
     // Cache result (background). Also mirror the symbolic stream into the
-    // dedicated `{cache_key}-symbolic-v3` entry so it's reachable through
+    // dedicated `{cache_key}-symbolic-v4` entry so it's reachable through
     // `GET /api/v1/parse/symbolic/{cache_key}` regardless of which endpoint
     // first processed the file (issue #900).
     let cache = state.cache.clone();

@@ -17,9 +17,50 @@ use serde::{Deserialize, Serialize};
 
 /// Epsilon (metres) below which a placement translation is treated as identity.
 /// Avoids overriding a detected RTC anchor when `IfcSite` sits at the origin
-/// while the geometry itself carries large world coordinates. The site-local
-/// rotation test (`processor/site_local.rs`) uses the same epsilon.
+/// while the geometry itself carries large world coordinates.
+/// [`rotation_is_identity`] below uses the same epsilon on the rotation block.
 pub(crate) const PLACEMENT_IDENTITY_EPSILON: f64 = 1e-9;
+
+/// True when a column-major 4x4 matrix's 3x3 rotation block is (within
+/// [`PLACEMENT_IDENTITY_EPSILON`]) the identity — i.e. the placement it came
+/// from is a pure translation, contributing no rotation of its own.
+///
+/// A matrix shorter than 16 elements is treated conservatively as NOT
+/// identity (callers that gate a "safe to keep" decision on this should keep
+/// dropping rather than assume something about a shape they can't read).
+///
+/// Lives here, beside the epsilon and beside [`MeshFrame::rotate_into_frame`],
+/// because it is the condition under which a frame removes a rotation at all.
+/// Shared by `processor::site_local::apply_inverse_rotation_in_place` (skip
+/// the no-op rotation pass) and `element.rs`'s instancing/local-bounds guard
+/// (#4118: a pure translation site placement never rotates positions, so
+/// metadata captured before `convert_mesh_to_site_local` runs is never
+/// invalidated by it).
+#[inline]
+pub(crate) fn rotation_is_identity(column_major_matrix: &[f64]) -> bool {
+    if column_major_matrix.len() < 16 {
+        return false;
+    }
+    let r00 = column_major_matrix[0];
+    let r10 = column_major_matrix[1];
+    let r20 = column_major_matrix[2];
+    let r01 = column_major_matrix[4];
+    let r11 = column_major_matrix[5];
+    let r21 = column_major_matrix[6];
+    let r02 = column_major_matrix[8];
+    let r12 = column_major_matrix[9];
+    let r22 = column_major_matrix[10];
+
+    (r00 - 1.0).abs() < PLACEMENT_IDENTITY_EPSILON
+        && r10.abs() < PLACEMENT_IDENTITY_EPSILON
+        && r20.abs() < PLACEMENT_IDENTITY_EPSILON
+        && r01.abs() < PLACEMENT_IDENTITY_EPSILON
+        && (r11 - 1.0).abs() < PLACEMENT_IDENTITY_EPSILON
+        && r21.abs() < PLACEMENT_IDENTITY_EPSILON
+        && r02.abs() < PLACEMENT_IDENTITY_EPSILON
+        && r12.abs() < PLACEMENT_IDENTITY_EPSILON
+        && (r22 - 1.0).abs() < PLACEMENT_IDENTITY_EPSILON
+}
 
 #[inline]
 fn translation_is_nonidentity(t: (f64, f64, f64)) -> bool {
@@ -28,18 +69,27 @@ fn translation_is_nonidentity(t: (f64, f64, f64)) -> bool {
         || t.2.abs() > PLACEMENT_IDENTITY_EPSILON
 }
 
-/// The frame a pipeline meshes into, with the translation it subtracts.
+/// The frame a pipeline meshes into: the translation it subtracts and, in the
+/// site tier, the rotation it removes.
 ///
 /// Both pipelines build it with [`MeshFrame::select`]. The offset, the
-/// needs-shift bit and the wire tag are read off the one value, so they
-/// cannot disagree with each other.
+/// rotation, the needs-shift bit and the wire tag are read off the one value,
+/// so they cannot disagree with each other.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MeshFrame {
     /// `IfcSite` has a non-identity translation: subtract it. Vertices land
     /// relative to the site origin, small floats in a relatable frame. The
     /// native pipeline also removes the site rotation
     /// (`convert_mesh_to_site_local`) for this tier.
-    SiteLocal { translation: (f64, f64, f64) },
+    ///
+    /// Carries the whole site placement (column-major 4x4, metres), not just
+    /// the translation it subtracts, so the frame describes BOTH halves of
+    /// what the bake did: a baked point is `Rᵀ · (P − t)`. A consumer that
+    /// has to land in the same frame — the symbolic stream the server ships
+    /// beside these meshes (#4706) — reads the rotation through
+    /// [`MeshFrame::rotate_into_frame`] instead of fetching the site
+    /// placement itself and re-deriving the tier rule.
+    SiteLocal { placement: [f64; 16] },
     /// `IfcSite` is identity or missing but the sampled geometry lives at
     /// large world coordinates: subtract the detected anchor so f32 keeps its
     /// precision. No rotation is removed.
@@ -51,22 +101,27 @@ pub enum MeshFrame {
 impl MeshFrame {
     /// The three-tier selection.
     ///
-    /// * `site_translation`: the `IfcSite` placement's translation (metres),
-    ///   `None` when the pipeline has no site tier (the browser pre-pass and
-    ///   the appearance authoring path mesh in world axes and pass `None`
-    ///   deliberately: see `stream_meta::resolve_stream_meta`).
+    /// * `site_placement`: the `IfcSite` placement as a column-major 4x4 in
+    ///   metres (`GeometryRouter::resolve_scaled_placement`), `None` when the
+    ///   pipeline has no site tier (the browser pre-pass and the appearance
+    ///   authoring path mesh in world axes and pass `None` deliberately: see
+    ///   `stream_meta::resolve_stream_meta`). A matrix with fewer than 16
+    ///   elements is not a placement this can read, so it falls through to
+    ///   the detector rather than indexing past its end.
     /// * `detected`: the RTC detector's verdict (see
     ///   `GeometryRouter::detect_rtc_offset_with_fallback`). A `Large` verdict
     ///   is honoured whatever its anchor's own magnitude: the placement-bounds
     ///   fallback decides on the bbox corners and anchors on the centre, which
     ///   can be inside 10 km while the coordinates are not. Only an anchor at
     ///   the origin (nothing to subtract) falls through to `RawIfc`.
-    pub fn select(
-        site_translation: Option<(f64, f64, f64)>,
-        detected: Option<RtcVerdict>,
-    ) -> Self {
-        if let Some(translation) = site_translation.filter(|t| translation_is_nonidentity(*t)) {
-            return Self::SiteLocal { translation };
+    pub fn select(site_placement: Option<&[f64]>, detected: Option<RtcVerdict>) -> Self {
+        if let Some(matrix) = site_placement
+            .filter(|m| m.len() >= 16)
+            .filter(|m| translation_is_nonidentity((m[12], m[13], m[14])))
+        {
+            let mut placement = [0.0; 16];
+            placement.copy_from_slice(&matrix[..16]);
+            return Self::SiteLocal { placement };
         }
         match detected {
             Some(RtcVerdict::Large { anchor }) if translation_is_nonidentity(anchor) => {
@@ -77,12 +132,17 @@ impl MeshFrame {
     }
 
     /// The frame for a consumer that parses the file itself and has no job
-    /// list: the symbolic, grid and alignment overlays (#4665). It runs the
-    /// browser pre-pass selection (the bounds-fallback ladder, no site tier)
-    /// with every geometry entity of the file as the jobs. The pre-passes
-    /// sample a narrower job window, so a model with widely spread elements
-    /// can still get a different median anchor (#4611), and the native site
-    /// tier is not applied (#4706).
+    /// list: the grid and alignment overlays, and the symbolic stream on the
+    /// browser path (#4665). It runs the browser pre-pass selection (the
+    /// bounds-fallback ladder, no site tier) with every geometry entity of the
+    /// file as the jobs, which is the frame the browser's own meshes are in.
+    /// The pre-passes sample a narrower job window, so a model with widely
+    /// spread elements can still get a different median anchor (#4611).
+    ///
+    /// NOT for a consumer that ran the native pipeline over the same bytes:
+    /// there is a site tier there, and this has none, so the two frames
+    /// disagree on every translated `IfcSite`. Such a caller passes the frame
+    /// its meshes were baked in (`ProcessingResult::frame`, #4706).
     pub fn for_overlay(router: &GeometryRouter, content: &[u8], decoder: &mut EntityDecoder) -> Self {
         Self::select(None, router.detect_rtc_offset_for_file(content, decoder))
     }
@@ -92,9 +152,32 @@ impl MeshFrame {
     #[inline]
     pub fn rtc_offset(self) -> (f64, f64, f64) {
         match self {
-            Self::SiteLocal { translation } => translation,
+            Self::SiteLocal { placement } => (placement[12], placement[13], placement[14]),
             Self::ModelRtc { anchor } => anchor,
             Self::RawIfc => (0.0, 0.0, 0.0),
+        }
+    }
+
+    /// An IFC world DIRECTION expressed in this frame's own axes: `Rᵀ · v`.
+    ///
+    /// The other half of the frame, beside [`MeshFrame::rtc_offset`]. A world
+    /// POINT lands at `rotate_into_frame(p − rtc_offset)`, which is exactly
+    /// what `processor::site_local::convert_mesh_to_site_local` bakes into
+    /// the vertices for the [`MeshFrame::SiteLocal`] tier — same `Rᵀ`, and
+    /// applied under the same [`rotation_is_identity`] condition, so a
+    /// consumer that re-bases with this cannot disagree with the meshes.
+    ///
+    /// The identity for [`MeshFrame::ModelRtc`] and [`MeshFrame::RawIfc`]:
+    /// neither tier removes a rotation.
+    #[inline]
+    pub fn rotate_into_frame(self, v: [f64; 3]) -> [f64; 3] {
+        match self {
+            Self::SiteLocal { placement } if !rotation_is_identity(&placement) => [
+                placement[0] * v[0] + placement[1] * v[1] + placement[2] * v[2],
+                placement[4] * v[0] + placement[5] * v[1] + placement[6] * v[2],
+                placement[8] * v[0] + placement[9] * v[1] + placement[10] * v[2],
+            ],
+            _ => v,
         }
     }
 
@@ -145,34 +228,55 @@ mod tests {
     const FAR: (f64, f64, f64) = (2_679_062.0, 1_247_992.0, 532.0);
     const LARGE_FAR: RtcVerdict = RtcVerdict::Large { anchor: FAR };
 
+    /// A column-major 4x4 site placement: identity rotation, `t` translation.
+    fn site_at(t: (f64, f64, f64)) -> [f64; 16] {
+        let mut m = [0.0; 16];
+        m[0] = 1.0;
+        m[5] = 1.0;
+        m[10] = 1.0;
+        m[15] = 1.0;
+        m[12] = t.0;
+        m[13] = t.1;
+        m[14] = t.2;
+        m
+    }
+
+    /// The same, yawed `degrees` about Z.
+    fn site_at_yawed(t: (f64, f64, f64), degrees: f64) -> [f64; 16] {
+        let (s, c) = degrees.to_radians().sin_cos();
+        let mut m = site_at(t);
+        m[0] = c;
+        m[1] = s;
+        m[4] = -s;
+        m[5] = c;
+        m
+    }
+
     /// The site tier wins whenever the site is translated at all, and it wins
     /// over a detected anchor. Deleting the site arm of `select` sends the
     /// first two cases to `ModelRtc`/`RawIfc`.
     #[test]
     fn a_translated_site_selects_site_local_over_everything() {
-        let frame = MeshFrame::select(Some((500.0, 0.0, 0.0)), Some(LARGE_FAR));
-        assert_eq!(
-            frame,
-            MeshFrame::SiteLocal {
-                translation: (500.0, 0.0, 0.0)
-            }
-        );
+        let placement = site_at((500.0, 0.0, 0.0));
+        let frame = MeshFrame::select(Some(&placement), Some(LARGE_FAR));
+        assert_eq!(frame, MeshFrame::SiteLocal { placement });
         assert_eq!(frame.rtc_offset(), (500.0, 0.0, 0.0));
         assert!(frame.needs_shift());
         assert_eq!(frame.coordinate_space(), MeshCoordinateSpace::SiteLocal);
+        let tiny = site_at((0.0, 0.0, 1e-6));
         assert_eq!(
-            MeshFrame::select(Some((0.0, 0.0, 1e-6)), None),
-            MeshFrame::SiteLocal {
-                translation: (0.0, 0.0, 1e-6)
-            }
+            MeshFrame::select(Some(&tiny), None),
+            MeshFrame::SiteLocal { placement: tiny }
         );
     }
 
     /// An identity (or absent) site falls through to the detector's anchor.
     #[test]
     fn an_identity_site_falls_through_to_the_detected_anchor() {
-        for site in [None, Some((0.0, 0.0, 0.0)), Some((1e-10, -1e-10, 0.0))] {
-            let frame = MeshFrame::select(site, Some(LARGE_FAR));
+        let identity = site_at((0.0, 0.0, 0.0));
+        let sub_epsilon = site_at((1e-10, -1e-10, 0.0));
+        for site in [None, Some(&identity), Some(&sub_epsilon)] {
+            let frame = MeshFrame::select(site.map(|m| &m[..]), Some(LARGE_FAR));
             assert_eq!(frame, MeshFrame::ModelRtc { anchor: FAR }, "site {site:?}");
             assert_eq!(frame.rtc_offset(), FAR);
             assert!(frame.needs_shift());
@@ -226,13 +330,51 @@ mod tests {
             (0.0, -1_500.0, 0.0),
             FAR,
         ] {
+            let placement = site_at(translation);
             for detected in [None, Some(RtcVerdict::Small), Some(LARGE_FAR)] {
-                let frame = MeshFrame::select(Some(translation), detected);
+                let frame = MeshFrame::select(Some(&placement), detected);
                 assert_ne!(frame, MeshFrame::RawIfc, "{translation:?} / {detected:?}");
                 assert_eq!(frame.coordinate_space(), MeshCoordinateSpace::SiteLocal);
             }
         }
-        assert_eq!(MeshFrame::select(Some((0.0, 0.0, 0.0)), None), MeshFrame::RawIfc);
+        assert_eq!(
+            MeshFrame::select(Some(&site_at((0.0, 0.0, 0.0))), None),
+            MeshFrame::RawIfc
+        );
+    }
+
+    /// The rotation half of the frame (#4706). `rotate_into_frame` must be
+    /// `Rᵀ` — the SAME inverse rotation `convert_mesh_to_site_local` applies
+    /// to the vertices — for the site tier, and the identity for the other
+    /// two, which remove no rotation. A site yawed 30 degrees maps its own
+    /// +X axis, `(cos30, sin30, 0)` in world, back onto `(1, 0, 0)`.
+    /// Transposing the matrix here (reading rows instead of columns) turns
+    /// the yaw the wrong way and fails on the sign of the second component.
+    #[test]
+    fn the_site_tier_undoes_its_own_yaw_and_the_others_rotate_nothing() {
+        let yawed = MeshFrame::select(Some(&site_at_yawed((500.0, 300.0, 0.0), 30.0)), None);
+        let (s, c) = 30.0f64.to_radians().sin_cos();
+        let back = yawed.rotate_into_frame([c, s, 0.0]);
+        for (i, want) in [1.0, 0.0, 0.0].iter().enumerate() {
+            assert!((back[i] - want).abs() < 1e-12, "axis {i}: {back:?}");
+        }
+        // A world point on the site origin lands ON the frame origin.
+        let offset = yawed.rtc_offset();
+        let at_origin = yawed.rotate_into_frame([
+            500.0 - offset.0,
+            300.0 - offset.1,
+            0.0 - offset.2,
+        ]);
+        assert_eq!(at_origin, [0.0, 0.0, 0.0]);
+
+        let v = [3.0, -7.0, 2.0];
+        let translated_only = MeshFrame::select(Some(&site_at((500.0, 300.0, 0.0))), None);
+        assert_eq!(translated_only.rotate_into_frame(v), v);
+        assert_eq!(
+            MeshFrame::select(None, Some(LARGE_FAR)).rotate_into_frame(v),
+            v
+        );
+        assert_eq!(MeshFrame::RawIfc.rotate_into_frame(v), v);
     }
 
     /// The wire contract. The three strings are what every consumer (the TS

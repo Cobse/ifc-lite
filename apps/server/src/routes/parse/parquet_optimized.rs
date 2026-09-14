@@ -24,7 +24,8 @@ use axum::{
     response::Response,
 };
 use ifc_lite_processing::{
-    extract_symbolic_data_with_provenance, process_geometry_filtered_with_quality, MeshCoordinateSpace,
+    extract_symbolic_data_with_provenance_in_frame, process_geometry_filtered_with_quality,
+    MeshCoordinateSpace,
 };
 use serde::Serialize;
 
@@ -193,11 +194,8 @@ pub async fn parse_parquet_optimized(
     let cache_key_for_log = cache_key.clone();
     let (result, symbolic_data, parquet_data, opt_stats, _admission) =
         tokio::task::spawn_blocking(move || -> Result<_, ApiError> {
-            let (mut result, symbolic_data) = rayon::join(
-                || process_geometry_filtered_with_quality(&content, opening_filter, tessellation_quality),
-                || extract_symbolic_data_with_provenance(&content),
-            );
-            drop(content);
+            let mut result =
+                process_geometry_filtered_with_quality(&content, opening_filter, tessellation_quality);
             // Don't include normals by default - client can compute them
             // The frame `result`'s vertices were baked in (#4118): the
             // collator's emitted `rel` is consumed directly by this route, so
@@ -208,8 +206,20 @@ pub async fn parse_parquet_optimized(
                 result.site_transform.as_deref(),
                 result.metadata.coordinate_info.origin_shift,
             );
-            let (parquet_data, opt_stats) =
-                serialize_to_parquet_optimized_with_stats(&result.meshes, false, Some(&basis))?;
+            // The symbol stream used to run in a `rayon::join` BESIDE the
+            // parse. It cannot: it needs the frame the parse selected, or a
+            // site-local model's symbols keep the site translation and
+            // rotation its meshes dropped (#4706). Joined with the
+            // serialization instead, so it still overlaps other work. The
+            // upload therefore stays resident until the join ends rather than
+            // being freed before the serialization; admission reserves the
+            // upload size for the request's whole lifetime either way.
+            let (symbolic_data, serialized) = rayon::join(
+                || extract_symbolic_data_with_provenance_in_frame(&content, result.frame),
+                || serialize_to_parquet_optimized_with_stats(&result.meshes, false, Some(&basis)),
+            );
+            drop(content);
+            let (parquet_data, opt_stats) = serialized?;
             // Nothing after this reads the meshes; free them here rather than
             // hold the model across the cache writes below.
             drop(std::mem::take(&mut result.meshes));

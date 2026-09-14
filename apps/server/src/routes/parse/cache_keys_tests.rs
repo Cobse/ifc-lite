@@ -142,7 +142,7 @@ fn parquet_cache_key_default_filter_uses_default_suffix() {
 fn json_response_cache_key_is_versioned_and_distinct() {
     let request_key = "0ab20f4e4014-default";
     let json_key = json_response_cache_key(request_key);
-    assert_eq!(json_key, format!("{request_key}-json-v4"));
+    assert_eq!(json_key, format!("{request_key}-json-v5"));
     assert_ne!(json_key, request_key, "must retire the unversioned entries");
     assert_ne!(json_key, symbolic_cache_key(request_key));
 }
@@ -161,7 +161,7 @@ fn symbolic_cache_key_matches_writer_format() {
         let writer_cache_key = format!("{}-{}", hash, mode.cache_key_suffix());
         assert_eq!(
             symbolic_cache_key(&writer_cache_key),
-            format!("{}-symbolic-v3", writer_cache_key)
+            format!("{}-symbolic-v4", writer_cache_key)
         );
     }
 }
@@ -169,7 +169,7 @@ fn symbolic_cache_key_matches_writer_format() {
 #[test]
 fn symbolic_cache_key_default_filter() {
     let key = symbolic_cache_key("abc-default");
-    assert_eq!(key, "abc-default-symbolic-v3");
+    assert_eq!(key, "abc-default-symbolic-v4");
 }
 
 /// Round-trips a non-empty `SymbolicData` through `cache_symbolic_data` /

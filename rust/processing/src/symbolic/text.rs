@@ -91,9 +91,18 @@ pub(super) fn extract_text_literal(
     // readable (non-mirrored) under a mirroring transform, same as before
     // #1994: Axis1 is unaffected by an Axis2 mirror by construction, so this
     // is not a special case — it falls out of reading only the X column.
+    //
+    // Through `plan_direction` for the same reason the anchor goes through
+    // `plan`: the frame can carry a rotation (a site-local response removes
+    // the site's yaw from its meshes), and a baseline left in world axes
+    // would have the glyphs running across a wall that is no longer parallel
+    // to them (#4706). It applies the handedness flip this used to spell
+    // inline as the minus on `m10`.
     let dir = if raw_scale.is_finite() && raw_scale > 0.0 {
-        (composed.m00 / raw_scale, -composed.m10 / raw_scale)
+        rebase.plan_direction(composed.m00 / raw_scale, composed.m10 / raw_scale)
     } else {
+        // The degenerate-transform fallback is a RENDER-frame default ("read
+        // left to right"), not a world direction, so it is not re-based.
         (1.0, 0.0)
     };
     let color = resolve_color_via_styles(item.id, styled_items, decoder)

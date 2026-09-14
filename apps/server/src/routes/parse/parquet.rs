@@ -22,7 +22,8 @@ use axum::{
     response::Response,
 };
 use ifc_lite_processing::{
-    extract_symbolic_data_with_provenance, process_geometry_filtered_with_quality, MeshCoordinateSpace,
+    extract_symbolic_data_with_provenance_in_frame, process_geometry_filtered_with_quality,
+    MeshCoordinateSpace,
 };
 use serde::{Deserialize, Serialize};
 
@@ -140,17 +141,10 @@ pub async fn parse_parquet(
         ),
         _admission,
     ) = tokio::task::spawn_blocking(move || {
-            // First: extract geometry, data model, and the 2D symbol stream
-            // (IfcAnnotation + IfcGrid) all in parallel. Symbolic extraction is
-            // added here for endpoint parity (issue #900).
-            let ((geometry_result, data_model), symbolic_data) = rayon::join(
-                || {
-                    rayon::join(
-                        || process_geometry_filtered_with_quality(&content, opening_filter, tessellation_quality),
-                        || extract_data_model(&content),
-                    )
-                },
-                || extract_symbolic_data_with_provenance(&content),
+            // First: extract geometry and the data model in parallel.
+            let (geometry_result, data_model) = rayon::join(
+                || process_geometry_filtered_with_quality(&content, opening_filter, tessellation_quality),
+                || extract_data_model(&content),
             );
 
             // Capture stats before moving data_model
@@ -161,26 +155,36 @@ pub async fn parse_parquet(
                 spatial_node_count: data_model.spatial_hierarchy.nodes.len(),
             };
 
-            // Second: serialize BOTH geometry and data model in parallel
-            // This way data model is ready by the time client needs it
-            let (geo_parquet, dm_parquet) = rayon::join(
-                || {
-                    // The frame `geometry_result`'s vertices were baked in
-                    // (#4118). Without it a site-rotated model's repeated
-                    // shapes fail the residual check and silently keep their
-                    // per-occurrence geometry.
-                    let basis = baked_basis_zup(
-                        Some(geometry_result.mesh_coordinate_space),
-                        geometry_result.site_transform.as_deref(),
-                        geometry_result.metadata.coordinate_info.origin_shift,
-                    );
-                    serialize_combined_for_layout(
-                        &geometry_result.meshes,
-                        layout,
-                        Some(&basis),
-                    )
-                },
-                || serialize_data_model_to_parquet(&data_model),
+            // Second: the 2D symbol stream (IfcAnnotation + IfcGrid, endpoint
+            // parity, issue #900) alongside serializing BOTH geometry and data
+            // model, so the data model is ready by the time the client needs it.
+            //
+            // Symbolic extraction used to run in the join ABOVE, beside the
+            // parse. It cannot: it needs the frame the parse selected, or a
+            // site-local model's symbols keep the site translation and rotation
+            // its meshes dropped (#4706). Moved down beside the serialization
+            // instead of made sequential, so it still overlaps other work.
+            let (symbolic_data, (geo_parquet, dm_parquet)) = rayon::join(
+                || extract_symbolic_data_with_provenance_in_frame(&content, geometry_result.frame),
+                || rayon::join(
+                    || {
+                        // The frame `geometry_result`'s vertices were baked in
+                        // (#4118). Without it a site-rotated model's repeated
+                        // shapes fail the residual check and silently keep
+                        // their per-occurrence geometry.
+                        let basis = baked_basis_zup(
+                            Some(geometry_result.mesh_coordinate_space),
+                            geometry_result.site_transform.as_deref(),
+                            geometry_result.metadata.coordinate_info.origin_shift,
+                        );
+                        serialize_combined_for_layout(
+                            &geometry_result.meshes,
+                            layout,
+                            Some(&basis),
+                        )
+                    },
+                    || serialize_data_model_to_parquet(&data_model),
+                ),
             );
 
             (
