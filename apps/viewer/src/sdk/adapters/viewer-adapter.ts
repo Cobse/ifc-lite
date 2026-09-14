@@ -95,8 +95,9 @@ export function createViewerAdapter(store: StoreApi): ViewerBackendMethods {
      * assembly, if that matters.
      */
     resetColors(refs?: EntityRef[]) {
+      if (refs?.length === 0) return undefined;
       const state = store.getState();
-      if (!refs || refs.length === 0) {
+      if (!refs) {
         // Set empty map to trigger scene.clearColorOverrides() (null skips the effect)
         sdkColorOverrides = new Map();
         state.setPendingColorUpdates(new Map());

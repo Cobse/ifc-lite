@@ -20,7 +20,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
-import { createBimContext, type BimContext, type EntityRef } from '@ifc-lite/sdk';
+import { createBimContext, type BimBackend, type BimContext, type EntityRef } from '@ifc-lite/sdk';
 import { createSandbox } from './sandbox.js';
 
 /** Permissions for a sandbox that only needs `bim.export`. */
@@ -33,6 +33,13 @@ const EXPORT_ONLY = {
   lens: false,
   export: true,
   files: false,
+} as const;
+
+const VIEWER_AND_QUERY = {
+  ...EXPORT_ONLY,
+  query: true,
+  viewer: true,
+  export: false,
 } as const;
 
 /** Build a stub BimContext whose `export` namespace records and answers. */
@@ -59,6 +66,18 @@ async function withSandbox<T>(
   fn: (evalCode: (code: string) => Promise<unknown>) => Promise<T>,
 ): Promise<T> {
   const sandbox = await createSandbox(sdk, { permissions: EXPORT_ONLY });
+  try {
+    return await fn(async (code) => (await sandbox.eval(code, { typescript: false })).value);
+  } finally {
+    sandbox.dispose();
+  }
+}
+
+async function withViewerSandbox<T>(
+  sdk: BimContext,
+  fn: (evalCode: (code: string) => Promise<unknown>) => Promise<T>,
+): Promise<T> {
+  const sandbox = await createSandbox(sdk, { permissions: VIEWER_AND_QUERY });
   try {
     return await fn(async (code) => (await sandbox.eval(code, { typescript: false })).value);
   } finally {
@@ -103,6 +122,56 @@ describe('entityRefs argument unmarshalling', () => {
       await run(`bim.export.csv()`);
     });
     expect(calls.csvRefs[0]).toEqual([]);
+  });
+});
+
+describe('resetColors optional entity refs (#4789)', () => {
+  it('preserves omitted, undefined, empty, and nonempty values through the real VM', async () => {
+    const calls: Array<EntityRef[] | undefined> = [];
+    const sdk = {
+      viewer: { resetColors: (refs?: EntityRef[]) => calls.push(refs) },
+    } as unknown as BimContext;
+
+    await withViewerSandbox(sdk, async (run) => {
+      await run('bim.viewer.resetColors()');
+      await run('bim.viewer.resetColors(undefined)');
+      await run('bim.viewer.resetColors([])');
+      await run("bim.viewer.resetColors([{ ref: { modelId: 'm', expressId: 7 } }])");
+      await expect(run('bim.viewer.resetColors(null)')).rejects.toThrow(/map/);
+    });
+
+    expect(calls).toEqual([
+      undefined,
+      undefined,
+      [],
+      [{ modelId: 'm', expressId: 7 }],
+    ]);
+  });
+
+  it('keeps a zero-match query from clearing real SDK color state', async () => {
+    const overrides = new Set([1, 2]);
+    const calls: Array<EntityRef[] | undefined> = [];
+    const backend = {
+      query: { entities: () => [] },
+      viewer: {
+        resetColors: (refs?: EntityRef[]) => {
+          calls.push(refs);
+          if (!refs) overrides.clear();
+          else for (const ref of refs) overrides.delete(ref.expressId);
+        },
+      },
+    } as unknown as BimBackend;
+    const sdk = createBimContext({ backend });
+
+    await withViewerSandbox(sdk, async (run) => {
+      await run("bim.viewer.resetColors(bim.query.byType('IfcDoesNotExist'))");
+      expect([...overrides]).toEqual([1, 2]);
+      expect(calls).toEqual([]);
+
+      await run('bim.viewer.resetColors()');
+      expect([...overrides]).toEqual([]);
+      expect(calls).toEqual([undefined]);
+    });
   });
 });
 

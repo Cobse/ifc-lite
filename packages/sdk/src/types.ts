@@ -375,10 +375,10 @@ export interface VisibilityBackendMethods {
   isolate(refs: EntityRef[]): void;
   reset(): void;
 }
-
 export interface ViewerBackendMethods {
   colorize(refs: EntityRef[], color: RGBAColor): void;
   colorizeAll(batches: Array<{ refs: EntityRef[]; color: RGBAColor }>): void;
+  /** Omitted refs reset all overrides; an explicit empty list is a no-op. */
   resetColors(refs?: EntityRef[]): void;
   flyTo(refs: EntityRef[]): void;
   setSection(section: SectionPlane | null): void;

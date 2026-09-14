@@ -665,6 +665,22 @@ describe('ViewerNamespace', () => {
     bim.viewer.select([{ modelId: 'm', expressId: 1 }]);
     expect(selection.set).toHaveBeenCalled();
   });
+
+  it('resetColors distinguishes an omitted list from an empty match (#4789)', () => {
+    const { backend, viewer } = createMockBackend();
+    const bim = createBimContext({ backend });
+    const ref = { modelId: 'm', expressId: 1 };
+
+    bim.viewer.resetColors();
+    bim.viewer.resetColors(undefined);
+    bim.viewer.resetColors([]);
+    bim.viewer.resetColors([ref]);
+
+    expect(viewer.resetColors).toHaveBeenCalledTimes(3);
+    expect(viewer.resetColors).toHaveBeenNthCalledWith(1, undefined);
+    expect(viewer.resetColors).toHaveBeenNthCalledWith(2, undefined);
+    expect(viewer.resetColors).toHaveBeenNthCalledWith(3, [ref]);
+  });
 });
 
 describe('MutateNamespace', () => {

@@ -16,10 +16,12 @@
  */
 
 import type { QuickJSContext, QuickJSHandle } from 'quickjs-emscripten';
-import type { BimContext, EntityRef } from '@ifc-lite/sdk';
+import type { BimContext } from '@ifc-lite/sdk';
 import type { SandboxPermissions } from './types.js';
+import type { ArgType } from './bridge-unmarshal.js';
 
 import { HostWorkQueue, isThenable } from './bridge-async.js';
+import { unmarshalArgs } from './bridge-unmarshal.js';
 import { creatorRegistry } from './creator-registry.js';
 import { buildModelNamespace } from './bridge-model.js';
 import { buildQueryNamespace } from './bridge-query.js';
@@ -32,15 +34,6 @@ import { buildExportNamespace } from './bridge-export.js';
 import { buildScheduleNamespace } from './bridge-schedule.js';
 import { buildStructuralNamespace } from './bridge-structural.js';
 import { buildClashNamespace } from './bridge-clash.js';
-// Schema types
-/** How to unmarshal a single argument from QuickJS */
-type ArgType =
-  | 'string'       // vm.getString(handle)
-  | 'number'       // vm.getNumber(handle)
-  | 'dump'         // vm.dump(handle) — generic JSON-like value
-  | 'entityRefs' | 'entityRefs?' // vm.dump(handle) — array of entities, map to .ref; `?` keeps an argument that is absent OR explicitly `undefined` as `undefined` rather than `[]` (#4738)
-  | '...strings'   // rest: collect all remaining args as strings
-
 /** How to marshal the return value back to QuickJS */
 type ReturnType =
   | 'void'       // No return value
@@ -299,47 +292,6 @@ function buildNamespace(
 
 export function disposeSchemaNamespaceSession(context: BridgeCallContext): void {
   creatorRegistry.removeSession(context.sandboxSessionId);
-}
-
-/** Unmarshal QuickJS handles to native JS values based on arg schema */
-function unmarshalArgs(vm: QuickJSContext, handles: QuickJSHandle[], argTypes: ArgType[]): unknown[] {
-  const result: unknown[] = [];
-  for (let i = 0; i < argTypes.length; i++) {
-    switch (argTypes[i]) {
-      case 'string': {
-        const handle = handles[i];
-        result.push(handle ? vm.getString(handle) : undefined);
-        break;
-      }
-      case 'number': {
-        const handle = handles[i];
-        result.push(handle ? vm.getNumber(handle) : undefined);
-        break;
-      }
-      case 'dump': {
-        const handle = handles[i];
-        result.push(handle ? vm.dump(handle) : undefined);
-        break;
-      }
-      case 'entityRefs': case 'entityRefs?': {
-        // `?` (export.ifc only): omitted OR explicitly nullish is `undefined`; plain `entityRefs` keeps `[]` when omitted and still throws on an explicit null.
-        const optional = argTypes[i] === 'entityRefs?';
-        const raw = handles[i] ? vm.dump(handles[i]) as Array<{ ref?: EntityRef } & EntityRef> | null : (optional ? null : []);
-        result.push(raw == null && optional ? undefined : (raw as Array<{ ref?: EntityRef } & EntityRef>).map(r => r.ref ?? r));
-        break;
-      }
-      case '...strings': {
-        // Collect all remaining handles as strings
-        const rest: string[] = [];
-        for (let j = i; j < handles.length; j++) {
-          if (handles[j]) rest.push(vm.getString(handles[j]));
-        }
-        result.push(rest);
-        return result; // No more args after rest
-      }
-    }
-  }
-  return result;
 }
 
 /** Marshal a native JS value back to a QuickJS handle */
