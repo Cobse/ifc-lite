@@ -38,7 +38,7 @@ type ArgType =
   | 'string'       // vm.getString(handle)
   | 'number'       // vm.getNumber(handle)
   | 'dump'         // vm.dump(handle) — generic JSON-like value
-  | 'entityRefs'   // vm.dump(handle) — array of entities, map to .ref
+  | 'entityRefs' | 'entityRefs?' // vm.dump(handle) — array of entities, map to .ref; `?` keeps an argument that is absent OR explicitly `undefined` as `undefined` rather than `[]` (#4738)
   | '...strings'   // rest: collect all remaining args as strings
 
 /** How to marshal the return value back to QuickJS */
@@ -321,11 +321,11 @@ function unmarshalArgs(vm: QuickJSContext, handles: QuickJSHandle[], argTypes: A
         result.push(handle ? vm.dump(handle) : undefined);
         break;
       }
-      case 'entityRefs': {
-        const handle = handles[i];
-        if (!handle) { result.push([]); break; }
-        const raw = vm.dump(handle) as Array<{ ref?: EntityRef } & EntityRef>;
-        result.push(raw.map(r => r.ref ?? r));
+      case 'entityRefs': case 'entityRefs?': {
+        // `?` (export.ifc only): omitted OR explicitly nullish is `undefined`; plain `entityRefs` keeps `[]` when omitted and still throws on an explicit null.
+        const optional = argTypes[i] === 'entityRefs?';
+        const raw = handles[i] ? vm.dump(handles[i]) as Array<{ ref?: EntityRef } & EntityRef> | null : (optional ? null : []);
+        result.push(raw == null && optional ? undefined : (raw as Array<{ ref?: EntityRef } & EntityRef>).map(r => r.ref ?? r));
         break;
       }
       case '...strings': {

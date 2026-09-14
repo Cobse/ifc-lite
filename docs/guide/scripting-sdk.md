@@ -167,6 +167,35 @@ remote.viewer.colorize(refs, '#ff0000');
 
 In remote mode `bim.viewer.*` calls are forwarded to the connected viewer, which is exactly how `ifc-lite run script.js model.ifc --viewer <port>` works under the hood. For the full type surface, see the [`@ifc-lite/sdk` README](https://github.com/LTplus-AG/ifc-lite/tree/main/packages/sdk) and the [TypeScript API reference](../api/typescript.md).
 
+### Exporting the whole model vs. a subset
+
+`bim.export.ifc(refs, options)` reads its first argument as an isolation filter,
+and the *absence* of that argument is what asks for the whole model:
+
+```ts
+bim.export.ifc();                                   // no filter: the whole model
+bim.export.ifc(bim.query().byType('IfcWall').refs()); // only the walls (plus their reference closure)
+```
+
+An **empty array is not the same as no argument**. It means a filter that
+matched nothing, and it is refused:
+
+```ts
+const refs = bim.query().byType('IfcNonExistentType').refs(); // []
+bim.export.ifc(refs); // throws: the isolation filter matched nothing
+```
+
+An empty array used to mean "no filter", so a query that matched nothing
+silently exported every entity in the model and reported success. The release
+that changed this is the `@ifc-lite/sdk` major carrying issue #4738 in its
+changelog; before it, the refusal above did not happen. A call that used the
+empty array to mean the whole model, `bim.export.ifc([], options)`, becomes
+`bim.export.ifc(undefined, options)`.
+
+The same distinction holds in a sandboxed script (`bim.export.ifc()` with no
+arguments) and behind the CLI's `--format ifc`, which refuses a zero-match
+`--type`/`--where`/`--storey`/`--limit` rather than exporting everything.
+
 ### Textured IFC exports in the web viewer
 
 The viewer's `bim.export.ifc(refs, options)` returns IFCZIP `Uint8Array` bytes

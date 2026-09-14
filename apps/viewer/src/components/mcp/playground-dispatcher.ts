@@ -1019,7 +1019,7 @@ const IMPLS: Record<string, ToolImpl> = {
     // extensions based on prior context; we ignore them.
     const filename = coerceFilename(args.file_path as string | undefined, 'ifc', m.id);
     const schema = (args.schema as 'IFC2X3' | 'IFC4' | 'IFC4X3' | undefined) ?? (m.store.schemaVersion as 'IFC2X3' | 'IFC4' | 'IFC4X3');
-    const content = m.bim.export.ifc([], { schema });
+    const content = m.bim.export.ifc(undefined, { schema }); // no ref list: whole model (#4738)
     const text = typeof content === 'string' ? content : new TextDecoder().decode(content);
     const blob = new Blob([text], { type: 'application/x-step' });
     const file = playgroundFiles.add({
@@ -1195,17 +1195,17 @@ const IMPLS: Record<string, ToolImpl> = {
   async export_ifc(m, args) {
     const filename = coerceFilename(args.file_path as string | undefined, 'ifc', m.id);
     const schema = (args.schema as 'IFC2X3' | 'IFC4' | 'IFC4X3' | undefined) ?? (m.store.schemaVersion as 'IFC2X3' | 'IFC4' | 'IFC4X3');
-    let refs: EntityRef[] = [];
-    if (Array.isArray(args.global_ids)) {
-      const wanted = new Set(args.global_ids as string[]);
-      for (const e of m.bim.query().toArray()) if (wanted.has(e.globalId)) refs.push(e.ref);
-    }
+    // No `global_ids` omits the ref list; a matched-nothing allowlist stays EMPTY, which `export.ifc` refuses rather than widening to the whole model (#4738). The refusal is repeated below only to answer with the stdio tool's error code and wording.
+    const wanted = Array.isArray(args.global_ids) ? new Set(args.global_ids as string[]) : undefined;
+    const refs = wanted ? m.bim.query().toArray().filter((e) => wanted.has(e.globalId)).map((e) => e.ref) : undefined;
+    if (refs?.length === 0) throw new ToolExecutionError({ code: ToolErrorCode.ENTITY_NOT_FOUND, message: `No entity matches any of the ${wanted?.size ?? 0} requested global_ids, so there is nothing to export. Refusing to write the whole model instead.` });
+    const exported = refs?.length ?? m.store.entityCount;
     const content = m.bim.export.ifc(refs, { schema });
     const text = typeof content === 'string' ? content : new TextDecoder().decode(content);
     const blob = new Blob([text], { type: 'application/x-step' });
     const file = playgroundFiles.add({
       filename, mimeType: 'application/x-step', size: blob.size, blob,
-      source: 'export_ifc', description: `${refs.length || m.store.entityCount} entit${(refs.length || m.store.entityCount) === 1 ? 'y' : 'ies'}`,
+      source: 'export_ifc', description: `${exported} entit${exported === 1 ? 'y' : 'ies'}`,
     });
     return {
       text: `Wrote ${filename} (${formatBytes(blob.size)}).`,

@@ -8,7 +8,7 @@ import type { StoreApi } from './types.js';
 import type { EntityRef, EntityData, PropertySetData, QuantitySetData, ExportBackendMethods } from '@ifc-lite/sdk';
 import { EntityNode, findPropertyInSets, findQuantityInSets } from '@ifc-lite/query';
 import { escapeCsvCell, StepExporter, type StepExportOptions } from '@ifc-lite/export';
-import { getModelForRef } from './model-compat.js';
+import { getDefaultModelId, getModelForRef } from './model-compat.js';
 import { applyAttributeMutationsToEntityData, getMutationViewForModel } from './mutation-view.js';
 import { serializeScheduleToStep, type ScheduleExtraction, type IfcDataStore } from '@ifc-lite/parser';
 import { spliceScheduleIntoExport } from './export-schedule-splice.js';
@@ -90,15 +90,16 @@ function normalizeRefs(raw: unknown[]): EntityRef[] {
  * the whole model only when size === `entityCount` and `hasEntity` confirms every id exists -- cardinality alone
  * let nonexistent ids pass as "full", silently exporting the whole model (reproduced live). Short of that it
  * isolates to `selectedExpressIds`; a verified full model instead routes through `resolveExportVisibility()`
- * (ExportDialog/GLBExportDialog's resolver) so `classFilter`/`selectedStoreys`/`typeVisibility` apply too (#4328). */
+ * (ExportDialog/GLBExportDialog's resolver) so `classFilter`/`selectedStoreys`/`typeVisibility` apply too (#4328).
+ * `null` is no ref list at all (#4738) and takes that same full-model branch: nothing was filtered out. */
 export function resolveVisibilityFilterSets(
   state: StoreApi['getState'] extends () => infer T ? T : never,
   modelId: string,
-  selectedExpressIds: Set<number>,
+  selectedExpressIds: Set<number> | null,
   entityCount: number,
   hasEntity: (expressId: number) => boolean,
 ): { visibleOnly: boolean; hiddenEntityIds: Set<number>; isolatedEntityIds: Set<number> | null } {
-  if (selectedExpressIds.size !== entityCount || ![...selectedExpressIds].every(hasEntity)) {
+  if (selectedExpressIds !== null && (selectedExpressIds.size !== entityCount || ![...selectedExpressIds].every(hasEntity))) {
     return { visibleOnly: true, hiddenEntityIds: new Set<number>(), isolatedEntityIds: selectedExpressIds };
   }
 
@@ -312,25 +313,24 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
 
     ifc(rawRefs: unknown, rawOptions: unknown) {
       const candidateOptions = rawOptions ?? {};
-      if (!isEntityRefArray(rawRefs)) {
+      // No ref list is "no isolation filter" (#4738): the active model whole, the same
+      // export refs covering it produce. An EMPTY list matched nothing and never arrives.
+      if (rawRefs != null && !isEntityRefArray(rawRefs)) {
         throw new Error('export.ifc: first argument must be an array of entity references');
       }
       if (!isIfcExportOptions(candidateOptions)) {
         throw new Error('export.ifc: second argument must be { schema?: IFC2X3|IFC4|IFC4X3, filename?: string, includeMutations?: boolean, visibleOnly?: boolean }');
       }
-
-      const refs = normalizeRefs(rawRefs);
-      if (refs.length === 0) {
+      const refs = rawRefs == null ? null : normalizeRefs(rawRefs);
+      if (refs?.length === 0) {
         throw new Error('export.ifc: expected at least one entity reference');
       }
-
-      const modelIds = new Set(refs.map(ref => ref.modelId));
-      if (modelIds.size !== 1) {
+      if (refs && new Set(refs.map(ref => ref.modelId)).size !== 1) {
         throw new Error('export.ifc: all entity references must belong to the same model');
       }
-
-      const modelId = refs[0].modelId;
       const state = store.getState();
+      const modelId = refs ? refs[0].modelId : getDefaultModelId(state);
+      if (!modelId) throw new Error('export.ifc: no model is loaded');
       const model = getModelForRef(state, modelId);
       if (!model?.ifcDataStore) {
         throw new Error(`export.ifc: model '${modelId}' is not loaded`);
@@ -341,7 +341,7 @@ export function createExportAdapter(store: StoreApi): ExportBackendMethods {
       }
 
       const options = candidateOptions;
-      const selectedExpressIds = new Set(refs.map(ref => ref.expressId));
+      const selectedExpressIds = refs ? new Set(refs.map(ref => ref.expressId)) : null;
       const visibilityFilters = resolveVisibilityFilterSets(
         state, modelId, selectedExpressIds, dataStore.entityCount,
         (expressId) => dataStore.entityIndex.byId.has(expressId),

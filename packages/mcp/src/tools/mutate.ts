@@ -459,7 +459,7 @@ const modelSave: Tool = {
     const m = resolveModel(ctx, input.model_id as string | undefined);
     const filePath = await resolveSafePath(input.file_path, ctx, 'write');
     const schema = (input.schema as string | undefined) ?? m.store.schemaVersion;
-    const content = m.bim.export.ifc([], { schema: schema as 'IFC2X3' | 'IFC4' | 'IFC4X3' });
+    const content = m.bim.export.ifc(undefined, { schema: schema as 'IFC2X3' | 'IFC4' | 'IFC4X3' }); // no ref list: whole model (#4738)
     const text = typeof content === 'string' ? content : new TextDecoder().decode(content);
     await writeFile(filePath, text, 'utf-8');
     return okResult(`Wrote ${text.length.toLocaleString()} bytes to ${filePath}.`, {

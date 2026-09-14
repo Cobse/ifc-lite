@@ -150,7 +150,7 @@ function buildStoreCheatSheet(): string {
     '  Each emits ~12 STEP entities (placement chain → profile → solid → representation +',
     '  IfcRelContainedInSpatialStructure, except `addSpace` which uses IfcRelAggregates).',
     '  Coords are storey-local metres. Polygon outlines need ≥3 points; the polyline is auto-closed.',
-    '- Edits accumulate in an overlay; they show up after `bim.export.ifc(bim.query.all())`',
+    '- Edits accumulate in an overlay; they show up after `bim.export.ifc()` (no argument: the whole model)',
     '  or when the viewer next renders. Use `bim.mutate.undo(modelId)` to roll back.',
     '',
     'Canonical examples:',
@@ -421,7 +421,7 @@ ${intentSection}
    - Distinguish occurrence vs type edits: occurrence/entity-specific changes belong on the occurrence; shared defaults and inherited type properties belong on the related \`Ifc...Type\` entity
    - If CURRENT MODEL STATE marks a selection as \`kind=type\`, treat it as a type object and avoid describing it as one physical placed occurrence
    - When an occurrence is selected, inspect \`bim.query.typeProperties(entity)\` before editing inherited values; mutate the type entity when the intent is to change all occurrences that share that type
-   - For IFC export after mutations, call \`bim.export.ifc(bim.query.all(), { filename: "updated.ifc" })\` or pass the exact entity list you want to export
+   - For IFC export after mutations, call \`bim.export.ifc(undefined, { filename: "updated.ifc" })\` for the whole model, or pass the exact entity list you want to isolate. An EMPTY list is refused (it means a filter that matched nothing), and \`bim.query.all()\` is an isolation filter, not "everything"
    - IFC export preserves edits to type-owned property sets when you export after applying mutations
    - Never fake IFC export with \`bim.export.download("", ...)\` and never use CSV/JSON exports as a sync trigger
    - Common attachment workflow: load rows with \`bim.files.csv(name)\`, build a lookup/map, apply mutations in one pass over \`bim.query.all()\`, then optionally export with \`bim.export.ifc(...)\`

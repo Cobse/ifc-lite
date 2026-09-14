@@ -557,6 +557,41 @@ describe('ExportNamespace', () => {
     );
   });
 
+  /**
+   * #4738: `refs` carries "is a filter active" as well as "which entities", so
+   * the two meanings must not share the empty array. Omitting it asks for the
+   * whole model; an empty array is an ACTIVE filter that matched nothing and
+   * is refused here, at the one home every backend's STEP export goes through,
+   * so no caller has to carry its own guard. Below this point `undefined` is
+   * the only "no filter": `ExportBackendMethods.ifc` is typed for it and both
+   * headless backends branch on `refs != null`.
+   *
+   * The byte-level proof that the refusal is not cosmetic — the same call used
+   * to return all 1045 entities of `hello-wall.ifc` — is in
+   * `packages/cli/src/commands/export.zero-match.test.ts`.
+   */
+  it('ifc() exports the whole model when no ref list is given', () => {
+    const { backend, export: exportNs } = createMockBackend();
+    const bim = createBimContext({ backend });
+
+    const content = bim.export.ifc(undefined, { schema: 'IFC4' });
+
+    expect(content).toContain('ISO-10303-21');
+    // `undefined`, not `[]`: the absence has to reach the backend, or a backend
+    // that refuses an empty list (the viewer's) cannot tell the two apart.
+    expect(exportNs.ifc).toHaveBeenCalledWith(undefined, { schema: 'IFC4' });
+  });
+
+  it('ifc() refuses an empty ref list instead of exporting the whole model', () => {
+    const { backend, export: exportNs } = createMockBackend();
+    const bim = createBimContext({ backend });
+
+    expect(() => bim.export.ifc([], { schema: 'IFC4' })).toThrow(/matched nothing/);
+    // The refusal has to happen BEFORE the backend runs: reaching the backend
+    // with an empty array is exactly what produced the whole-model export.
+    expect(exportNs.ifc).not.toHaveBeenCalled();
+  });
+
   it('hbjson() delegates to a geometry-capable backend', async () => {
     const { backend } = createMockBackend();
     const mock = vi.fn(async (_name?: string) => '{"type":"Model","rooms":[]}');

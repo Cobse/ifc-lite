@@ -10,6 +10,8 @@ import { LEGACY_MODEL_ID } from './model-compat.js';
 import type { StoreApi } from './types.js';
 import type { ScheduleExtraction, IfcDataStore } from '@ifc-lite/parser';
 import { asSourceBytes } from '@ifc-lite/parser';
+import { createBimContext } from '@ifc-lite/sdk';
+import { LocalBackend } from '../local-backend.js';
 import { useViewerStore } from '../../store/index.js';
 
 test('resolveVisibilityFilterSets honors legacy single-model hidden and isolated state (routed through resolveExportVisibility, #4333 follow-up)', () => {
@@ -828,5 +830,58 @@ describe('resolveVisibilityFilterSets: full-model classification requires member
 
     assert.ok(!out.includes('IFCDOOR'), 'door must not appear: it was never named and refs do not cover the model');
     assert.ok(!out.includes('IFCWALLSTANDARDCASE'), 'wall must not appear: it was never named and refs do not cover the model');
+  });
+});
+
+/**
+ * #4738: `bim.export.ifc()` with no ref list means "no isolation filter", the
+ * whole model. The namespace refuses an EMPTY list (a filter that matched
+ * nothing) and this adapter refuses one too, so "absent" has to arrive here as
+ * something other than `[]` or the viewer is the one backend where the
+ * documented whole-model call always throws.
+ *
+ * Driven through `createBimContext` rather than the adapter alone, because the
+ * defect lives in the handover: the namespace is what turns an omitted
+ * argument into whatever the adapter sees.
+ */
+describe('sdk.export.ifc() with no ref list exports the whole model (#4738)', () => {
+  beforeEach(() => {
+    useViewerStore.getState().resetViewerState();
+  });
+
+  /** The shipping assembly: the real namespace over the real viewer backend. */
+  function bimOverViewer() {
+    return createBimContext({ backend: new LocalBackend(useViewerStore as unknown as StoreApi) });
+  }
+
+  it('omitting the argument exports every entity of the active model', () => {
+    const dataStore = buildFourEntityStore();
+    useViewerStore.setState({
+      models: new Map(),
+      ifcDataStore: dataStore,
+      hiddenEntities: new Set(),
+      isolatedEntities: null,
+      classFilter: null,
+    });
+
+    // RED before the fix: threw "export.ifc: expected at least one entity
+    // reference", because the namespace handed the adapter `[]`.
+    const out = decodeIfcOutput(bimOverViewer().export.ifc());
+
+    assert.ok(out.includes('IFCWALLSTANDARDCASE'), 'no filter must export the wall');
+    assert.ok(out.includes('IFCDOOR'), 'no filter must export the door too');
+    assert.ok(out.includes('IFCPROJECT'));
+  });
+
+  it('an empty ref list is still refused, so the distinction is real', () => {
+    useViewerStore.setState({
+      models: new Map(),
+      ifcDataStore: buildFourEntityStore(),
+      hiddenEntities: new Set(),
+      isolatedEntities: null,
+      classFilter: null,
+    });
+
+    assert.throws(() => bimOverViewer().export.ifc([]), /matched nothing/);
   });
 });

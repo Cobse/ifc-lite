@@ -14,8 +14,9 @@
  * non-product entities). `refs` from an UNFILTERED query is every queryable
  * entity — non-empty — so passing it unconditionally silently narrowed a plain
  * `export --format ifc` (#4044). The fix: only isolate when a filter was
- * actually requested; pass an empty array (this backend's existing "whole
- * model" signal — see headless-test-helpers.ts and mutate.ts) otherwise.
+ * actually requested; OMIT the ref list otherwise, which is how the SDK spells
+ * "no isolation filter" since #4738 (an empty array means a filter that matched
+ * nothing, and is refused).
  *
  * These call `exportCommand` directly (as export.whole-model-filters.test.ts
  * does) so the assertions can read the written file and stderr without a

@@ -42,6 +42,7 @@ import { tmpdir } from 'node:os';
 import { GeometryProcessor } from '@ifc-lite/geometry';
 import { countJsonldNodes, countStepEntities } from '@ifc-lite/export';
 import { exportCommand } from './export.js';
+import { createHeadlessContext } from '../loader.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Committed viewer demo sample, so this never needs `pnpm fixtures`. It has
@@ -272,5 +273,64 @@ describe('jsonld refuses an export whose matches carry no graph nodes (#4659)', 
     expect(exited).toBe(true);
     expect(stderr).toContain('JSON-LD export produced 0 nodes');
     expect(existsSync(out)).toBe(false);
+  }, 60_000);
+});
+
+/**
+ * #4738: the LAST home of the null-vs-empty collapse, on the TypeScript side.
+ *
+ * #4664 taught the wasm bindings to tell "no isolation filter" from "a filter
+ * that matched nothing" for JSON-LD and STEP. The SDK's own STEP binding,
+ * `bim.export.ifc(refs, options)`, still collapsed them: a non-empty `refs`
+ * isolates, and an EMPTY `refs` was this backend's "whole model" signal (see
+ * `export.ifc-no-filter.test.ts` and `headless-backend.ts`). Both meanings
+ * rode on the same argument, so a caller whose filter matched nothing got the
+ * entire model back and no error — the very shape #4483/#4484/#4659 closed for
+ * the mesh and wasm exporters.
+ *
+ * Every in-repo caller had to hand-roll its own zero-match guard before the
+ * call to stay safe, and the viewer's MCP playground `export_ifc` (which has
+ * no such guard) staged a whole-model `.ifc` download for `global_ids` that
+ * matched nothing. The fix moves the distinction into the argument itself, at
+ * the one shared home above all three backends (`ExportNamespace.ifc`):
+ * omitted / `undefined` means no filter, and a given array is an ACTIVE filter
+ * that is refused rather than widened when it is empty.
+ *
+ * This asserts on the exported STEP bytes, not on a flag: on `origin/main` the
+ * zero-match call returned a byte-identical whole-model export.
+ */
+describe('bim.export.ifc() refuses an isolation set that matched nothing (#4738)', () => {
+  function asBytes(content: string | Uint8Array): Uint8Array {
+    return typeof content === 'string' ? new TextEncoder().encode(content) : content;
+  }
+
+  it('exports the whole model only when no ref list is given', async () => {
+    const { bim } = await createHeadlessContext(SAMPLE_IFC);
+
+    // No filter: the whole model. `undefined` is the only way to ask for it.
+    const wholeEntities = countStepEntities(asBytes(bim.export.ifc(undefined, { schema: 'IFC4' })));
+    expect(wholeEntities).toBeGreaterThan(1);
+
+    // A filter that matched something still narrows, so "refuses" below can't
+    // pass by refusing everything or by exporting nothing at all.
+    const walls = bim.query().byType('IfcWall').toArray().map((e) => e.ref);
+    expect(walls.length).toBeGreaterThan(0);
+    const narrowedEntities = countStepEntities(asBytes(bim.export.ifc(walls, { schema: 'IFC4' })));
+    expect(narrowedEntities).toBeGreaterThan(0);
+    expect(narrowedEntities).toBeLessThan(wholeEntities);
+
+    // A filter that is ACTIVE and matched nothing.
+    let refused: unknown;
+    let exported: Uint8Array | null = null;
+    try {
+      exported = asBytes(bim.export.ifc([], { schema: 'IFC4' }));
+    } catch (err) {
+      refused = err;
+    }
+    // RED on origin/main: `exported` held all `wholeEntities` instances — the
+    // zero-match call and the no-filter call were the same call.
+    if (exported) expect(countStepEntities(exported)).toBeLessThan(wholeEntities);
+    expect(refused).toBeInstanceOf(Error);
+    expect((refused as Error).message).toContain('matched nothing');
   }, 60_000);
 });

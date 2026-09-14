@@ -45,14 +45,14 @@ describe('the write guard over a store with a deferred property-atom index', () 
     // Not throwing is only half the claim: an implementation could accept the
     // deferred id and drop the write. Assert on the exported STEP, the way
     // every other mutation test in this package does.
-    const before = backend.export.ifc([], { schema: 'IFC4' }) as string;
+    const before = backend.export.ifc(undefined, { schema: 'IFC4' }) as string;
     expect(before).toContain("IFCPROPERTYSINGLEVALUE('Reference'");
     expect(before).not.toContain("'Renamed'");
 
     expect(() => backend.mutate.setAttribute({ modelId: 'default', expressId: 100 }, 'Name', 'Renamed'))
       .not.toThrow();
 
-    const after = backend.export.ifc([], { schema: 'IFC4' }) as string;
+    const after = backend.export.ifc(undefined, { schema: 'IFC4' }) as string;
     expect(after).toContain("IFCPROPERTYSINGLEVALUE('Renamed'");
     expect(after).not.toContain("IFCPROPERTYSINGLEVALUE('Reference'");
   });

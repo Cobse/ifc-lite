@@ -14,10 +14,14 @@
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { readFile } from 'node:fs/promises';
+
 import { GeometryProcessor, type GeometryResult } from '@ifc-lite/geometry';
 import { ToolErrorCode } from '@ifc-lite/mcp/browser';
+import { countStepEntities } from '@ifc-lite/export';
 import type { Clash } from '@ifc-lite/clash';
 import { dispatch, parsePlaygroundModel, topClashRows, type LoadedPlaygroundModel } from './playground-dispatcher.js';
+import { playgroundFiles } from './playground-files.js';
 
 function clashOf(distance: number, distanceKind: Clash['distanceKind']): Clash {
   return {
@@ -158,5 +162,55 @@ describe('count_entities group_by:type universe (#3765)', () => {
     const none = await dispatch(model, 'count_entities', { group_by: 'type', type: 'IfcWindow' });
     assert.equal(none.isError, false);
     assert.deepEqual((none.structured as { groups: unknown }).groups, []);
+  });
+});
+
+/**
+ * #4738: `export_ifc` here is the playground twin of the stdio MCP tool, and
+ * it was the one caller of `bim.export.ifc()` with NO zero-match guard of its
+ * own. `global_ids` that matched nothing left `refs` empty, and an empty array
+ * was the SDK binding's "no filter, export the whole model" signal — so the
+ * tool staged the entire model as a download and reported it as the requested
+ * subset ("N entities" is read from `m.store.entityCount` when `refs` is
+ * empty). The whole-model control below is what makes that a defect rather
+ * than a preference: the two calls produced the same bytes.
+ *
+ * The fix moved the distinction into the argument at the shared home
+ * (`ExportNamespace.ifc`): no `global_ids` omits the ref list, an allowlist
+ * that matched nothing stays an empty array, and an empty array is refused.
+ */
+describe('playground export_ifc with global_ids that match nothing (#4738)', () => {
+  async function helloWall(): Promise<LoadedPlaygroundModel> {
+    const path = new URL('../../../public/samples/hello-wall.ifc', import.meta.url);
+    const bytes = new Uint8Array(await readFile(path));
+    return parsePlaygroundModel(bytes.buffer as ArrayBuffer, 'hello-wall.ifc');
+  }
+
+  it('refuses instead of staging the whole model as the download', async () => {
+    const model = await helloWall();
+
+    // The control runs first, so "refuses" below cannot pass because the
+    // exporter is broken: with no allowlist the tool still stages every entity.
+    const whole = await dispatch(model, 'export_ifc', {});
+    assert.equal(whole.isError, false);
+    const wholeEntities = countStepEntities(new Uint8Array(await playgroundFiles.list()[0].blob.arrayBuffer()));
+    assert.ok(wholeEntities > 1, `expected a multi-entity export, got ${wholeEntities}`);
+
+    const stagedBefore = playgroundFiles.list().length;
+    const zero = await dispatch(model, 'export_ifc', { global_ids: ['0NoSuchGlobalIdHere12'] });
+
+    // RED before the fix: `isError` was false and the newly staged blob held
+    // all `wholeEntities` instances — the same bytes as the control above.
+    if (!zero.isError) {
+      const wrote = countStepEntities(new Uint8Array(await playgroundFiles.list()[0].blob.arrayBuffer()));
+      assert.ok(wrote < wholeEntities, `zero-match export wrote ${wrote} of ${wholeEntities} entities`);
+    }
+    assert.equal(zero.isError, true);
+    // The stdio tool's code and wording, not the SDK's message: a client that
+    // branches on `errorCode` must not read bad input as a server fault.
+    assert.equal(zero.errorCode, ToolErrorCode.ENTITY_NOT_FOUND);
+    assert.match(zero.text, /No entity matches any of the 1 requested global_ids/);
+    // Nothing reached the Downloads panel, so the user cannot save it either.
+    assert.equal(playgroundFiles.list().length, stagedBefore);
   });
 });

@@ -59,9 +59,12 @@ const exportIfc: Tool = {
     const m = resolveModel(ctx, input.model_id as string | undefined);
     const filePath = await resolveSafePath(input.file_path, ctx, 'write');
     const schema = (input.schema as 'IFC2X3' | 'IFC4' | 'IFC4X3' | undefined) ?? m.store.schemaVersion;
-    const refs: EntityRef[] = [];
+    // Absent `global_ids` leaves `refs` undefined: no isolation filter, the whole
+    // model. An allowlist that matched nothing is an EMPTY array, never undefined.
+    let refs: EntityRef[] | undefined;
     let unmatched: string[] = [];
     if (Array.isArray(input.global_ids)) {
+      refs = [];
       // `query()` folds the session's queued creates (#2014), so an id this
       // session created resolves here — and since #2012 the exporter's
       // visible-only closure can see it too, which is what makes naming one in
@@ -74,9 +77,9 @@ const exportIfc: Tool = {
         matched.add(e.globalId);
       }
       unmatched = [...wanted].filter((id) => !matched.has(id));
-      // FAIL CLOSED. An empty ref list falls through to an UNFILTERED export,
-      // so an allowlist that matched nothing used to write the entire model to
-      // disk and report success — the opposite of what the caller asked for.
+      // FAIL CLOSED with the allowlist's own wording and count. `export.ifc`
+      // refuses an empty active list too (#4738), so this is the first of two
+      // lines rather than the only one.
       if (refs.length === 0) {
         throw new ToolExecutionError({
           code: ToolErrorCode.ENTITY_NOT_FOUND,
@@ -93,7 +96,7 @@ const exportIfc: Tool = {
         filePath,
         bytes: text.length,
         schema,
-        exportedCount: refs.length || m.store.entityCount,
+        exportedCount: refs?.length ?? m.store.entityCount,
         ...(unmatched.length > 0 ? { unmatchedGlobalIds: unmatched } : {}),
       },
     );

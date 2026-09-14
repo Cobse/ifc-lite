@@ -259,19 +259,18 @@ export async function exportCommand(args: string[]): Promise<void> {
     }
     case 'ifc': {
       const schema = getFlag(args, '--schema') as 'IFC2X3' | 'IFC4' | 'IFC4X3' | undefined;
-      // bim.export.ifc() isolates to the given refs (plus their reference closure)
-      // whenever the array is non-empty, and treats an EMPTY array as "export the
-      // whole model" — the same convention already used by the MCP export_ifc
-      // tool, headless-test-helpers, and the mutate/playground call sites (#4044).
-      // `refs` here is always non-empty for an unfiltered export (it's every
-      // queryable entity), so passing it unconditionally used to isolate the
-      // export to that set — narrowing out entities the query layer doesn't
-      // surface directly (e.g. solids owned by non-product entities) even
-      // though nothing was ever filtered.
+      // bim.export.ifc() isolates to the given refs (plus their reference
+      // closure); OMITTING the argument is "no isolation filter, export the
+      // whole model" (#4738, the SDK twin of the wasm exporters' `undefined`
+      // isolation set). `refs` here is always non-empty for an unfiltered
+      // export (it's every queryable entity), so passing it unconditionally
+      // used to isolate the export to that set — narrowing out entities the
+      // query layer doesn't surface directly (e.g. solids owned by
+      // non-product entities) even though nothing was ever filtered (#4044).
       if (filterRequested && refs.length === 0) {
         fatal('Filter matched 0 entities — nothing to export. Check --type/--storey/--where/--limit.');
       }
-      const exportRefs = filterRequested ? refs : [];
+      const exportRefs = filterRequested ? refs : undefined;
       const content = bim.export.ifc(exportRefs, { schema }) as string;
       if (!outPath) fatal('--out is required for IFC export');
       await writeFile(outPath, content, 'utf-8');

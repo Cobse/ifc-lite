@@ -619,7 +619,7 @@ export interface SpatialBackendMethods {
 export interface ExportBackendMethods {
   csv(refs: unknown, options: unknown): string;
   json(refs: unknown, columns: unknown): Record<string, unknown>[];
-  ifc(refs: unknown, options: unknown): string | Uint8Array;
+  ifc(refs: EntityRef[] | undefined, options: unknown): string | Uint8Array; // `undefined` = no isolation filter (whole model); `[]` never arrives (#4738)
   download(content: string | Uint8Array, filename: string, mimeType: string): void;
   /**
    * Export the model's `IfcSpace` volumes as a Honeybee HBJSON energy/daylight model.
