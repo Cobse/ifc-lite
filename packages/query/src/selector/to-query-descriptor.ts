@@ -34,10 +34,9 @@
  *     them against the schema of the model it is currently evaluating.
  *   - Exact-name property/quantity comparisons: `Pset_WallCommon.
  *     FireRating=2HR`, `Qto_WallBaseQuantities.NetVolume>1` — both read as
- *     the same `QueryFilter` shape; the quantity fallback lives in the
- *     backend (`matchesPropertyFilter` in `packages/cli/src/
- *     property-filter-match.ts` / `packages/mcp/src/property-filter-match.ts`),
- *     not here.
+ *     the same `QueryFilter` shape; the quantity fallback lives in
+ *     `matchesPropertyFilter` (`packages/query/src/property-filter-match.ts`,
+ *     the one implementation both the CLI and MCP backends import), not here.
  *   - `=` `!=` `>` `>=` `<` `<=` map onto their `ComparisonOp` namesakes,
  *     `*=` maps onto `contains`.
  *   - A `/…/` value with `=` maps onto `matches`, carrying the regex SOURCE

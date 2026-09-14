@@ -7658,6 +7658,7 @@
     "findAllQuantitiesInSets: function",
     "findPropertyInSets: function",
     "findQuantityInSets: function",
+    "matchesPropertyFilter: function",
     "normalizeBooleanValue: function",
     "parseSelector: function",
     "selectorToQueryDescriptor: function"

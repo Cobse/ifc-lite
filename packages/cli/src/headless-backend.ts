@@ -65,7 +65,7 @@ import {
   listStoreys,
   type GenerateSpacesAllOptions,
 } from '@ifc-lite/create';
-import { EntityNode, findPropertyInSets, findQuantityInSets, normalizeBooleanValue } from '@ifc-lite/query';
+import { EntityNode, findPropertyInSets, findQuantityInSets, normalizeBooleanValue, matchesPropertyFilter } from '@ifc-lite/query';
 
 import {
   extractAllEntityAttributes,
@@ -87,7 +87,6 @@ import { edgeSurvives } from '@ifc-lite/data';
 import { exportHbjson, exportDfjson } from './energy-export.js';
 import { foldQueuedRelated } from './query-overlay-relations.js';
 import { overlayEntityData, overlayProperties, overlayQuantities, foldNewEntities } from './query-overlay.js';
-import { matchesPropertyFilter } from './property-filter-match.js';
 
 // `expandTypes` used to be defined here; it now comes from `@ifc-lite/parser`,
 // shared with the other query backends (see `query-backend-maps.ts`). Re-exported
@@ -357,9 +356,10 @@ export class HeadlessBackend implements BimBackend {
             return cached;
           };
           // A `Qto_` filter (or any psetName with no matching property set)
-          // falls back to quantity sets — see `matchesPropertyFilter`. Cached
-          // the same way as `propsCache`; only populated on the fallback
-          // path since most filters resolve from properties alone.
+          // falls back to quantity sets — see `matchesPropertyFilter` in
+          // `@ifc-lite/query`'s `property-filter-match.ts`. Cached the same
+          // way as `propsCache`; only populated on the fallback path since
+          // most filters resolve from properties alone.
           const qsetsCache = new Map<number, QuantitySetData[]>();
           const getCachedQuantities = (ref: EntityRef): QuantitySetData[] => {
             let cached = qsetsCache.get(ref.expressId);

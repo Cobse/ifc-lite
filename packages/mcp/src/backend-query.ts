@@ -58,9 +58,8 @@ import {
   isQueryableObjectType,
 } from '@ifc-lite/parser';
 import { attributeNamesForSchema } from './schema-tables.js';
-import { EntityNode } from '@ifc-lite/query';
+import { EntityNode, matchesPropertyFilter } from '@ifc-lite/query';
 import { edgeSurvives } from '@ifc-lite/data';
-import { matchesPropertyFilter } from './property-filter-match.js';
 
 import { stepText, type CreatedEntity, type PendingOverlay } from './overlay.js';
 
@@ -332,10 +331,10 @@ export function createQueryAdapter(
         };
         // A `Qto_` filter (or any psetName with no matching property set)
         // falls back to quantity sets — see `matchesPropertyFilter` in
-        // `property-filter-match.ts`. Without this, a `Qto_WallBaseQuantities.
-        // NetVolume>1` filter (e.g. from the `#4094` selector adapter's
-        // `.select()`/`selector` param) silently matched zero entities even
-        // when the quantity was present.
+        // `@ifc-lite/query`'s `property-filter-match.ts`. Without this, a
+        // `Qto_WallBaseQuantities.NetVolume>1` filter (e.g. from the `#4094`
+        // selector adapter's `.select()`/`selector` param) silently matched
+        // zero entities even when the quantity was present.
         const qsetsCache = new Map<number, QuantitySetData[]>();
         const cachedQuantities = (ref: EntityRef): QuantitySetData[] => {
           let cached = qsetsCache.get(ref.expressId);
