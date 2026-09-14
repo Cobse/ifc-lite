@@ -53,19 +53,16 @@ impl IfcAPI {
         // the FULL entity index, so the single-stage `SmallFileSingle` ladder is
         // correct. It also seeds the decoder so nothing downstream re-pays the
         // IFCPROJECT hunt.
-        let rtc_jobs: Vec<_> = pre_pass
-            .simple_jobs
-            .iter()
-            .take(25)
-            .chain(pre_pass.complex_jobs.iter().take(25))
-            .copied()
-            .collect();
+        //
+        // No job list: this used to hand the detector 25 simple + 25 complex
+        // jobs, a window nothing else in the codebase shared, and the frame
+        // came out different from the one the overlays and the native pipeline
+        // picked for the same file (#4611).
         let meta = resolve_stream_meta(
             MetaMode::SmallFileSingle,
             content,
             pre_pass.project_id,
             pre_pass.site_position,
-            &rtc_jobs,
             &mut decoder,
         );
 
@@ -268,7 +265,24 @@ impl IfcAPI {
         // `chunk_size` jobs awaiting flush. After `meta` the buffer is
         // drained as the first jobs event; subsequent flushes happen at
         // every `chunk_size` boundary.
-        const RTC_SAMPLE_THRESHOLD: usize = 50;
+        // Not a sample window: the RTC window is the file's (#4611). This is
+        // only how many geometry jobs must be buffered before the meta event
+        // is worth dispatching.
+        const META_EMIT_JOB_THRESHOLD: usize = 50;
+
+        // Dispatch the `meta` event. One writer for both emission points (the
+        // mid-scan one and the tail one) so they cannot ship different property
+        // sets for the same bundle.
+        fn emit_meta(
+            on_event: &Function,
+            meta_res: &ifc_lite_processing::stream_meta::StreamMeta,
+        ) -> Result<(), JsValue> {
+            let meta = js_sys::Object::new();
+            crate::api::set_js_prop(&meta, "type", &"meta".into());
+            super::prepass_sharded::set_stream_meta_props(&meta, meta_res);
+            on_event.call1(&JsValue::NULL, &meta.into())?;
+            Ok(())
+        }
 
         // Emit a chunk of jobs to JS as a Uint32Array of [id, start, end] triples,
         // PLUS a parallel `affinity` Uint32Array (one precomputed key per job). The
@@ -363,10 +377,9 @@ impl IfcAPI {
                 if has_geometry_by_name(type_name) && !is_disabled(&disabled_types, type_name) {
                     let ifc_type = ifc_lite_core::legacy_aware_ifc_type(type_name);
                     // We don't bucket by simple/complex here — the host
-                    // distributes work across N geometry workers anyway,
-                    // and the simple/complex split was a heuristic for
-                    // RTC sampling that we now resolve once after
-                    // RTC_SAMPLE_THRESHOLD jobs have been collected.
+                    // distributes work across N geometry workers anyway, and
+                    // nothing else reads the split: RTC sampling has its own
+                    // file-scoped window (#4611).
                     buffered_jobs.push((id, start, end, ifc_type));
                     total_jobs += 1;
                 } else if !is_disabled(&disabled_types, type_name)
@@ -399,7 +412,7 @@ impl IfcAPI {
             // substring search and resolves partial-index chains against a
             // full index instead of silently defaulting (a millimetre model
             // resolved as metres renders 1000× oversized).
-            if !meta_emitted && buffered_jobs.len() >= RTC_SAMPLE_THRESHOLD {
+            if !meta_emitted && buffered_jobs.len() >= META_EMIT_JOB_THRESHOLD {
                 // MID-SCAN meta emission — the streaming win (~17 s → ~3 s
                 // time-to-first-geometry on a 986 MB file). The RESOLUTION logic
                 // (3-stage RTC ladder: partial-index detect → full-index
@@ -407,42 +420,33 @@ impl IfcAPI {
                 // placement-bounds last resort) lives in the shared
                 // `resolve_stream_meta` so it cannot drift from the tail /
                 // `buildPrePassOnce` paths. Emission STAYS HERE, unchanged: the
-                // meta event is dispatched the moment RTC_SAMPLE_THRESHOLD jobs
+                // meta event is dispatched the moment META_EMIT_JOB_THRESHOLD jobs
                 // are buffered, near the top of the file, so workers spin up
                 // early. Do NOT move this to a post-scan point — that regresses
                 // every large file.
+                // The buffered jobs are the TRIGGER for emitting here, not the
+                // RTC sample window: the window is the file's (#4611). What the
+                // ladder still needs from the scan is how far the index reaches,
+                // which is the end of the last job buffered.
+                //
                 // PREBUILT index (sharded): full index available, so run the
                 // single-stage full-index ladder (what the partial ladder
                 // escalates to anyway) — no mid-scan full-rescan detour.
-                let meta_res = if let Some(pi) = &prebuilt_arc {
-                    let mut decoder =
-                        EntityDecoder::with_arc_columnar_index(content, pi.clone());
-                    resolve_stream_meta(
+                let scanned_through = buffered_jobs.last().map_or(0, |&(_, _, end, _)| end);
+                let (mut decoder, mode) = match &prebuilt_arc {
+                    Some(pi) => (
+                        EntityDecoder::with_arc_columnar_index(content, pi.clone()),
                         MetaMode::SmallFileSingle,
-                        content,
-                        project_id,
-                        site_position,
-                        &buffered_jobs,
-                        &mut decoder,
-                    )
-                } else {
-                    let mut decoder = EntityDecoder::with_index(content, entity_index.clone());
-                    resolve_stream_meta(
-                        MetaMode::StreamingPartial,
-                        content,
-                        project_id,
-                        site_position,
-                        &buffered_jobs,
-                        &mut decoder,
-                    )
+                    ),
+                    None => (
+                        EntityDecoder::with_index(content, entity_index.clone()),
+                        MetaMode::StreamingPartial { scanned_through },
+                    ),
                 };
+                let meta_res =
+                    resolve_stream_meta(mode, content, project_id, site_position, &mut decoder);
                 plane_angle_to_radians = meta_res.plane_angle_to_radians;
-
-                // Emit meta event.
-                let meta = js_sys::Object::new();
-                crate::api::set_js_prop(&meta, "type", &"meta".into());
-                super::prepass_sharded::set_stream_meta_props(&meta, &meta_res);
-                on_event.call1(&JsValue::NULL, &meta.into())?;
+                emit_meta(on_event, &meta_res)?;
                 meta_emitted = true;
                 // Jobs stay buffered through the scan; the post-scan pass
                 // emits them with exact geometry-hash affinity keys (workers
@@ -458,36 +462,21 @@ impl IfcAPI {
             // Build a decoder lazily for unit/RTC/site lookups. With a
             // sub-50-job file the scan is essentially instant anyway, so the
             // full entity index is already complete here — the single-stage
-            // `SmallFileSingle` ladder (one detect_rtc_offset_with_fallback) is
+            // `SmallFileSingle` ladder (one detect_rtc_offset_for_file) is
             // correct, sharing its resolution with `buildPrePassOnce`.
-            let meta_jobs = &buffered_jobs[..buffered_jobs.len().min(RTC_SAMPLE_THRESHOLD)];
-            let meta_res = if let Some(pi) = &prebuilt_arc {
-                let mut decoder = EntityDecoder::with_arc_columnar_index(content, pi.clone());
-                resolve_stream_meta(
-                    MetaMode::SmallFileSingle,
-                    content,
-                    project_id,
-                    site_position,
-                    meta_jobs,
-                    &mut decoder,
-                )
-            } else {
-                let mut decoder = EntityDecoder::with_index(content, entity_index.clone());
-                resolve_stream_meta(
-                    MetaMode::SmallFileSingle,
-                    content,
-                    project_id,
-                    site_position,
-                    &buffered_jobs,
-                    &mut decoder,
-                )
+            let mut decoder = match &prebuilt_arc {
+                Some(pi) => EntityDecoder::with_arc_columnar_index(content, pi.clone()),
+                None => EntityDecoder::with_index(content, entity_index.clone()),
             };
+            let meta_res = resolve_stream_meta(
+                MetaMode::SmallFileSingle,
+                content,
+                project_id,
+                site_position,
+                &mut decoder,
+            );
             plane_angle_to_radians = meta_res.plane_angle_to_radians;
-
-            let meta = js_sys::Object::new();
-            crate::api::set_js_prop(&meta, "type", &"meta".into());
-            super::prepass_sharded::set_stream_meta_props(&meta, &meta_res);
-            on_event.call1(&JsValue::NULL, &meta.into())?;
+            emit_meta(on_event, &meta_res)?;
         }
 
         let (oversized_id_count, malformed_record_found) = (scanner.skipped_oversized_ids(), scanner.malformed_record_start().is_some()); // #3395/#3695, reported here and exported below
@@ -745,3 +734,7 @@ impl IfcAPI {
         Ok(JsValue::UNDEFINED)
     }
 }
+
+#[cfg(test)]
+#[path = "prepass_tests.rs"]
+mod prepass_tests;

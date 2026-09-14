@@ -1080,12 +1080,11 @@ pub fn process_geometry_streaming_filtered_with_options(
         Some(matrix.to_vec())
     });
 
-    let rtc_jobs: Vec<(u32, usize, usize, IfcType)> = entity_jobs
-        .iter()
-        .map(|job| (job.id, job.start, job.end, job.ifc_type))
-        .collect();
-    let detected_rtc_offset =
-        router.detect_rtc_offset_with_fallback(&rtc_jobs, &mut decoder, content);
+    // The RTC sample window is the file's, not this pipeline's job list
+    // (#4611): `entity_jobs` is a schedule (priority-sorted under
+    // `fast_first_batch`, plus the #957 synthetic type jobs appended at the
+    // end), and the frame must not be a function of the schedule.
+    let detected_rtc_offset = router.detect_rtc_offset_for_file(content, &mut decoder);
 
     // The three-tier frame selection lives on `MeshFrame::select`; this is
     // the site-tier caller (the browser pre-pass passes no site).

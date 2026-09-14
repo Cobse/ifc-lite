@@ -371,21 +371,22 @@ impl GeometryRouter {
             .unwrap_or(false)
     }
 
-    /// Detect RTC offset using pre-collected geometry jobs (avoids re-scanning the file).
-    /// Returns `None` when no usable translation samples were found, allowing
-    /// callers to distinguish "no shift needed" from "detection had no data".
-    pub fn detect_rtc_offset_from_jobs(
+    /// [`Self::detect_rtc_offset_for_file`]'s window with no placement-bounds
+    /// fallback. `None` when no usable translation sample was found, so a caller
+    /// can tell "no shift needed" from "detection had no data" — the distinction
+    /// the streaming ladder in `ifc_lite_processing::stream_meta` climbs.
+    pub fn detect_rtc_anchor_for_file(
         &self,
-        jobs: &[(u32, usize, usize, IfcType)],
+        content: &[u8],
         decoder: &mut EntityDecoder,
     ) -> Option<(f64, f64, f64)> {
-        self.sample_rtc_offset(jobs.iter().map(|&(id, start, end, _)| (id, start, end)), decoder)
+        self.sample_rtc_offset(content, decoder)
     }
 
-    /// The median sampler behind every detector here, over `(id, start, end)` spans.
+    /// The median sampler behind both detectors here, over the canonical window.
     fn sample_rtc_offset(
         &self,
-        spans: impl Iterator<Item = (u32, usize, usize)>,
+        content: &[u8],
         decoder: &mut EntityDecoder,
     ) -> Option<(f64, f64, f64)> {
         const MAX_SAMPLES: usize = 50;
@@ -395,7 +396,7 @@ impl GeometryRouter {
         // budget. Otherwise a file that emits 50+ alignment segments before its
         // real large-coordinate solids would fill the window with abstentions,
         // sample zero positions, and miss the re-basing the solids need.
-        let translations: Vec<(f64, f64, f64)> = spans
+        let translations: Vec<(f64, f64, f64)> = file_geometry_spans(content)
             .filter_map(|(id, start, end)| {
                 let entity = decoder.decode_at_with_id(id, start, end).ok()?;
                 self.sample_element_translation(&entity, decoder)
@@ -405,44 +406,33 @@ impl GeometryRouter {
         (!translations.is_empty()).then(|| Self::rtc_offset_from_translations(&translations))
     }
 
-    /// Detect the RTC offset from sampled jobs, falling back to a full-file
-    /// placement-bounds scan when no usable translation samples were found.
+    /// The RTC verdict for `content`: the median over the canonical sample
+    /// window, or the full-file placement-bounds scan when that window yielded
+    /// no usable translation.
     ///
-    /// Single shared entry point for the server processing path and the wasm
-    /// prepasses so both sides make the identical needs-shift decision: a
-    /// model whose sampled placements fail to decode while raw geometry
-    /// carries >10 km coordinates must be re-based identically everywhere
-    /// (previously the wasm prepasses silently fell back to (0,0,0) and the
-    /// browser rendered f32 vertex jitter that the server never saw).
+    /// Single shared entry point for the server processing path, the wasm
+    /// prepasses and the overlays, so every one of them makes the identical
+    /// needs-shift decision: a model whose sampled placements fail to decode
+    /// while raw geometry carries >10 km coordinates must be re-based
+    /// identically everywhere (previously the wasm prepasses silently fell
+    /// back to (0,0,0) and the browser rendered f32 vertex jitter that the
+    /// server never saw).
+    ///
+    /// The spans are [`file_geometry_spans`] — every geometry-bearing entity of
+    /// `content`, in file order, sampled lazily to the sampler's usable-sample
+    /// cap. They are deliberately NOT a job list the caller passes in: a job
+    /// list is a SCHEDULE, and every pipeline schedules differently, so a
+    /// caller-supplied window made the median anchor a function of the
+    /// scheduler rather than of the model and one file resolved to several
+    /// anchors (#4611, pinned by
+    /// `wasm-bindings/src/api/gpu_meshes/prepass_tests.rs`).
     ///
     /// `None` means neither ladder found a coordinate to judge; `MeshFrame::select`
     /// in `ifc_lite_processing` decides what that means.
-    pub fn detect_rtc_offset_with_fallback(
-        &self,
-        jobs: &[(u32, usize, usize, IfcType)],
-        decoder: &mut EntityDecoder,
-        content: &[u8],
-    ) -> Option<RtcVerdict> {
-        self.verdict_with_bounds_fallback(jobs.iter().map(|&(id, start, end, _)| (id, start, end)), decoder, content)
-    }
-
-    /// [`Self::detect_rtc_offset_with_fallback`] with every geometry-bearing
-    /// entity of `content` as the jobs, for a consumer that parses the file
-    /// itself and has no job list: the symbolic, grid and alignment overlays
-    /// (#4665). Scans lazily and stops at the sample cap.
     pub fn detect_rtc_offset_for_file(&self, content: &[u8], decoder: &mut EntityDecoder) -> Option<RtcVerdict> {
-        self.verdict_with_bounds_fallback(file_geometry_spans(content), decoder, content)
-    }
-
-    /// The sampler's verdict over `spans`, or the placement-bounds scan when it had no sample.
-    fn verdict_with_bounds_fallback(
-        &self,
-        spans: impl Iterator<Item = (u32, usize, usize)>,
-        decoder: &mut EntityDecoder,
-        content: &[u8],
-    ) -> Option<RtcVerdict> {
-        let bounds = || ifc_lite_core::scan_placement_bounds(content).rtc_offset(self.unit_scale);
-        self.sample_rtc_offset(spans, decoder).map(RtcVerdict::of_anchor).or_else(bounds)
+        self.detect_rtc_anchor_for_file(content, decoder)
+            .map(RtcVerdict::of_anchor)
+            .or_else(|| ifc_lite_core::scan_placement_bounds(content).rtc_offset(self.unit_scale))
     }
 }
 

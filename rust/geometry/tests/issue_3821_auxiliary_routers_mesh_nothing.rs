@@ -24,7 +24,7 @@
 //! meshing call at one of those sites is invisible here — the one-line pointer
 //! left at each site is what should send that author back to this file.
 
-use ifc_lite_core::{EntityDecoder, IfcType};
+use ifc_lite_core::EntityDecoder;
 use ifc_lite_geometry::{GeometryRouter, MaterialLayerIndex, TessellationQuality};
 use std::sync::Arc;
 
@@ -72,18 +72,6 @@ fn decoder() -> EntityDecoder<'static> {
     EntityDecoder::with_index(bytes, ifc_lite_core::build_entity_index(bytes))
 }
 
-fn jobs() -> Vec<(u32, usize, usize, IfcType)> {
-    let mut scanner = ifc_lite_core::EntityScanner::new(BOOLEAN_MODEL.as_bytes());
-    let mut out = Vec::new();
-    while let Some((id, type_name, start, end)) = scanner.next_entity() {
-        let ty = ifc_lite_core::legacy_aware_ifc_type(type_name);
-        if ty.is_subtype_of(IfcType::IfcProduct) {
-            out.push((id, start, end, ty));
-        }
-    }
-    out
-}
-
 /// Everything the router has to hand out, as stable reason labels.
 fn drained(router: &GeometryRouter) -> Vec<String> {
     // `take_csg_failures` also sweeps the processors' own logs, so a failure
@@ -127,9 +115,8 @@ fn the_preprocess_router_meshes_nothing() {
         let element = dec.decode_by_id(id).expect("decode element");
         let _ = router.resolve_scaled_placement(&element, &mut dec);
     }
-    let js = jobs();
     let rtc = router
-        .detect_rtc_offset_with_fallback(&js, &mut dec, BOOLEAN_MODEL.as_bytes())
+        .detect_rtc_offset_for_file(BOOLEAN_MODEL.as_bytes(), &mut dec)
         .map(ifc_lite_core::RtcVerdict::offset)
         .unwrap_or((0.0, 0.0, 0.0));
     router.set_rtc_offset(rtc);
@@ -144,9 +131,10 @@ fn the_preprocess_router_meshes_nothing() {
 fn the_stream_meta_router_meshes_nothing() {
     let mut dec = decoder();
     let router = GeometryRouter::with_scale(1.0);
-    let js = jobs();
-    let _ = router.detect_rtc_offset_from_jobs(&js, &mut dec);
-    let _ = router.detect_rtc_offset_with_fallback(&js, &mut dec, BOOLEAN_MODEL.as_bytes());
+    // Both entry points, because the ladder reaches both: the sampler alone on
+    // its rungs 1 and 2, and the bounds-fallback verdict on the tail path.
+    let _ = router.detect_rtc_anchor_for_file(BOOLEAN_MODEL.as_bytes(), &mut dec);
+    let _ = router.detect_rtc_offset_for_file(BOOLEAN_MODEL.as_bytes(), &mut dec);
     for id in ELEMENT_IDS {
         let element = dec.decode_by_id(id).expect("decode element");
         let _ = router.resolve_scaled_placement(&element, &mut dec);

@@ -98,38 +98,33 @@ The `GeometryRouter` (`rust/geometry/src/router/`, RTC logic in `rtc_offset.rs`)
 
 ```rust
 impl GeometryRouter {
-    /// Sample the jobs the caller already collected, and fall back to the
-    /// placement-bounds scan when none of them yields a usable translation.
-    /// `None` = neither rung found a coordinate to judge, which is distinct
-    /// from "judged, and no shift needed" (`RtcVerdict::Small`).
+    /// Sample the file's own geometry entities, in file order, and fall back
+    /// to the placement-bounds scan when none of them yields a usable
+    /// translation. `None` = neither rung found a coordinate to judge, which
+    /// is distinct from "judged, and no shift needed" (`RtcVerdict::Small`).
     /// `MeshFrame::select` in `ifc_lite_processing` decides what `None` means.
-    /// Used by the native pipeline and by the browser's `SmallFileSingle`
-    /// pre-pass; `StreamingPartial` needs an extra rung and is described below.
-    pub fn detect_rtc_offset_with_fallback(
-        &self,
-        jobs: &[(u32, usize, usize, IfcType)],
-        decoder: &mut EntityDecoder,
-        content: &[u8],
-    ) -> Option<RtcVerdict>;
-
-    /// The same ladder for a consumer that parses the file itself and has no
-    /// job list: the symbolic, grid and alignment overlays. Scans lazily and
-    /// stops at the sample cap.
+    /// Scans lazily and stops at the sample cap.
+    ///
+    /// The ONE detector every pipeline calls: the native processor, both
+    /// browser pre-passes and the overlays. There is deliberately no variant
+    /// that takes a caller-supplied job list (#4611) - a job list is a
+    /// SCHEDULE, so a caller-supplied window made the anchor a function of the
+    /// scheduler and one file resolved to several anchors.
     pub fn detect_rtc_offset_for_file(
         &self,
         content: &[u8],
         decoder: &mut EntityDecoder,
     ) -> Option<RtcVerdict>;
 
-    /// The sampler alone, over pre-collected jobs, with no bounds fallback and
-    /// no verdict. Live: `resolve_partial_rtc` calls it TWICE, once against the
-    /// partial index and once against a freshly built full index, and neither
-    /// call can go through the entry points above because the retry has to
-    /// happen before any bounds fallback. Reach for it only when you need that
-    /// same "detect again, decide later" shape.
-    pub fn detect_rtc_offset_from_jobs(
+    /// The sampler alone, over the same window, with no bounds fallback and no
+    /// verdict. Live: `resolve_partial_rtc` calls it TWICE, once against the
+    /// partial index (over the scanned head) and once against a freshly built
+    /// full index, and neither call can go through the entry point above
+    /// because the retry has to happen before any bounds fallback. Reach for it
+    /// only when you need that same "detect again, decide later" shape.
+    pub fn detect_rtc_anchor_for_file(
         &self,
-        jobs: &[(u32, usize, usize, IfcType)],
+        content: &[u8],
         decoder: &mut EntityDecoder,
     ) -> Option<(f64, f64, f64)>;
 
@@ -151,13 +146,15 @@ CENTRE, which can be inside 10 km while the coordinates still need re-basing.
 A scan-only detector without the verdict or the fallback
 (`detect_rtc_offset_from_first_element`) was removed in #4611: it collapsed "no
 sample" into `(0, 0, 0)`, and it had no production caller once the overlays
-moved onto `detect_rtc_offset_for_file`.
+moved onto `detect_rtc_offset_for_file`. The two job-list entry points
+(`detect_rtc_offset_with_fallback`, `detect_rtc_offset_from_jobs`) went in the
+same issue, for the reason on `detect_rtc_offset_for_file` above.
 
 ### RTC Detection Logic
 
 Detection is sample-based, not first-element-wins:
 
-1. Scan for entities whose class carries geometry (`has_geometry_by_name`, schema-driven).
+1. Scan the FILE for entities whose class carries geometry (`geometry_flags_by_name`, schema-driven, plus a spatial container that exceptionally carries a Representation). This window is the detector's own, never a job list the caller passes in.
 2. Sample each element's placement translation, up to 50 usable samples (elements that abstain, such as origin-placed axis-only representations, do not consume the budget).
 3. Take the per-axis **median** of the samples.
 4. If any median axis exceeds 10 km (`coord_is_large`: strictly greater, any axis, absolute value), the verdict is `RtcVerdict::Large` anchored on that centroid; otherwise it is `RtcVerdict::Small` and the offset reads as `(0, 0, 0)`.
@@ -176,7 +173,17 @@ also comes back empty does it drop to the bounds scan. A successful partial
 sends a model whose world offset lives in late spatial placements to the bounds
 scan, which answers a different question (bbox corners, not placements).
 `MetaMode::SmallFileSingle` has the whole file already and calls
-`detect_rtc_offset_with_fallback` directly.
+`detect_rtc_offset_for_file` directly. `MetaMode::StreamingPartial` carries the
+byte offset its index reaches, and rung 1 samples only that head: nothing past
+it can resolve a placement chain against a partial index, so sampling further
+would decode the rest of the file to learn nothing (measured: 7 of 7 fixtures
+walked to EOF, 235 ms on a 343 MB model) inside the mid-scan emission that
+exists to keep time-to-first-geometry short. That head is the one place a
+consumer of the same bytes can still land in a different frame: the overlays
+(`MeshFrame::for_overlay`) sample the whole file, so on a model whose head does
+not represent the rest of it, streamed meshes and overlays disagree. Closing
+that means handing the emitted frame to the overlay parse APIs rather than
+recomputing it there (#4611).
 
 ### Consistent Per-Mesh Application
 
@@ -491,7 +498,7 @@ console.log('[RTC] Handler info:', {
 
 When adding a new geometry processing path:
 
-- [ ] Detect large coordinates using `detect_rtc_offset_with_fallback` (or `detect_rtc_offset_for_file` when you have no job list), and read the answer through `RtcVerdict` rather than re-judging the offset's magnitude. A path that starts on a PARTIAL entity index needs `resolve_partial_rtc`'s extra rung instead, or it drops to the bounds scan where a full-index re-detect would have found the offset
+- [ ] Detect large coordinates using `detect_rtc_offset_for_file` - never re-derive the window from your own job list - and read the answer through `RtcVerdict` rather than re-judging the offset's magnitude. A path that starts on a PARTIAL entity index needs `resolve_partial_rtc`'s extra rung instead, or it drops to the bounds scan where a full-index re-detect would have found the offset
 - [ ] Hand the verdict to `MeshFrame::select` rather than choosing a frame yourself; that is the one place the site tier, the anchor and the wire tag are decided together
 - [ ] Apply RTC uniformly to entire mesh (not per-vertex decisions)
 - [ ] Use consistent thresholds (10km normal, 10M max)

@@ -109,7 +109,7 @@ impl MeshFrame {
     ///   elements is not a placement this can read, so it falls through to
     ///   the detector rather than indexing past its end.
     /// * `detected`: the RTC detector's verdict (see
-    ///   `GeometryRouter::detect_rtc_offset_with_fallback`). A `Large` verdict
+    ///   `GeometryRouter::detect_rtc_offset_for_file`). A `Large` verdict
     ///   is honoured whatever its anchor's own magnitude: the placement-bounds
     ///   fallback decides on the bbox corners and anchors on the centre, which
     ///   can be inside 10 km while the coordinates are not. Only an anchor at
@@ -131,18 +131,19 @@ impl MeshFrame {
         }
     }
 
-    /// The frame for a consumer that parses the file itself and has no job
-    /// list: the grid and alignment overlays, and the symbolic stream on the
-    /// browser path (#4665). It runs the browser pre-pass selection (the
-    /// bounds-fallback ladder, no site tier) with every geometry entity of the
-    /// file as the jobs, which is the frame the browser's own meshes are in.
-    /// The pre-passes sample a narrower job window, so a model with widely
-    /// spread elements can still get a different median anchor (#4611).
+    /// Frame for file-parsing consumers: grid/alignment overlays and the
+    /// browser symbolic stream (#4665). It uses the same file-scoped sample
+    /// window as the browser meshes, so their anchors agree (#4611).
     ///
     /// NOT for a consumer that ran the native pipeline over the same bytes:
     /// there is a site tier there, and this has none, so the two frames
     /// disagree on every translated `IfcSite`. Such a caller passes the frame
     /// its meshes were baked in (`ProcessingResult::frame`, #4706).
+    ///
+    /// Also NOT guaranteed to match the STREAMING browser pre-pass, which
+    /// samples only the indexed head when it emits mid-scan. A model whose
+    /// head does not represent its tail can therefore differ; closing that
+    /// requires handing the emitted frame to the overlay APIs (#4611).
     pub fn for_overlay(router: &GeometryRouter, content: &[u8], decoder: &mut EntityDecoder) -> Self {
         Self::select(None, router.detect_rtc_offset_for_file(content, decoder))
     }

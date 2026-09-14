@@ -1415,7 +1415,7 @@ export async function* processParallel(
   // Dispatch the streaming pre-pass.
   // chunk_size = 50K is a deliberate compromise:
   //   • small enough that the FIRST chunk (always a tiny one — bounded by
-  //     RTC_SAMPLE_THRESHOLD ≈ 50 jobs from the Rust side) reaches workers
+  //     META_EMIT_JOB_THRESHOLD ≈ 50 jobs from the Rust side) reaches workers
   //     within ~1.5 s for fast TTFG;
   //   • large enough that subsequent chunks make few Rust→JS callbacks
   //     and few worker postMessages — each call into processGeometryBatch

@@ -311,20 +311,20 @@ fn overlays_are_rebased_by_the_bounds_fallback_frame_the_meshes_use() {
     let anchor = (8500.0, 0.0, 0.0);
 
     // The mesh frame, from the native pipeline and from the browser's
-    // `buildPrePassOnce` (its own job list, sample window and meta resolver).
+    // `buildPrePassOnce` meta resolver.
     let native = ifc_lite_processing::process_geometry(content);
     assert_eq!(native.metadata.coordinate_info.origin_shift, [anchor.0, anchor.1, anchor.2]);
     let mut decoder = EntityDecoder::with_index(bytes, build_entity_index(bytes));
     let pre_pass = crate::api::styling::combined_pre_pass(bytes, &mut decoder);
-    let jobs: Vec<_> =
-        pre_pass.simple_jobs.iter().take(25).chain(pre_pass.complex_jobs.iter().take(25)).copied().collect();
-    assert!(!jobs.is_empty(), "premise: the pre-pass schedules jobs");
+    assert!(
+        !pre_pass.simple_jobs.is_empty() || !pre_pass.complex_jobs.is_empty(),
+        "premise: the pre-pass schedules jobs"
+    );
     let meta = resolve_stream_meta(
         MetaMode::SmallFileSingle,
         bytes,
         pre_pass.project_id,
         pre_pass.site_position,
-        &jobs,
         &mut decoder,
     );
     assert_eq!(meta.frame.rtc_offset(), anchor, "premise: the browser meshes shift by the anchor");
