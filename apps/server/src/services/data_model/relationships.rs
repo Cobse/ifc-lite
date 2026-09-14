@@ -126,7 +126,24 @@ fn extract_relationship(
     // case of a future caller.
     let slots: RelationshipSlots = relationship_slots(&type_upper)?;
 
-    let relating_id = entity.get_ref(slots.relating_idx as usize)?;
+    // `relating` is schema-legally a grouped aggregate for exactly one
+    // concrete subtype (`IFCRELDEFINESBYPROPERTIES.RelatingPropertyDefinition`
+    // — see `relating_is_list`'s doc comment in the generated table).
+    // `get_ref` returns `None` for a list-valued attribute (it delegates to
+    // `AttributeValue::as_entity_ref`, which only recognises a bare
+    // reference), so calling it unconditionally silently dropped the WHOLE
+    // relationship for a grouped `IfcPropertySetDefinitionSet` — every
+    // related object lost all properties/quantities from that pset group.
+    // `get_refs` accepts both a bare ref and a list, mirroring the TS/WASM
+    // path's `readRefList` (`columnar-parser-relationships.ts`), which reads
+    // `RelatingPropertyDefinition` as a ref list unconditionally and applies
+    // EVERY entry in the group to EVERY related object — reproduced below as
+    // the same cross product, not just the first entry.
+    let relating_ids: Vec<u32> = if slots.relating_is_list {
+        entity.get_refs(slots.relating_idx as usize)?
+    } else {
+        vec![entity.get_ref(slots.relating_idx as usize)?]
+    };
 
     let related_ids: Vec<u32> = if slots.related_is_list {
         let related_list = entity.get_list(slots.related_idx as usize)?;
@@ -138,18 +155,20 @@ fn extract_relationship(
         vec![entity.get_ref(slots.related_idx as usize)?]
     };
 
-    if related_ids.is_empty() {
+    if relating_ids.is_empty() || related_ids.is_empty() {
         return None;
     }
 
     Some(
-        related_ids
+        relating_ids
             .into_iter()
-            .map(|related_id| Relationship {
-                rel_type: type_name.to_string(),
-                rel_id,
-                relating_id,
-                related_id,
+            .flat_map(|relating_id| {
+                related_ids.iter().map(move |&related_id| Relationship {
+                    rel_type: type_name.to_string(),
+                    rel_id,
+                    relating_id,
+                    related_id,
+                })
             })
             .collect(),
     )

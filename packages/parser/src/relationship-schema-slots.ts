@@ -86,6 +86,40 @@ function isReferenceType(registry: SchemaRegistry, typeName: string): boolean {
     return true;
 }
 
+/** True when a reference-typed attribute can appear in STEP as a
+ *  parenthesised aggregate `(#a,#b)` rather than a bare `#id` — NOT because
+ *  the attribute itself is declared LIST/SET/ARRAY (that case is already
+ *  covered by `attr.isList/isSet/isArray`), but because it is a SELECT one
+ *  of whose alternatives is a defined TYPE that is itself an aggregate.
+ *
+ *  `IfcRelDefinesByProperties.RelatingPropertyDefinition` is the
+ *  motivating case: typed `IfcPropertySetDefinitionSelect = SELECT
+ *  (IfcPropertySetDefinition, IfcPropertySetDefinitionSet)`, and
+ *  `IfcPropertySetDefinitionSet` is `TYPE ... = SET [1:?] OF
+ *  IfcPropertySetDefinition` — a defined type, not an entity, so a value
+ *  of that alternative is written inline as `(#20,#21)` with no entity
+ *  line of its own. `attr.isList` is false here (the ATTRIBUTE is not
+ *  declared as a list — only one alternative of its select is), so it
+ *  alone cannot see this. Recurses through nested selects (depth-capped)
+ *  since a select's alternatives can themselves be selects.
+ *
+ *  Same order-of-checks trap as {@link isReferenceType}: `registry.types`
+ *  ALSO holds every select's own name (mapped to its literal `SELECT (...)`
+ *  source), so `registry.selects` must be checked first or a select name
+ *  passed in here would resolve against its own entry in `.types` instead
+ *  of recursing into its alternatives. */
+function resolvesToAggregate(registry: SchemaRegistry, typeName: string, depth = 0): boolean {
+    if (depth > 4) return false;
+    if (Object.prototype.hasOwnProperty.call(registry.selects, typeName)) {
+        return registry.selects[typeName].some((alt) => resolvesToAggregate(registry, alt, depth + 1));
+    }
+    if (Object.prototype.hasOwnProperty.call(registry.enums, typeName)) return false;
+    if (Object.prototype.hasOwnProperty.call(registry.types, typeName)) {
+        return /^\s*(LIST|SET|ARRAY|BAG)\b/i.test(registry.types[typeName]);
+    }
+    return false;
+}
+
 function computeSlotPlan(registry: SchemaRegistry, entityName: string): RelationshipSlotPlan | undefined {
     const meta = registry.entities[entityName];
     const allAttrs = meta?.allAttributes;
@@ -98,7 +132,7 @@ function computeSlotPlan(registry: SchemaRegistry, entityName: string): Relation
         if (!isReferenceType(registry, attr.type)) continue;
         const slot: RelationshipSlot = {
             index: i - ROOT_ATTR_COUNT,
-            isList: attr.isList || attr.isSet || attr.isArray,
+            isList: attr.isList || attr.isSet || attr.isArray || resolvesToAggregate(registry, attr.type),
         };
         if (!relating && attr.name.startsWith('Relating')) relating = slot;
         else if (!related && attr.name.startsWith('Related')) related = slot;

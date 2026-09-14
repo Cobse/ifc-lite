@@ -630,6 +630,62 @@ fn maps_every_physical_quantity_subtype_to_its_own_quantity_type_string() {
     assert_eq!(q("QNumber").quantity_value, 777.0);
 }
 
+/// `IfcRelDefinesByProperties.RelatingPropertyDefinition` is schema-legally
+/// an `IfcPropertySetDefinitionSelect`, whose second alternative
+/// (`IfcPropertySetDefinitionSet`) is a defined `SET [1:?] OF
+/// IfcPropertySetDefinition` — written inline as a grouped list `(#20,#21)`,
+/// not a single `#id`. #79 below groups a pset AND a qset that way. Before
+/// the fix, `extract_relationship` read the relating slot with `get_ref`
+/// unconditionally; `get_ref` returns `None` for a list-valued attribute, so
+/// the `?` silently dropped the WHOLE relationship — every related object
+/// lost every property/quantity from that pset group, not just one entry.
+const GROUPED_RELATING_PSET_IFC: &str = r#"ISO-10303-21;
+HEADER;
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPROJECT('Proj0000000000000000001',$,'P',$,$,$,$,$,$);
+#10=IFCWALL('Wall00000000000000001',$,'W1',$,$,$,$,$,$);
+#20=IFCPROPERTYSET('Pset00000000000000001',$,'Pset_Grouped',$,(#21));
+#21=IFCPROPERTYSINGLEVALUE('Fire',$,IFCLABEL('R1'),$);
+#22=IFCELEMENTQUANTITY('Qset00000000000000001',$,'Qto_Grouped',$,$,(#23));
+#23=IFCQUANTITYLENGTH('Width',$,$,100.);
+#79=IFCRELDEFINESBYPROPERTIES('Rdbp0000000000000079',$,$,$,(#10),(#20,#22));
+ENDSEC;
+END-ISO-10303-21;
+"#;
+
+#[test]
+fn extracts_defines_by_properties_with_a_grouped_relating_pset_definition_set() {
+    let dm = extract_data_model_checked(GROUPED_RELATING_PSET_IFC);
+
+    let dbp = |relating: u32| {
+        dm.relationships.iter().any(|r| {
+            r.rel_type.eq_ignore_ascii_case("IFCRELDEFINESBYPROPERTIES")
+                && r.relating_id == relating
+                && r.related_id == 10
+        })
+    };
+    assert!(
+        dbp(20),
+        "DefinesByProperties #79 dropped the pset (#20) half of the grouped relating set: {:?}",
+        dm.relationships
+    );
+    assert!(
+        dbp(22),
+        "DefinesByProperties #79 dropped the qset (#22) half of the grouped relating set: {:?}",
+        dm.relationships
+    );
+
+    let pset = dm
+        .property_sets
+        .iter()
+        .find(|p| p.pset_id == 20)
+        .expect("Pset_Grouped extracted and attached to #10");
+    assert_eq!(pset.properties.len(), 1);
+    assert_eq!(pset.properties[0].property_name, "Fire");
+}
+
 /// A wall associated DIRECTLY with an `IfcMaterial` (no layer set / usage
 /// indirection) — the `"IFCMATERIAL" =>` arm of `resolve_material`, whose
 /// `category` field (attribute 2) was previously not asserted anywhere: a

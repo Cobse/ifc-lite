@@ -24,10 +24,20 @@
 //! STEP file instantiates it directly.
 
 /// One relationship type's relating/related attribute slots.
+///
+/// `relating_is_list` is true for exactly one type as of writing —
+/// `IFCRELDEFINESBYPROPERTIES`: `RelatingPropertyDefinition` is typed
+/// `IfcPropertySetDefinitionSelect`, whose second alternative
+/// (`IfcPropertySetDefinitionSet`) is a defined `SET` of entities, written
+/// inline as `(#20,#21)` rather than as a single `#id`. Reading it with
+/// `get_ref` alone returns `None` for that shape and silently drops the
+/// whole relationship — the same failure mode `related_is_list` already
+/// guards against on the other slot.
 #[derive(Debug, Clone, Copy)]
 pub struct RelationshipSlots {
     pub relating_idx: u8,
     pub related_idx: u8,
+    pub relating_is_list: bool,
     pub related_is_list: bool,
 }
 
@@ -39,271 +49,325 @@ pub fn relationship_slots(upper_type_name: &str) -> Option<RelationshipSlots> {
         "IFCRELADHERESTOELEMENT" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELAGGREGATES" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSIGNSTASKS" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSIGNSTOACTOR" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSIGNSTOCONTROL" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSIGNSTOGROUP" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSIGNSTOGROUPBYFACTOR" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSIGNSTOPROCESS" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSIGNSTOPRODUCT" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSIGNSTOPROJECTORDER" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSIGNSTORESOURCE" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSOCIATESAPPLIEDVALUE" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSOCIATESAPPROVAL" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSOCIATESCLASSIFICATION" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSOCIATESCONSTRAINT" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSOCIATESDOCUMENT" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSOCIATESLIBRARY" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSOCIATESMATERIAL" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSOCIATESPROFILEDEF" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELASSOCIATESPROFILEPROPERTIES" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELCONNECTSELEMENTS" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 6,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELCONNECTSPATHELEMENTS" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 6,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELCONNECTSPORTS" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELCONNECTSPORTTOELEMENT" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELCONNECTSSTRUCTURALACTIVITY" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELCONNECTSSTRUCTURALELEMENT" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELCONNECTSSTRUCTURALMEMBER" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELCONNECTSWITHECCENTRICITY" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELCONNECTSWITHREALIZINGELEMENTS" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 6,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELCONTAINEDINSPATIALSTRUCTURE" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELCOVERSBLDGELEMENTS" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELCOVERSSPACES" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELDECLARES" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELDEFINESBYOBJECT" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELDEFINESBYPROPERTIES" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: true,
             related_is_list: true,
         }),
         "IFCRELDEFINESBYTEMPLATE" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELDEFINESBYTYPE" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELFILLSELEMENT" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELFLOWCONTROLELEMENTS" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELINTERACTIONREQUIREMENTS" => Some(RelationshipSlots {
             relating_idx: 8,
             related_idx: 7,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELINTERFERESELEMENTS" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELNESTS" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELOCCUPIESSPACES" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELOVERRIDESPROPERTIES" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELPOSITIONS" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELPROJECTSELEMENT" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELREFERENCEDINSPATIALSTRUCTURE" => Some(RelationshipSlots {
             relating_idx: 5,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELSCHEDULESCOSTITEMS" => Some(RelationshipSlots {
             relating_idx: 6,
             related_idx: 4,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELSEQUENCE" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELSERVICESBUILDINGS" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: true,
         }),
         "IFCRELSPACEBOUNDARY" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELSPACEBOUNDARY1STLEVEL" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELSPACEBOUNDARY2NDLEVEL" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         "IFCRELVOIDSELEMENT" => Some(RelationshipSlots {
             relating_idx: 4,
             related_idx: 5,
+            relating_is_list: false,
             related_is_list: false,
         }),
         _ => None,

@@ -133,6 +133,7 @@ for (const type of allTypes) {
     type,
     relatingIdx: plan.relating.index + ROOT_ATTR_COUNT,
     relatedIdx: plan.related.index + ROOT_ATTR_COUNT,
+    relatingIsList: !!plan.relating.isList,
     relatedIsList: !!plan.related.isList,
   });
 }
@@ -159,8 +160,8 @@ resolved.sort((a, b) => (a.type < b.type ? -1 : 1));
 
 const arms = resolved
   .map(
-    ({ type, relatingIdx, relatedIdx, relatedIsList }) =>
-      `        "${type}" => Some(RelationshipSlots { relating_idx: ${relatingIdx}, related_idx: ${relatedIdx}, related_is_list: ${relatedIsList} }),`,
+    ({ type, relatingIdx, relatedIdx, relatingIsList, relatedIsList }) =>
+      `        "${type}" => Some(RelationshipSlots { relating_idx: ${relatingIdx}, related_idx: ${relatedIdx}, relating_is_list: ${relatingIsList}, related_is_list: ${relatedIsList} }),`,
   )
   .join('\n');
 
@@ -194,10 +195,20 @@ const out = `// This Source Code Form is subject to the terms of the Mozilla Pub
 }
 
 /// One relationship type's relating/related attribute slots.
+///
+/// \`relating_is_list\` is true for exactly one type as of writing —
+/// \`IFCRELDEFINESBYPROPERTIES\`: \`RelatingPropertyDefinition\` is typed
+/// \`IfcPropertySetDefinitionSelect\`, whose second alternative
+/// (\`IfcPropertySetDefinitionSet\`) is a defined \`SET\` of entities, written
+/// inline as \`(#20,#21)\` rather than as a single \`#id\`. Reading it with
+/// \`get_ref\` alone returns \`None\` for that shape and silently drops the
+/// whole relationship — the same failure mode \`related_is_list\` already
+/// guards against on the other slot.
 #[derive(Debug, Clone, Copy)]
 pub struct RelationshipSlots {
     pub relating_idx: u8,
     pub related_idx: u8,
+    pub relating_is_list: bool,
     pub related_is_list: bool,
 }
 
@@ -231,15 +242,15 @@ if (CHECK) {
     const map = new Map();
     const dups = new Set();
     const re =
-      /"([A-Z0-9_]+)"\s*=>\s*Some\(RelationshipSlots\s*\{\s*relating_idx:\s*(\d+)\s*,\s*related_idx:\s*(\d+)\s*,\s*related_is_list:\s*(true|false)\s*,?\s*\}\)/g;
+      /"([A-Z0-9_]+)"\s*=>\s*Some\(RelationshipSlots\s*\{\s*relating_idx:\s*(\d+)\s*,\s*related_idx:\s*(\d+)\s*,\s*relating_is_list:\s*(true|false)\s*,\s*related_is_list:\s*(true|false)\s*,?\s*\}\)/g;
     for (const m of text.matchAll(re)) {
       if (map.has(m[1])) dups.add(m[1]);
-      else map.set(m[1], [Number(m[2]), Number(m[3]), m[4]].join(','));
+      else map.set(m[1], [Number(m[2]), Number(m[3]), m[4], m[5]].join(','));
     }
     return { map, dups };
   };
   const expected = new Map(
-    resolved.map((r) => [r.type, [r.relatingIdx, r.relatedIdx, String(r.relatedIsList)].join(',')]),
+    resolved.map((r) => [r.type, [r.relatingIdx, r.relatedIdx, String(r.relatingIsList), String(r.relatedIsList)].join(',')]),
   );
   const { map: actual, dups } = parseArms(committed);
 
