@@ -29,6 +29,7 @@ import { ScheduleNamespace } from './schedule.js';
 import { StructuralNamespace } from './structural.js';
 import { SpacesNamespace } from './spaces.js';
 import { QueryNamespace } from './query.js';
+import { SelectorUnsupportedError } from '@ifc-lite/query';
 import type {
   BimBackend,
   EntityData,
@@ -444,6 +445,73 @@ describe('QueryBuilder', () => {
       { modelId: 'arch', expressId: 1 },
       { modelId: 'arch', expressId: 2 },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// QueryBuilder.select() — the SDK half of #4094's selector adapter. Proves
+// this method actually calls the SHARED translator (@ifc-lite/query's
+// `selectorToQueryDescriptor`, also used by the CLI `--select` flag and the
+// MCP `query_entities` tool's `selector` param) rather than a second,
+// divergent implementation: one accepted case (proving the translated
+// types/filters reach the descriptor `entities()` receives) and one
+// rejected case (proving `SelectorUnsupportedError` propagates rather than
+// being swallowed into an empty/partial query).
+// ---------------------------------------------------------------------------
+
+describe('QueryBuilder.select()', () => {
+  function setup(results: EntityData[], models: ModelInfo[] = [modelInfo('m1')]) {
+    const seen: QueryDescriptor[] = [];
+    const entities = vi.fn((d: QueryDescriptor) => {
+      seen.push(structuredClone(d));
+      return results;
+    });
+    const backend = {
+      query: { entities },
+      model: { list: vi.fn(() => models), activeId: vi.fn(() => models[0]?.id ?? null) },
+    } as unknown as BimBackend;
+    return { ns: new QueryNamespace(backend), seen };
+  }
+
+  it('translates an accepted selector into the same descriptor byType()/where() would produce', () => {
+    const { ns, seen } = setup([]);
+    ns.create().select('IfcWall, Pset_WallCommon.FireRating=2HR').toArray();
+    expect(seen[0].types).toContain('IfcWall');
+    expect(seen[0].filters).toEqual([
+      { psetName: 'Pset_WallCommon', propName: 'FireRating', operator: '=', value: '2HR' },
+    ]);
+  });
+
+  it('appends into the same lists byType()/where() already append to (OR types, AND filters)', () => {
+    const { ns, seen } = setup([]);
+    ns.create().byType('IfcDoor').where('Pset_DoorCommon', 'FireRating', '=', '1HR').select('IfcWall').toArray();
+    expect(seen[0].types?.[0]).toBe('IfcDoor');
+    expect(seen[0].types).toContain('IfcWall');
+    expect(seen[0].filters).toEqual([
+      { psetName: 'Pset_DoorCommon', propName: 'FireRating', operator: '=', value: '1HR' },
+    ]);
+  });
+
+  it('defers class expansion to the executing backend instead of consulting the active/first model', () => {
+    const seen: QueryDescriptor[] = [];
+    const backend = {
+      query: { entities: vi.fn((d: QueryDescriptor) => { seen.push(structuredClone(d)); return []; }) },
+      model: {
+        list: vi.fn(() => { throw new Error('select must not pick a schema from model order'); }),
+        activeId: vi.fn(() => { throw new Error('select must not pick the active model schema'); }),
+      },
+    } as unknown as BimBackend;
+
+    new QueryNamespace(backend).create().select('IfcBuildingElement').model('ifc2x3-model').toArray();
+
+    expect(seen[0]).toMatchObject({ modelId: 'ifc2x3-model', types: ['IfcBuildingElement'] });
+  });
+
+  it('throws SelectorUnsupportedError for a construct with no lossless QueryDescriptor target, rather than running a partial query', () => {
+    const { ns, seen } = setup([]);
+    expect(() => ns.create().select('IfcWall, parent=Building')).toThrow(SelectorUnsupportedError);
+    // Nothing reached `entities()` — the throw happened before any query ran.
+    expect(seen).toHaveLength(0);
   });
 });
 

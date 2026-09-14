@@ -1,0 +1,5 @@
+---
+"@ifc-lite/query": minor
+---
+
+Added `selectorToQueryDescriptor` and `SelectorUnsupportedError`, translating IfcOpenShell-style selector text (already parsed by `parseSelector`) to the `{ types, filters }` shape `bim.query()` executes. Class terms remain normalized base names so each backend expands them against each executing model's own IFC schema, including mixed-schema federations. Only the lossless subset (class terms, exact-name `Pset_`/`Qto_` comparisons across the `=`/`!=`/`>`/`>=`/`<`/`<=`/`*=` operators, a `/regex/` value on `=`, and `Prop!=NULL` for existence) translates; every other construct (regex pset/property names, `!*=`, a regex value on any operator but `=`, `Prop=NULL`, entity-attribute terms, `!` class negation, `+` group unions, `parent=`, `query:`, `material=`/`classification=`/`location=`) throws `SelectorUnsupportedError` naming it, rather than silently running an empty or partial query. This is the shared translator behind `@ifc-lite/sdk`'s `QueryBuilder.select()`.

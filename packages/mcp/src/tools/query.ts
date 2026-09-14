@@ -24,7 +24,13 @@ const COMPARISON_OPS: ComparisonOp[] = ['=', '!=', '>', '<', '>=', '<=', 'contai
 
 const queryEntities: Tool = {
   name: 'query_entities',
-  description: 'Filter entities by IFC type, property, material, or spatial container. Returns matching IDs and minimal metadata.',
+  description:
+    'Filter entities by IFC type, property, material, or spatial container. Returns matching IDs and minimal metadata. ' +
+    '`selector` (an IfcOpenShell-style selector string, e.g. "IfcWall, Pset_WallCommon.FireRating=2HR") composes with ' +
+    '`type`/`types`/`property` — classes union in the same type list; property comparisons AND in the same filter list. ' +
+    'Only a lossless subset of the selector grammar is supported here (exact-name Pset_/Qto_ comparisons and class terms, ' +
+    'not regex pset/property names, attribute terms, material=/classification=/location=, parent=, query:, "!*=", or "!" class ' +
+    'negation) — an unsupported construct is rejected with an error naming it, never silently dropped or run as an empty filter.',
   scope: 'read',
   inputSchema: {
     type: 'object',
@@ -42,6 +48,12 @@ const queryEntities: Tool = {
         },
         required: ['pset', 'name', 'op'],
         additionalProperties: false,
+      },
+      selector: {
+        type: 'string',
+        description:
+          'IfcOpenShell-style selector, e.g. "IfcWall, Pset_WallCommon.FireRating=2HR" or "Qto_WallBaseQuantities.NetVolume>1". ' +
+          'Classes union with type/types; property comparisons AND with property. See this tool\'s description for the supported subset.',
       },
       in_storey: { type: 'string', description: 'GlobalId of containing storey.' },
       limit: { type: 'integer', default: 1000, minimum: 1, maximum: 10000 },
@@ -78,6 +90,15 @@ const queryEntities: Tool = {
       .byType(...types);
     if (filters.length > 0) {
       for (const f of filters) results = results.where(f.psetName, f.propName, f.operator, f.value);
+    }
+    if (typeof input.selector === 'string' && input.selector.length > 0) {
+      // Reuses the SDK's QueryBuilder.select() (itself the shared @ifc-lite/
+      // query translator) rather than re-parsing selector text here. A
+      // SelectorUnsupportedError (or a parse failure) propagates as a thrown
+      // Error — the server's tool-call dispatch (`server.ts`) already turns
+      // any thrown Error into a clean `isError` result, so there is no need
+      // to catch it in this handler (#4094).
+      results = results.select(input.selector);
     }
     if (input.in_storey) {
       // No native byStorey on QueryBuilder — filter post-hoc against containment chain.

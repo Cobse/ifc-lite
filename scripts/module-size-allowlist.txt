@@ -205,8 +205,8 @@
    547 packages/cli/src/commands/ask.ts
    495 packages/cli/src/commands/create.ts
    458 packages/cli/src/commands/extract-entities.ts
-   485 packages/cli/src/commands/query.ts
-   790 packages/cli/src/headless-backend.ts
+   501 packages/cli/src/commands/query.ts
+   803 packages/cli/src/headless-backend.ts
    457 packages/codegen/src/express-parser.ts
    660 packages/codegen/src/rust-generator.ts
    640 packages/codegen/src/typescript-generator.ts
@@ -276,13 +276,13 @@
    416 packages/lens/src/types.ts
    812 packages/lists/src/engine.ts
    412 packages/lists/src/types.ts
-   467 packages/mcp/src/backend-query.ts
+   484 packages/mcp/src/backend-query.ts
    420 packages/mcp/src/overlay.ts
    544 packages/mcp/src/server.ts
    476 packages/mcp/src/tools/diff-fingerprints.ts
    470 packages/mcp/src/tools/layer-review.ts
    483 packages/mcp/src/tools/mutate.ts
-   627 packages/mcp/src/tools/query.ts
+   648 packages/mcp/src/tools/query.ts
    694 packages/mcp/src/tools/viewer.ts
    413 packages/mcp/src/transport/http.ts
    465 packages/merge/src/component-state.ts

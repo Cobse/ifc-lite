@@ -185,6 +185,9 @@ export { entityRefToString, stringToEntityRef, dispatchToBackend } from './types
 // ============================================================================
 
 export { QueryBuilder, QueryNamespace } from './namespaces/query.js';
+// Re-exported from @ifc-lite/query so a `.select()` caller can `instanceof`
+// check the failure without depending on @ifc-lite/query directly (#4094).
+export { SelectorUnsupportedError } from '@ifc-lite/query';
 export { ModelNamespace } from './namespaces/model.js';
 export { ViewerNamespace } from './namespaces/viewer.js';
 export { MutateNamespace } from './namespaces/mutate.js';

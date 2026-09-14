@@ -356,11 +356,24 @@ export class HeadlessBackend implements BimBackend {
             }
             return cached;
           };
+          // A `Qto_` filter (or any psetName with no matching property set)
+          // falls back to quantity sets — see `matchesPropertyFilter`. Cached
+          // the same way as `propsCache`; only populated on the fallback
+          // path since most filters resolve from properties alone.
+          const qsetsCache = new Map<number, QuantitySetData[]>();
+          const getCachedQuantities = (ref: EntityRef): QuantitySetData[] => {
+            let cached = qsetsCache.get(ref.expressId);
+            if (!cached) {
+              cached = getQuantities(ref);
+              qsetsCache.set(ref.expressId, cached);
+            }
+            return cached;
+          };
 
           for (const filter of descriptor.filters) {
             filtered = filtered.filter(entity => {
               const props = getCachedProps(entity.ref);
-              return matchesPropertyFilter(props, filter);
+              return matchesPropertyFilter(props, filter, getCachedQuantities(entity.ref));
             });
           }
         }

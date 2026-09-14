@@ -330,8 +330,25 @@ export function createQueryAdapter(
           }
           return cached;
         };
+        // A `Qto_` filter (or any psetName with no matching property set)
+        // falls back to quantity sets — see `matchesPropertyFilter` in
+        // `property-filter-match.ts`. Without this, a `Qto_WallBaseQuantities.
+        // NetVolume>1` filter (e.g. from the `#4094` selector adapter's
+        // `.select()`/`selector` param) silently matched zero entities even
+        // when the quantity was present.
+        const qsetsCache = new Map<number, QuantitySetData[]>();
+        const cachedQuantities = (ref: EntityRef): QuantitySetData[] => {
+          let cached = qsetsCache.get(ref.expressId);
+          if (!cached) {
+            cached = quantities(ref);
+            qsetsCache.set(ref.expressId, cached);
+          }
+          return cached;
+        };
         for (const filter of descriptor.filters) {
-          filtered = filtered.filter((entity) => matchesPropertyFilter(cachedProps(entity.ref), filter));
+          filtered = filtered.filter((entity) =>
+            matchesPropertyFilter(cachedProps(entity.ref), filter, cachedQuantities(entity.ref))
+          );
         }
       }
       // `&&` alone lets a NaN offset/limit through silently: every NaN

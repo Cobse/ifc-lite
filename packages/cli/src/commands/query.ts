@@ -10,6 +10,7 @@
  * classifications, attributes, relationships, type properties.
  */
 
+import { SelectorUnsupportedError } from '@ifc-lite/sdk';
 import { createHeadlessContext } from '../loader.js';
 import { printJson, getFlag, hasFlag, fatal, validateLimit } from '../output.js';
 import { STANDARD_QTO_MAP, sortEntities } from './query-aggregation.js';
@@ -53,6 +54,11 @@ export async function queryCommand(args: string[]): Promise<void> {
   const rowLimit = validateLimit(limit);
   const offset = validateLimit(getFlag(args, '--offset'), '--offset');
   const propFilter = getFlag(args, '--where');
+  // #4094: an IfcOpenShell-style selector, e.g. "IfcWall, Pset_WallCommon.
+  // FireRating=2HR". Its classes union with the same `types` list --type
+  // populates; its property comparisons AND with the query, as does --where's
+  // manual application to `q.toArray()` below.
+  const select = getFlag(args, '--select');
   const jsonOutput = hasFlag(args, '--json');
   const countOnly = hasFlag(args, '--count');
   const spatial = hasFlag(args, '--spatial');
@@ -296,6 +302,16 @@ export async function queryCommand(args: string[]): Promise<void> {
   if (type) {
     const types = type.split(',');
     q = q.byType(...types);
+  }
+  if (select) {
+    try {
+      q = q.select(select);
+    } catch (err) {
+      if (err instanceof SelectorUnsupportedError || err instanceof Error) {
+        fatal(err.message);
+      }
+      throw err;
+    }
   }
 
   // --storey filter: restrict to entities in a specific storey (or storeys

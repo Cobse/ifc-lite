@@ -63,6 +63,7 @@ const HELP = `
   Commands:
     info      <file.ifc>                          Model summary (schema, entities, storeys)
     query     <file.ifc> [--type T] [--json]      Query entities by type/properties/quantities
+              [--select "IfcWall, Pset_WallCommon.FireRating=2HR"]  IfcOpenShell-style selector (classes union with --type; properties AND with --where)
     props     <file.ifc> --id <N>                 All properties for a single entity
     export    <file.ifc> --format csv|json|ifc|obj|gltf|glb|jsonld|step|ifcx|usd|hbjson|dfjson  Export data / geometry / energy model
     schedule  <file.ifc> --type T --columns "H=path,..."  Tabular schedule of one class (csv/json/md/html)
