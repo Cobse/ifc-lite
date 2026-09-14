@@ -21,7 +21,7 @@ import {
   extractPropertiesOnDemand,
   extractQuantitiesOnDemand,
   extractClassificationsOnDemand,
-  extractMaterialsOnDemand,
+  extractAllMaterialsOnDemand,
   type IfcDataStore,
 } from '@ifc-lite/parser';
 import { stringifyValue, materialMatchCandidates } from './filter-match.js';
@@ -277,13 +277,19 @@ export function discoverFilterValues(store: IfcDataStore): FilterValueSchema {
   const predefinedTypes = new Set<string>();
   const propertyValues = new Map<string, Set<string>>();
 
-  // Same candidate set the `material=` selector matcher uses
-  // (`materialMatchCandidates`, filter-match.ts / filter-evaluate.ts) — Name
-  // AND Category — so a value this dropdown offers is always one the matcher
-  // actually matches, and vice versa (#4780/#4094).
+  // Same candidate set the `material=` selector matcher uses (`matNamesFor`
+  // in filter-evaluate.ts): every association (extractAllMaterialsOnDemand),
+  // not just the primary one, each expanded to Name + Category
+  // (materialMatchCandidates) — so a value this dropdown offers is always
+  // one the matcher actually matches, and vice versa. An entity whose
+  // second IfcRelAssociatesMaterial carries the value would otherwise be
+  // invisible here even though `material=` already matched it (#4780 gap,
+  // one level deeper).
   for (const id of cappedKeys(store.onDemandMaterialMap, store, VALUE_SAMPLE_CAP)) {
-    for (const name of materialMatchCandidates(extractMaterialsOnDemand(store, id))) {
-      materials.add(name);
+    for (const info of extractAllMaterialsOnDemand(store, id)) {
+      for (const name of materialMatchCandidates(info)) {
+        materials.add(name);
+      }
     }
   }
 
