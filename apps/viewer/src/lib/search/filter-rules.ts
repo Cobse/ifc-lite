@@ -205,9 +205,9 @@ export interface QuantityRule {
 }
 
 /** Match against an element's material name(s) — top-level material,
- *  layer / constituent / profile names, and list members. Multi-valued:
- *  the evaluator matches if ANY name satisfies a positive op, or NONE
- *  violates a negative op (ne / notContains). */
+ *  layer / constituent / profile names, list members — AND Category (#4094).
+ *  Multi-valued: the evaluator matches if ANY candidate satisfies a positive
+ *  op, or NONE violates a negative op (ne / notContains). */
 export interface MaterialRule {
   kind: 'material';
   op: StringOp;

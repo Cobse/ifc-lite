@@ -5799,6 +5799,7 @@
     "en: const",
     "filterByEntityFacet: function",
     "filterByFacet: function",
+    "flattenMaterials: function",
     "formatConstraint: function",
     "fr: const",
     "getConstraintMismatchReason: function",

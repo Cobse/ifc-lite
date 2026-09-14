@@ -18,6 +18,7 @@ import {
   IfcTypeEnum,
   IfcTypeEnumFromString,
   isBuildingLikeSpatialType,
+  isSpaceLikeSpatialType,
   isStoreyLikeSpatialType,
   type SpatialHierarchy,
   type SpatialNode,
@@ -120,8 +121,25 @@ export function buildSpatialHierarchy(
       byBuilding.set(node.entity_id, node.element_ids);
     } else if (typeEnum === IfcTypeEnum.IfcSite) {
       bySite.set(node.entity_id, node.element_ids);
-    } else if (typeEnum === IfcTypeEnum.IfcSpace) {
+    } else if (isSpaceLikeSpatialType(typeEnum)) {
       bySpace.set(node.entity_id, node.element_ids);
+    }
+  }
+
+  // The server serializes direct element containment separately from the
+  // spatial-node tree, so space-like child nodes are not present in its
+  // element_to_storey table. Restore the parser path's contract here: an
+  // IfcSpace / IfcSpatialZone directly below a storey resolves to that storey.
+  const elementToStorey = new Map<number, number>(dataModel.spatialHierarchy.element_to_storey);
+  for (const node of dataModel.spatialHierarchy.nodes) {
+    const parent = nodesMap.get(node.parent_id);
+    if (
+      !elementToStorey.has(node.entity_id)
+      && isSpaceLikeSpatialType(IfcTypeEnumFromString(node.type_name))
+      && parent
+      && isStoreyLikeSpatialType(IfcTypeEnumFromString(parent.type_name))
+    ) {
+      elementToStorey.set(node.entity_id, parent.entity_id);
     }
   }
 
@@ -174,7 +192,7 @@ export function buildSpatialHierarchy(
     bySpace,
     storeyElevations,
     storeyHeights,
-    elementToStorey: dataModel.spatialHierarchy.element_to_storey,
+    elementToStorey,
     getStoreyElements: (storeyId: number) => byStorey.get(storeyId) || [],
     // Canonical resolver shared with the parser path (#1841). This used to
     // always snap to the nearest storey while the parser returned null beyond

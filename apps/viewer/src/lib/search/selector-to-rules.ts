@@ -345,10 +345,9 @@ function adaptMaterial(op: SelectorOp, value: SelectorValue, text: string): Filt
   if (!stringOp) return unsupportedOp(text, op, value);
   const invalid = regexProblem(value);
   if (invalid) return `${quote(text)}: ${invalid}`;
-  // Matched against each material NAME the element exposes. IfcOpenShell also
-  // accepts a material Category here; ifc-lite does not read Category yet
-  // (#4094), so a Category-only match still finds nothing — stated in the docs
-  // rather than silently approximated.
+  // `filter-evaluate.ts` unions every material Name and Category into one
+  // candidate set, matching IfcOpenShell's `material=` without changing this
+  // adapter's rule shape (#4094).
   return Rule.material(stringOp, literalOf(value), regexValueKind(value));
 }
 
@@ -371,10 +370,10 @@ function adaptLocation(op: SelectorOp, value: SelectorValue, text: string): Filt
   }
   const setOp = setOpFor(op);
   if (!setOp) return `${quote(text)}: "location=" takes only "=" and "!="`;
-  // Storey NAME only, and only for elements the storey contains directly (or
-  // their aggregated parts) — measured in `filter-evaluate.test.ts`. An element
-  // inside a space on that storey does NOT match, which is where this differs
-  // from IfcOpenShell's "directly or indirectly" (#4094).
+  // Storey NAME. Includes direct elements, aggregated parts, and one hop
+  // through a containing IfcSpace / IfcSpatialZone; the widening is in the
+  // evaluator/prefilter, not this rule shape. Measured in
+  // `filter-evaluate.test.ts`; nested spaces do not extend the reach.
   return Rule.storey([value.text], setOp);
 }
 
@@ -397,4 +396,3 @@ function adaptTypeName(op: SelectorOp, value: SelectorValue, text: string): Filt
   if (invalid) return `${quote(text)}: ${invalid}`;
   return Rule.typeName(stringOp, literalOf(value), regexValueKind(value));
 }
-

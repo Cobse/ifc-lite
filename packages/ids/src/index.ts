@@ -80,6 +80,18 @@ export type {
 export { parseIDS, IDSParseError } from './parser/xml-parser.js';
 
 // ============================================================================
+// Material bridge
+// ============================================================================
+
+// Flattens the parser's hierarchical material graph into flat `{name,
+// category}` candidates, duplicating each Category under its own entry.
+// Shared with the viewer's selector-adapted `material` filter rule so
+// "does material=X match this element" has exactly one implementation
+// instead of the IDS material facet and the viewer growing separate,
+// driftable answers to the same question.
+export { flattenMaterials } from './bridge/materials.js';
+
+// ============================================================================
 // Validation
 // ============================================================================
 
