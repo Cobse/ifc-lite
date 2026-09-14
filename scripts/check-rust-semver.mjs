@@ -54,8 +54,11 @@
  * explicit failure with a named reason (#3194/#3200): an empty crate list, a
  * crate list that shrank below CRATE_FLOOR, a crate with no release on
  * crates.io to compare against, a missing `cargo-semver-checks` binary, an
- * unreadable workspace version, and a run that produced no verdict line. None
- * of those is a skip.
+ * unreadable workspace version, a run that produced no verdict line, and a run
+ * whose verdict was reached over ZERO executed lints (#4786). None of those is
+ * a skip. Invoking cargo-semver-checks and reading one run's output is
+ * `scripts/lib/cargo-semver-checks.mjs`; this file is the release policy that
+ * decides what to do with the verdict it returns.
  *
  * Run: `node scripts/check-rust-semver.mjs`  (`pnpm check:rust-semver`)
  * Self-test: `node --test scripts/check-rust-semver.test.mjs`
@@ -65,6 +68,12 @@ import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CRATES, readWorkspaceVersion } from './lib/crates-io.mjs';
+import {
+  SEMVER_RELEASE_TYPE,
+  SEMVER_TOOLCHAIN,
+  interpretRun,
+  runSemverChecks as realRunSemverChecks,
+} from './lib/cargo-semver-checks.mjs';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -138,30 +147,6 @@ export function isVersionAdvanced(baseline, current) {
 }
 
 const RANK = { none: 0, patch: 1, minor: 2, major: 3 };
-
-/**
- * The verdict of one `cargo-semver-checks` run.
- *
- * The exit code alone is NOT the signal: it is non-zero both for "this needs a
- * major and you wrote a minor" and for "rustdoc failed to build". Reading the
- * second as the first reports a semver break nobody can fix; reading it as a
- * pass is the vacuous green this gate exists to refuse. So the summary line
- * must be present and recognised, and anything else is NO_VERDICT, which
- * fails.
- */
-export function interpretRun({ status, output }) {
-  if (/Summary\s+no semver update required/.test(output)) {
-    return { required: 'patch', reason: null };
-  }
-  const requires = output.match(/Summary\s+semver requires new (major|minor) version/);
-  if (requires) return { required: requires[1], reason: null };
-  return {
-    required: null,
-    reason:
-      `NO_VERDICT: cargo-semver-checks exited ${status} without a "Summary" line — ` +
-      'it could not build or compare the crate, so nothing was checked',
-  };
-}
 
 /**
  * @param {object} deps
@@ -261,9 +246,33 @@ export function checkRustSemver({ crates, workspaceVersion, latestPublished, run
       continue;
     }
 
-    const { required, reason } = interpretRun(runSemverChecks(crate, baseline));
+    const { required, executed, reason } = interpretRun(runSemverChecks(crate, baseline));
     if (reason) {
       failures.push(`${crate}: ${reason}`);
+      continue;
+    }
+
+    // A verdict is only worth as much as the scan behind it (#4786). The floor
+    // is HERE, beside the other three vacuity refusals above, and not on the
+    // summary line's wording, because what clears a crate is
+    // `RANK[required] <= RANK[carried]` — so on a release carrying a major,
+    // `requires minor` clears it just as `requires patch` does. Keying the
+    // floor on "the text read clean" would leave every verdict below the
+    // carried bump able to pass over a scan that examined nothing.
+    if (!executed) {
+      failures.push(
+        `${crate}: NO_CHECKS_EXECUTED: cargo-semver-checks ` +
+          (executed === null
+            ? 'printed no "N checks:" tally, so nothing in its output says a single lint ran'
+            : 'reported 0 executed lints') +
+          `, so this crate's API was never compared and its "${required}" verdict stands over ` +
+          'nothing. The tool skips its whole lint set when the release it is asked about is too ' +
+          `big to refuse, and this gate passes \`--release-type ${SEMVER_RELEASE_TYPE}\` ` +
+          'precisely so that cannot happen; a zero means that argument did not reach it. A ' +
+          "missing tally instead means the tool's output format moved, and executedCheckCount " +
+          'in scripts/lib/cargo-semver-checks.mjs has to follow it rather than the floor being ' +
+          'dropped.'
+      );
       continue;
     }
     checked.push(`${crate} ${baseline} -> ${workspaceVersion} (${carried}; requires ${required})`);
@@ -309,34 +318,6 @@ function realLatestPublished(crate) {
   } catch {
     return null;
   }
-}
-
-/**
- * `rust-toolchain.toml` pins this workspace to a dated nightly, and
- * cargo-semver-checks refuses it outright ("rustc version is not high enough:
- * >=1.93.0 needed, got 1.93.0-nightly"). Left alone that produces no Summary
- * line, so the gate would fail with NO_VERDICT on every crate — fail-closed,
- * but for the wrong reason and with no way to act on it. So the toolchain is
- * named explicitly, and overridable for the day stable moves under us.
- */
-const SEMVER_TOOLCHAIN = process.env.IFC_LITE_SEMVER_TOOLCHAIN || 'stable';
-
-function realRunSemverChecks(crate, baseline) {
-  const res = spawnSync(
-    'cargo',
-    [
-      `+${SEMVER_TOOLCHAIN}`,
-      'semver-checks',
-      '--package',
-      crate,
-      '--baseline-version',
-      baseline,
-      '--color',
-      'never',
-    ],
-    { cwd: REPO_ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }
-  );
-  return { status: res.status ?? -1, output: `${res.stdout || ''}${res.stderr || ''}` };
 }
 
 function main() {
