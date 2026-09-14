@@ -5,6 +5,9 @@
 /**
  * Production-observing coverage for the ModelMetadataPanel statistics row.
  * The fixture has seven physical elements, but #3 has no representation.
+ * #8 is an `IFCSPACE` — schema-legal, non-physical, and meshed — guarding
+ * the schema filter (`collectPhysicalEntityIds`) independently of the shape
+ * filter: a row can pass the shape test and still not belong in the count.
  */
 
 import '@/test/setup-dom.js';
@@ -25,6 +28,7 @@ const TYPES = new Map<number, string>([
   [5, 'IFCDOOR'],
   [6, 'IFCWINDOW'],
   [7, 'IFCCOLUMN'],
+  [8, 'IFCSPACE'],
 ]);
 const BY_TYPE = new Map<string, number[]>();
 for (const [id, type] of TYPES) BY_TYPE.set(type, [...(BY_TYPE.get(type) ?? []), id]);
@@ -104,6 +108,24 @@ describe('ModelMetadataPanel — Elements with Geometry', () => {
     } as never;
     const container = render(model({ geometryResult, idOffset: offset, loadState: 'complete' }));
     assert.equal(statistic(container, 'Elements with Geometry'), '6');
+  });
+
+  it('excludes a meshed IFCSPACE — the schema filter, not just the shape filter, keeps it out', () => {
+    // #8 passes the shape test (it has a mesh) but must still be excluded:
+    // the schema filter (`collectPhysicalEntityIds`) is what keeps a
+    // non-physical, shape-bearing row out of "Elements with Geometry", and a
+    // fixture where every meshed id is also physical cannot exercise it.
+    const offset = federationRegistry.getOffset('stats-model') ?? 0;
+    const geometryResult = {
+      meshes: [1, 2, 4, 5, 6, 8].map((expressId) => ({ expressId: expressId + offset })),
+      instancedGeometryHashes: new Map([[7 + offset, 0n]]),
+    } as never;
+    const container = render(model({ geometryResult, idOffset: offset, loadState: 'complete' }));
+    assert.equal(
+      statistic(container, 'Elements with Geometry'),
+      '6',
+      'the meshed IFCSPACE must not raise the count above the six shaped physical elements',
+    );
   });
 
   it('treats completed null geometry as known-empty', () => {
