@@ -23,6 +23,7 @@ import { Layers2, RefreshCw, X } from 'lucide-react';
 import { useViewerStore } from '@/store';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { useTranslation } from '@/i18n';
 
 export interface MergeLayersBannerProps {
   /**
@@ -38,6 +39,7 @@ export function MergeLayersBanner({ onReload }: MergeLayersBannerProps) {
   const pending = useViewerStore((s) => s.mergeLayersPendingReload);
   const merging = useViewerStore((s) => s.mergeLayers);
   const dismiss = useViewerStore((s) => s.clearMergeLayersPendingReload);
+  const { t } = useTranslation();
 
   const handleReload = useCallback(() => {
     if (onReload) {
@@ -76,10 +78,10 @@ export function MergeLayersBanner({ onReload }: MergeLayersBannerProps) {
         </div>
         <div className="flex flex-col leading-tight min-w-0">
           <span className="text-xs font-semibold text-foreground">
-            Merge Multilayer Walls {merging ? 'enabled' : 'disabled'}
+            {merging ? t('mergeLayersBanner.titleEnabled') : t('mergeLayersBanner.titleDisabled')}
           </span>
           <span className="text-[11px] text-muted-foreground truncate">
-            Reload model to apply the new setting.
+            {t('mergeLayersBanner.subtitle')}
           </span>
         </div>
         <div className="flex items-center gap-1.5 ml-2">
@@ -90,14 +92,14 @@ export function MergeLayersBanner({ onReload }: MergeLayersBannerProps) {
             onClick={handleReload}
           >
             <RefreshCw className="h-3.5 w-3.5" />
-            Reload
+            {t('mergeLayersBanner.reloadButton')}
           </Button>
           <Button
             size="icon-sm"
             variant="ghost"
             className="h-7 w-7"
             onClick={dismiss}
-            aria-label="Dismiss reload reminder"
+            aria-label={t('mergeLayersBanner.dismissAriaLabel')}
           >
             <X className="h-3.5 w-3.5" />
           </Button>
