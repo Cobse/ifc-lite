@@ -282,10 +282,10 @@ for (const w of warnings) console.log(`  WARNING: ${w}`);
 if (
   opts.ci &&
   production.length > 0 &&
-  production.every((e) => isVersionOnlyManifestDiff(e.path, gitOrDie(['diff', '-U0', mergeBase, headSha, '--', e.path])))
+  production.every((e) => isVersionOnlyManifestDiff(e.path, gitOrDie(['diff', '-U0', mergeBase, headSha, '--', e.path]), e.path === 'rust-major-offset.json' ? { beforeText: gitOrDie(['show', `${mergeBase}:${e.path}`]), afterText: gitOrDie(['show', `${headSha}:${e.path}`]) } : undefined))
 ) {
   notApplicable(
-    'every production file is a package.json/Cargo.toml version-only bump ' +
+    'every production file is a package.json/Cargo.toml/rust-major-offset.json version-only bump ' +
       '(release PR shape); nothing a test could observe.',
   );
 }

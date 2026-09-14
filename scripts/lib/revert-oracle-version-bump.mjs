@@ -32,6 +32,8 @@
 
 const NPM_MANIFEST_RE = /(^|\/)package\.json$/;
 const CARGO_MANIFEST_RE = /(^|\/)Cargo\.toml$/;
+const RUST_MAJOR_OFFSET_PATH = 'rust-major-offset.json';
+const RUST_MAJOR_OFFSET_KEYS = ['$comment', 'majorOffset', 'reason', 'refs'];
 
 /** Split zero-context (`git diff -U0`) output into per-hunk removed/added line groups. */
 function extractHunks(diffText) {
@@ -89,15 +91,52 @@ function cargoPathVersionOnly(oldLine, newLine) {
   return oldNorm === newNorm;
 }
 
+/** Parse the repository's canonical JSON form, rejecting duplicate keys. */
+function parseCanonicalJson(text) {
+  if (typeof text !== 'string') return null;
+  try {
+    const value = JSON.parse(text);
+    if (JSON.stringify(value, null, 2) + '\n' !== text) return null;
+    return value;
+  } catch (error) {
+    if (error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+/** A complete, narrowly validated crate-major-offset increment. */
+function rustMajorOffsetOnly(beforeText, afterText) {
+  const before = parseCanonicalJson(beforeText);
+  const after = parseCanonicalJson(afterText);
+  if (!before || !after || Array.isArray(before) || Array.isArray(after)) return false;
+  if (Object.keys(before).join('\0') !== RUST_MAJOR_OFFSET_KEYS.join('\0')) return false;
+  if (Object.keys(after).join('\0') !== RUST_MAJOR_OFFSET_KEYS.join('\0')) return false;
+  if (before.$comment !== after.$comment) return false;
+  if (!Number.isSafeInteger(before.majorOffset) || before.majorOffset < 0) return false;
+  if (!Number.isSafeInteger(after.majorOffset) || after.majorOffset !== before.majorOffset + 1) return false;
+  if (typeof before.reason !== 'string' || typeof after.reason !== 'string') return false;
+  if (!after.reason.startsWith(before.reason) || after.reason.length === before.reason.length) return false;
+  if (!Array.isArray(before.refs) || !Array.isArray(after.refs)) return false;
+  if (after.refs.length <= before.refs.length) return false;
+  if (!before.refs.every((ref, i) => typeof ref === 'string' && after.refs[i] === ref)) return false;
+  return after.refs.slice(before.refs.length).every((ref) => typeof ref === 'string' && /^#\d+$/.test(ref));
+}
+
 /**
  * @param {string} path repo-relative path of the changed file
  * @param {string} diffText `git diff -U0 <base> <head> -- <path>` output
- * @returns {boolean} true only if every changed line is a version-literal
+ * @param {{ beforeText?: string, afterText?: string }} [contents] complete
+ *   merge-base/head contents, required for rust-major-offset.json
+ * @returns {boolean} true only if every change is a version increment
  *   substitution in a position this module recognizes as the file's own (or,
  *   for Cargo.toml, a path-dependency's) version — never a dependency add/
  *   remove, script, export, or any other field.
  */
-export function isVersionOnlyManifestDiff(path, diffText) {
+export function isVersionOnlyManifestDiff(path, diffText, contents = {}) {
+  if (path === RUST_MAJOR_OFFSET_PATH) {
+    return extractHunks(diffText).length > 0
+      && rustMajorOffsetOnly(contents.beforeText, contents.afterText);
+  }
   const isNpm = NPM_MANIFEST_RE.test(path);
   const isCargo = CARGO_MANIFEST_RE.test(path);
   if (!isNpm && !isCargo) return false;
