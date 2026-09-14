@@ -91,6 +91,57 @@ import { decodeParquetGeometry } from '@ifc-lite/server-client';
 const meshes = await decodeParquetGeometry(arrayBuffer);
 ```
 
+## Which frame the meshes are in
+
+The one-shot parse responses and the Parquet metadata headers carry
+`mesh_coordinate_space`, the frame the server baked the vertices into
+(`parseParquetStream`'s events do not carry it):
+
+| Value | What was subtracted |
+|---|---|
+| `site_local` | the `IfcSite` placement's translation, and its rotation removed |
+| `model_rtc` | a detected model-level anchor; no rotation removed |
+| `raw_ifc` | nothing; vertices are in raw IFC world space |
+
+It is typed `MeshCoordinateSpace | undefined`, so a `switch` over the three is
+exhaustive. **Absent means the server did not say** - either it predates the
+tag, or it sent a value outside the three, which this client drops (with a
+console warning) rather than passing off as a tier. Handle absence; do not
+treat it as `raw_ifc`.
+
+```typescript
+import {
+  asMeshCoordinateSpace,
+  IfcServerClient,
+  MESH_COORDINATE_SPACES,
+  withNarrowedCoordinateSpace,
+  type MeshCoordinateSpace,
+} from '@ifc-lite/server-client';
+
+const client = new IfcServerClient({ baseUrl: 'https://your-server.com' });
+const result = await client.parseParquet(file);
+
+switch (result.mesh_coordinate_space) {
+  case 'site_local': /* result.site_transform puts it back in world space */ break;
+  case 'model_rtc':  /* metadata.coordinate_info.origin_shift is the anchor */ break;
+  case 'raw_ifc':    /* already world space */ break;
+  case undefined:    /* the server did not declare one */ break;
+}
+
+// Going the other way, from a string you got from somewhere else:
+const fromElsewhere: unknown = 'site_local';
+const space: MeshCoordinateSpace | undefined = asMeshCoordinateSpace(fromElsewhere);
+
+// And for a wire object you parsed yourself, e.g. a cached JSON response.
+// It MUTATES the object and hands it back with the tag retyped:
+const checked = withNarrowedCoordinateSpace<{ mesh_coordinate_space?: unknown }>(
+  JSON.parse('{"mesh_coordinate_space":"raw_ifc"}')
+);
+
+// readonly ['site_local', 'model_rtc', 'raw_ifc']
+console.log(space, checked.mesh_coordinate_space, MESH_COORDINATE_SPACES);
+```
+
 ## API
 
 See the [Server Guide](https://ifclite.dev/docs/guide/server/) and [API Reference](https://ifclite.dev/docs/api/typescript/#ifc-liteserver-client).

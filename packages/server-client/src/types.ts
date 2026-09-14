@@ -4,6 +4,8 @@
 
 import type { Georeferencing } from './georeferencing.js';
 export type { Georeferencing } from './georeferencing.js';
+import type { MeshCoordinateSpace } from './mesh-coordinate-space.js';
+export { MESH_COORDINATE_SPACES, asMeshCoordinateSpace, withNarrowedCoordinateSpace, type MeshCoordinateSpace } from './mesh-coordinate-space.js';
 
 /**
  * Configuration options for the IFC server client.
@@ -203,10 +205,12 @@ export interface ParseResponse {
   /** All meshes extracted from the IFC file */
   meshes: MeshData[];
   /**
-   * Coordinate space of serialized mesh vertices: `site_local`,
-   * `model_rtc`, or `raw_ifc`. Absent on older servers.
+   * Coordinate space of serialized mesh vertices. Absent on older servers,
+   * and on a server that sent a value outside the three tiers (see
+   * [`MeshCoordinateSpace`]): the client refuses to pass an unrecognised tag
+   * off as one of them.
    */
-  mesh_coordinate_space?: string;
+  mesh_coordinate_space?: MeshCoordinateSpace;
   /** IfcSite ObjectPlacement as a column-major 4×4 matrix (metres). */
   site_transform?: number[];
   /** IfcBuilding ObjectPlacement as a column-major 4×4 matrix (metres). */
@@ -338,8 +342,9 @@ export interface ParquetMetadataHeader {
   metadata: ModelMetadata;
   /** Processing statistics */
   stats: ProcessingStats;
-  /** Declares the coordinate space used by serialized mesh vertices. */
-  mesh_coordinate_space?: string;
+  /** Declares the coordinate space used by serialized mesh vertices; absent
+   *  when the server did not say, or said something outside the three tiers. */
+  mesh_coordinate_space?: MeshCoordinateSpace;
   /** IfcSite ObjectPlacement as a column-major 4x4 matrix (in meters). */
   site_transform?: number[];
   /** IfcBuilding ObjectPlacement as a column-major 4x4 matrix (in meters). */
@@ -361,8 +366,9 @@ export interface ParquetParseResponse {
   cache_key: string;
   /** All meshes extracted from the IFC file */
   meshes: MeshData[];
-  /** Declares the coordinate space used by serialized mesh vertices. */
-  mesh_coordinate_space?: string;
+  /** Declares the coordinate space used by serialized mesh vertices; absent
+   *  when the server did not say, or said something outside the three tiers. */
+  mesh_coordinate_space?: MeshCoordinateSpace;
   /** IfcSite ObjectPlacement as a column-major 4x4 matrix (in meters). */
   site_transform?: number[];
   /** IfcBuilding ObjectPlacement as a column-major 4x4 matrix (in meters). */
@@ -408,8 +414,9 @@ export interface OptimizedParquetMetadataHeader {
   metadata: ModelMetadata;
   /** Processing statistics */
   stats: ProcessingStats;
-  /** Declares the coordinate space used by serialized mesh vertices. */
-  mesh_coordinate_space?: string;
+  /** Declares the coordinate space used by serialized mesh vertices; absent
+   *  when the server did not say, or said something outside the three tiers. */
+  mesh_coordinate_space?: MeshCoordinateSpace;
   /** IfcSite ObjectPlacement as a column-major 4x4 matrix (in meters). */
   site_transform?: number[];
   /** IfcBuilding ObjectPlacement as a column-major 4x4 matrix (in meters). */
@@ -428,8 +435,9 @@ export interface OptimizedParquetParseResponse {
   cache_key: string;
   /** All meshes extracted from the IFC file */
   meshes: MeshData[];
-  /** Declares the coordinate space used by serialized mesh vertices. */
-  mesh_coordinate_space?: string;
+  /** Declares the coordinate space used by serialized mesh vertices; absent
+   *  when the server did not say, or said something outside the three tiers. */
+  mesh_coordinate_space?: MeshCoordinateSpace;
   /** IfcSite ObjectPlacement as a column-major 4x4 matrix (in meters). */
   site_transform?: number[];
   /** IfcBuilding ObjectPlacement as a column-major 4x4 matrix (in meters). */

@@ -2,20 +2,20 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-import type {
-  ErrorResponse,
-  HealthResponse,
-  MetadataResponse,
-  OptimizedParquetMetadataHeader,
-  OptimizedParquetParseResponse,
-  ParquetBatch,
-  ParquetMetadataHeader,
-  ParquetParseResponse,
-  ParquetStreamResult,
-  ParseResponse,
-  ServerConfig,
-  StreamEvent,
-  SymbolicData,
+import { withNarrowedCoordinateSpace,
+  type ErrorResponse,
+  type HealthResponse,
+  type MetadataResponse,
+  type OptimizedParquetMetadataHeader,
+  type OptimizedParquetParseResponse,
+  type ParquetBatch,
+  type ParquetMetadataHeader,
+  type ParquetParseResponse,
+  type ParquetStreamResult,
+  type ParseResponse,
+  type ServerConfig,
+  type StreamEvent,
+  type SymbolicData,
 } from './types.js';
 import { decodeParquetGeometry, decodeOptimizedParquetGeometry, isParquetAvailable } from './parquet-decoder.js';
 import { parseQuery } from './parse-query.js';
@@ -209,7 +209,7 @@ export class IfcServerClient {
       throw await this.handleError(response);
     }
 
-    return response.json();
+    return withNarrowedCoordinateSpace<ParseResponse>(await response.json());
   }
 
   /**
@@ -428,7 +428,7 @@ export class IfcServerClient {
       throw new Error('Missing X-IFC-Metadata header in cached geometry response');
     }
 
-    const metadata: ParquetMetadataHeader = JSON.parse(metadataHeader);
+    const metadata = withNarrowedCoordinateSpace<ParquetMetadataHeader>(JSON.parse(metadataHeader));
 
     // Get binary payload
     const payloadBuffer = await response.arrayBuffer();
@@ -484,7 +484,7 @@ export class IfcServerClient {
       throw new Error('Missing X-IFC-Metadata header in Parquet response');
     }
 
-    const metadata: ParquetMetadataHeader = JSON.parse(metadataHeader);
+    const metadata = withNarrowedCoordinateSpace<ParquetMetadataHeader>(JSON.parse(metadataHeader));
 
     // Sanity check: the server cache key is the file hash plus request
     // suffixes (`{hash}-{opening_filter}[-q{level}]`), so verify derivation,
@@ -775,7 +775,7 @@ export class IfcServerClient {
       throw new Error('Missing X-IFC-Metadata header in optimized Parquet response');
     }
 
-    const metadata: OptimizedParquetMetadataHeader = JSON.parse(metadataHeader);
+    const metadata = withNarrowedCoordinateSpace<OptimizedParquetMetadataHeader>(JSON.parse(metadataHeader));
 
     // Get binary payload
     const payloadBuffer = await response.arrayBuffer();
@@ -994,7 +994,7 @@ export class IfcServerClient {
       throw await this.handleError(response);
     }
 
-    return response.json();
+    return withNarrowedCoordinateSpace<ParseResponse>(await response.json());
   }
 
   /**

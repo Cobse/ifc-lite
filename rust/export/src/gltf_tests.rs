@@ -2359,7 +2359,7 @@ fn a_georeferenced_rotated_sibling_still_instances() {
 
     let mut ch = Chunker::new(12, usize::MAX, None);
     let (gltf, _stats) =
-        build_gltf(&views, false, None, true, false, rtc, None, false, &mut ch);
+        build_gltf(&views, false, None, true, false, MeshCoordinateSpace::ModelRtc, rtc, None, false, &mut ch);
 
     assert_eq!(
         gltf.meshes.len(),
@@ -2486,7 +2486,7 @@ fn a_mixed_group_instances_its_exact_members_and_flattens_the_rigid_one() {
 
     let mut ch = Chunker::new(12, usize::MAX, None);
     let (gltf, _stats) =
-        build_gltf(&views, false, None, true, false, [0.0, 0.0, 0.0], None, false, &mut ch);
+        build_gltf(&views, false, None, true, false, MeshCoordinateSpace::RawIfc, [0.0, 0.0, 0.0], None, false, &mut ch);
 
     assert_eq!(
         gltf.meshes.len(),
@@ -2786,7 +2786,8 @@ fn a_yawed_site_still_instances_its_repeated_shape() {
     ];
     let mut flat_ch = Chunker::new(12, usize::MAX, None);
     let (flat_gltf, _) = build_gltf(
-        &flat_views, false, None, true, false, rtc, Some(&site_zup), false, &mut flat_ch,
+        &flat_views, false, None, true, false, MeshCoordinateSpace::SiteLocal, rtc, Some(&site_zup), false,
+        &mut flat_ch,
     );
     assert_eq!(
         flat_gltf.meshes.len(),
@@ -2800,7 +2801,8 @@ fn a_yawed_site_still_instances_its_repeated_shape() {
     ];
     let mut ch = Chunker::new(12, usize::MAX, None);
     let (gltf, _stats) = build_gltf(
-        &views, false, None, true, false, rtc, Some(&site_zup), false, &mut ch,
+        &views, false, None, true, false, MeshCoordinateSpace::SiteLocal, rtc, Some(&site_zup), false,
+        &mut ch,
     );
 
     assert_eq!(

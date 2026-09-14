@@ -218,6 +218,66 @@ const result = await client.parseParquetOptimized(file);
 //   template mesh, placed per instance by an origin + a 3x3 rotation
 ```
 
+#### Which frame the meshes are in
+
+The one-shot parse responses and the Parquet metadata headers carry
+`mesh_coordinate_space`, declaring what the server subtracted before writing
+the f32 vertices:
+
+| Value | What was subtracted |
+|---|---|
+| `site_local` | the `IfcSite` placement's translation, and its rotation removed (`site_transform` puts it back) |
+| `model_rtc` | a detected model-level anchor, reported as `metadata.coordinate_info.origin_shift`; no rotation removed |
+| `raw_ifc` | nothing; vertices are in raw IFC world space |
+
+The field is typed `MeshCoordinateSpace | undefined` (it was `string` until
+the union landed), so a `switch` over the three tiers is exhaustive and a typo
+in a comparison is a compile error. Two things make absence load-bearing rather
+than a nuisance:
+
+- a server older than the tag sends nothing;
+- a server that sends a value outside the three has it DROPPED by the client,
+  with a console warning, rather than handed on looking like a tier. The Rust
+  side spells the tag `site_local` / `model_rtc` / `raw_ifc` and its own
+  deserializer rejects anything else, so a fourth value means a producer that
+  hand-rolled the JSON.
+
+So handle `undefined`; do not read it as `raw_ifc`.
+
+**The streaming API carries no tag at all.** `parseParquetStream`'s events and
+its `ParquetStreamResult` have no `mesh_coordinate_space` field, so a streamed
+model gives you no way to learn which frame its vertices are in. Use one of the
+one-shot methods when you need to know. This gap is tracked on issue #4611.
+
+```typescript
+import {
+  asMeshCoordinateSpace,
+  MESH_COORDINATE_SPACES,
+  withNarrowedCoordinateSpace,
+  type MeshCoordinateSpace,
+} from '@ifc-lite/server-client';
+
+const result = await client.parseParquet(file);
+if (result.mesh_coordinate_space === 'site_local') {
+  // `site_transform` is the IfcSite placement to put back to reach world space.
+  console.log(result.site_transform);
+}
+
+// From a string you obtained elsewhere (a config value, another server):
+const fromConfig: unknown = 'model_rtc';
+const space: MeshCoordinateSpace | undefined = asMeshCoordinateSpace(fromConfig);
+
+// For a wire object you parsed yourself, e.g. a cached JSON body. MUTATES the
+// object and returns it with the tag retyped, dropping an unrecognised one:
+const cachedBody = '{"mesh_coordinate_space":"raw_ifc"}';
+const checked = withNarrowedCoordinateSpace<{ mesh_coordinate_space?: unknown }>(
+  JSON.parse(cachedBody)
+);
+
+// readonly ['site_local', 'model_rtc', 'raw_ifc']
+console.log(space, checked.mesh_coordinate_space, MESH_COORDINATE_SPACES);
+```
+
 #### parseParquetStream
 
 Progressive rendering for large files (>50MB).

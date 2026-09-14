@@ -203,6 +203,10 @@ pub fn export_glb_from_meshes(
             None,
             lit,
             emissive,
+            // No `ProcessingResult` reaches this path, so there is no tag
+            // either. `RawIfc` is what the absent site placement and the zero
+            // RTC below already say: nothing was subtracted, nothing rotated.
+            ifc_lite_processing::MeshCoordinateSpace::RawIfc,
             [0.0, 0.0, 0.0],
             // No `ProcessingResult` reaches this path, so there is no site
             // placement available to restore.

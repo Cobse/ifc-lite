@@ -3,6 +3,8 @@
 //!
 //! Included by `matrix.rs` with `#[path]`, which is the house pattern for a
 //! module whose bulk is `#[cfg(test)]`.
+
+use ifc_lite_processing::MeshCoordinateSpace;
 #[test]
 fn occurrence_matrix_reconstructs_rotated_instance_under_national_grid_rtc() {
     // A ROTATED occurrence at NATIONAL-GRID coordinates: the node matrix is built
@@ -97,7 +99,15 @@ fn occurrence_matrix_reconstructs_rotated_instance_under_national_grid_rtc() {
     };
     let m_ref_inv = super::affine_inverse(&super::compose_world_meta(&meta(m_ref)))
         .expect("template placement invertible");
-    let node = super::occurrence_node_matrix(&meta(m_k), &m_ref_inv, rtc, None, origin_yup, scene_center);
+    let node = super::occurrence_node_matrix(
+        &meta(m_k),
+        &m_ref_inv,
+        MeshCoordinateSpace::ModelRtc,
+        rtc,
+        None,
+        origin_yup,
+        scene_center,
+    );
 
     // Reconstruct: world = scene_center(root) + node(col-major) · template_local.
     let mut max_err = 0.0f64;
@@ -212,6 +222,7 @@ fn occurrence_matrix_reconstructs_a_translated_sibling_under_a_yawed_site() {
     let node = super::occurrence_node_matrix(
         &meta(m_k),
         &m_ref_inv,
+        MeshCoordinateSpace::SiteLocal,
         rtc,
         Some(&site_zup),
         origin_yup,
@@ -322,7 +333,15 @@ fn zero_rtc_places_non_identity_occurrence() {
     let m_k = super::compose_world_meta(&meta(
         super::mat4_mul(&translate([7.0, -3.0, 2.0]), &rot_z(25.0)),
     ));
-    let node = super::occurrence_node_matrix(&meta(m_k), &m_ref_inv, [0.0; 3], None, [0.0; 3], [0.0; 3]);
+    let node = super::occurrence_node_matrix(
+        &meta(m_k),
+        &m_ref_inv,
+        MeshCoordinateSpace::RawIfc,
+        [0.0; 3],
+        None,
+        [0.0; 3],
+        [0.0; 3],
+    );
 
     let canonical = [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.3, 0.4, 0.5]];
     let mut max_err = 0.0f64;
@@ -342,4 +361,55 @@ fn zero_rtc_places_non_identity_occurrence() {
     }
     // The node matrix is downcast to f32, so the bound is f32 precision, not f64.
     assert!(max_err < 1e-4, "zero-rtc non-identity occurrence mis-placed by {max_err}");
+}
+
+/// #4611: the baked basis is decided by the coordinate-space TAG, not by
+/// whether a site placement happens to be at hand.
+///
+/// `baked_basis_yup` used to infer the tier from `site_zup.is_some()`. That
+/// read the right answer only because `site_restore` filtered the placement by
+/// the very same tag one call up, so the tier rule was written twice, once as
+/// an enum comparison and once as an `Option` test, with nothing tying them
+/// together. Either could have moved alone. The site rotation folded into this
+/// basis is worth metres of occurrence placement under a yawed site (#4118), so
+/// "which tier is this" is not a question to answer twice.
+///
+/// Mutation: restore the inference (`site_zup.map_or(RawIfc, |_| SiteLocal)`)
+/// inside `baked_basis_yup` while keeping the parameter, and the first
+/// assertion fails - a `model_rtc` model is handed the site-local basis.
+#[test]
+fn baked_basis_reads_the_coordinate_space_tag_not_the_site_placement() {
+    let yaw = 34f64.to_radians();
+    let (c, s) = (yaw.cos(), yaw.sin());
+    let rtc = [2_600_000.0f64, 1_200_000.0, 400.0];
+    // Column-major, as `ProcessingResult::site_transform` stores it: a real
+    // yaw, so folding it in or not is a visible difference rather than a
+    // rounding one.
+    #[rustfmt::skip]
+    let site_zup: Vec<f64> = vec![
+        c,      s,      0.0,    0.0,
+        -s,     c,      0.0,    0.0,
+        0.0,    0.0,    1.0,    0.0,
+        rtc[0], rtc[1], rtc[2], 1.0,
+    ];
+
+    // `model_rtc` removed no rotation, whatever placement the file authored.
+    assert_eq!(
+        super::baked_basis_yup(MeshCoordinateSpace::ModelRtc, rtc, Some(&site_zup)),
+        super::baked_basis_yup(MeshCoordinateSpace::ModelRtc, rtc, None),
+        "a model_rtc model must get the no-rotation basis even with a site placement in hand"
+    );
+    assert_eq!(
+        super::baked_basis_yup(MeshCoordinateSpace::RawIfc, rtc, Some(&site_zup)),
+        super::baked_basis_yup(MeshCoordinateSpace::RawIfc, rtc, None),
+        "a raw_ifc model must get the no-rotation basis even with a site placement in hand"
+    );
+    // And the tier that DID remove one still gets it: an assertion that only
+    // said "ignore the placement" would also pass if the rotation were never
+    // folded in at all, which is the #4118 regression.
+    assert_ne!(
+        super::baked_basis_yup(MeshCoordinateSpace::SiteLocal, rtc, Some(&site_zup)),
+        super::baked_basis_yup(MeshCoordinateSpace::ModelRtc, rtc, Some(&site_zup)),
+        "site_local must fold the site rotation in; the two tiers cannot share a basis"
+    );
 }

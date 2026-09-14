@@ -1031,18 +1031,22 @@ fn view_ok(v: &MeshView) -> bool {
 /// only the plain one meant the same file came out kilometres apart depending
 /// on whether it was large enough to stream. One reader is the cheapest way to
 /// stop that recurring.
-fn site_restore(result: &ProcessingResult) -> ([f64; 3], Option<Vec<f64>>) {
+fn site_restore(result: &ProcessingResult) -> (MeshCoordinateSpace, [f64; 3], Option<Vec<f64>>) {
     let rtc_zup = result.metadata.coordinate_info.origin_shift;
     // Only the site-local space removed a rotation, so only there is there one
-    // to put back. `model_rtc` subtracts a detected translation with no
-    // rotation, and `raw_ifc` subtracts nothing — but both still need the
-    // translation restored, which is why `rtc_zup` returns unconditionally.
+    // to put back on the scene ROOT. `model_rtc` subtracts a detected
+    // translation with no rotation, and `raw_ifc` subtracts nothing — but both
+    // still need the translation restored, which is why `rtc_zup` returns
+    // unconditionally.
     let site_zup = if result.mesh_coordinate_space == MeshCoordinateSpace::SiteLocal {
         result.site_transform.clone()
     } else {
         None
     };
-    (rtc_zup, site_zup)
+    // The tag travels with them. `baked_basis_yup` used to re-derive it from
+    // `site_zup.is_some()`, which is this same `if` written a second time in a
+    // second vocabulary (#4611); it now reads the tag itself.
+    (result.mesh_coordinate_space, rtc_zup, site_zup)
 }
 
 /// Build the scene root: the model centre, plus the site placement the baker
@@ -1118,6 +1122,7 @@ fn build_gltf(
     model_id: Option<&str>,
     lit: bool,
     emissive: bool,
+    space: MeshCoordinateSpace,
     rtc_zup: [f64; 3],
     site_zup: Option<&[f64]>,
     quantize: bool,
@@ -1218,7 +1223,7 @@ fn build_gltf(
     //    `baked_basis_yup` folds it in and is the identity's neighbour otherwise.
     // Without all three terms the check reads a frame mismatch as a #3666 collision
     // and drops the whole group to flat.
-    let baked_basis = Matrix4::from_row_slice(&matrix::baked_basis_yup(rtc_zup, site_zup));
+    let baked_basis = Matrix4::from_row_slice(&matrix::baked_basis_yup(space, rtc_zup, site_zup));
     let collated = collate_refs_in_basis(&refs, 2, [0.0, 0.0, 0.0], Some(&baked_basis));
 
     // Partition into instanced templates (non-rigid, exact-bit) and a flat remainder.
@@ -1411,7 +1416,7 @@ fn build_gltf(
                 // an instance side-channel and the template inverse exists.
                 let occ_meta = occ_view.instance.expect("instanced occurrence has InstanceMeta");
                 let matrix = occurrence_node_matrix(
-                    occ_meta, &m_ref_inv, rtc_zup, site_zup, t_origin_yup, scene_center,
+                    occ_meta, &m_ref_inv, space, rtc_zup, site_zup, t_origin_yup, scene_center,
                 );
                 let extras = node_extras(include_metadata, occ_view.express_id, occ_view.ifc_type, occ_view.global_id, model_id);
                 let node_idx = push_occurrence_node(&mut nodes, mesh_idx, matrix, dequant, extras);
@@ -1573,7 +1578,7 @@ pub fn try_export_glb_with_stats_with_index(
 fn with_result_views<R>(
     mut result: ProcessingResult,
     opts: &GltfOptions,
-    f: impl FnOnce(&[MeshView], [f64; 3], Option<&[f64]>) -> R,
+    f: impl FnOnce(&[MeshView], MeshCoordinateSpace, [f64; 3], Option<&[f64]>) -> R,
 ) -> R {
     // `process_geometry` emits the producer-native IFC **Z-up** frame (the Z-up→Y-up
     // swap normally happens at the wasm FFI, which this path never crosses). glTF
@@ -1619,8 +1624,8 @@ fn with_result_views<R>(
         .collect();
     // RTC / site-local offset the baker subtracted (Z-up); the instancing path needs
     // it to place occurrences in the same POST-RTC frame the baked geometry lives in.
-    let (rtc_zup, site_zup) = site_restore(&result);
-    f(&views, rtc_zup, site_zup.as_deref())
+    let (space, rtc_zup, site_zup) = site_restore(&result);
+    f(&views, space, rtc_zup, site_zup.as_deref())
 }
 
 /// The one rule both GLB assemblers refuse on: a build with no mesh is not a
@@ -1638,11 +1643,11 @@ fn try_export_glb_from_result(
     result: ProcessingResult,
     opts: &GltfOptions,
 ) -> Result<(Vec<u8>, GltfStats), ExportError> {
-    with_result_views(result, opts, |views, rtc_zup, site_zup| {
+    with_result_views(result, opts, |views, space, rtc_zup, site_zup| {
         let mut ch = Chunker::new(if opts.quantize { 8 } else { 12 }, usize::MAX, None);
         let (gltf, stats) = build_gltf(
             views, opts.include_metadata, opts.model_id.as_deref(), opts.lit, opts.emissive,
-            rtc_zup, site_zup, opts.quantize, &mut ch,
+            space, rtc_zup, site_zup, opts.quantize, &mut ch,
         );
         refuse_empty(&stats)?;
         let json = serde_json::to_vec(&gltf).expect("glTF JSON serializes");
@@ -1847,7 +1852,7 @@ fn export_gltf_streaming_impl(
 
     // Single root node carries the model-wide centre and parents every element node.
     let (root_translation, site_rotation) = {
-        let (rtc_zup, site_zup) = site_restore(&meta_result);
+        let (_, rtc_zup, site_zup) = site_restore(&meta_result);
         scene_root(scene_center, rtc_zup, site_zup.as_deref())
     };
     let scene_nodes = if element_node_indices.is_empty() {
@@ -2272,7 +2277,7 @@ fn plan_bounded_glb(
     //
     // Quantized too: the occurrence gets the nested dequant node
     // `push_occurrence_node` builds for both assemblers.
-    let (rtc_zup, site_zup) = site_restore(&meta_result);
+    let (space, rtc_zup, site_zup) = site_restore(&meta_result);
     // Rep identities whose occurrences disagree about shape size. Resolved
     // before any bucketing, because one disagreeing member refuses the whole
     // identity and it may be the last one seen.
@@ -2613,6 +2618,7 @@ fn plan_bounded_glb(
             occurrence_node_matrix_composed(
                 m_k,
                 &group.m_ref_inv,
+                space,
                 rtc_zup,
                 site_zup.as_deref(),
                 group.template_origin,

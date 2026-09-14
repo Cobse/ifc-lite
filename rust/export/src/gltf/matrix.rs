@@ -27,6 +27,7 @@
 //! final downcast even at national-grid coordinates.
 
 use ifc_lite_geometry::InstanceMeta;
+use ifc_lite_processing::MeshCoordinateSpace;
 
 /// Z-up→Y-up basis as a row-major 4x4 (linear part only; `(x,y,z) → (x, z, -y)`).
 const S_YUP: [f64; 16] = [
@@ -81,25 +82,29 @@ fn mat4_mul(a: &[f64; 16], b: &[f64; 16]) -> [f64; 16] {
 /// 6 m sibling under a 34 degree site yaw, which is what made a rotated site
 /// instance nothing at all (#4118).
 ///
-/// `site_zup` is `site_restore`'s already-tier-filtered site placement: `Some`
-/// exactly when the model is `site_local`, `None` otherwise.
+/// `space` is the tag the pipeline stamped on the result
+/// (`ProcessingResult::mesh_coordinate_space`), and it is what decides whether
+/// a site rotation was removed. It used to be INFERRED here, from
+/// `site_zup.is_some()` — a second encoding of the same fact, kept true only
+/// because `site_restore` happened to filter the placement by the same tag one
+/// call up. Two encodings of one fact is the defect (#4611): the tier taxonomy
+/// belongs to `native_to_baked`, next to the converter that creates the
+/// divergence, and this function's job is to hand it the tag rather than to
+/// re-derive it.
 ///
 /// Used at BOTH sites that need it — `build_gltf` hands it to
 /// `collate_refs_in_basis` as the `baked_basis`, and
 /// [`occurrence_node_matrix_composed`] conjugates `rel` by it to build the
 /// shipped node matrix — so the frame the check verifies in is the frame the
 /// export actually places in, by construction rather than by two copies agreeing.
-pub(super) fn baked_basis_yup(rtc_zup: [f64; 3], site_zup: Option<&[f64]>) -> [f64; 16] {
+pub(super) fn baked_basis_yup(
+    space: MeshCoordinateSpace,
+    rtc_zup: [f64; 3],
+    site_zup: Option<&[f64]>,
+) -> [f64; 16] {
     mat4_mul(
         &S_YUP,
-        &ifc_lite_processing::native_to_baked(
-            site_zup.map_or(
-                ifc_lite_processing::MeshCoordinateSpace::RawIfc,
-                |_| ifc_lite_processing::MeshCoordinateSpace::SiteLocal,
-            ),
-            site_zup,
-            rtc_zup,
-        ),
+        &ifc_lite_processing::native_to_baked(space, site_zup, rtc_zup),
     )
 }
 
@@ -112,15 +117,12 @@ pub(super) fn baked_basis_yup(rtc_zup: [f64; 3], site_zup: Option<&[f64]>) -> [f
 /// placement's translation column. That transpose-is-the-inverse identity is
 /// not a new assumption here — it is the one `apply_inverse_rotation_in_place`
 /// uses to un-rotate the vertices in the first place.
-fn baked_basis_yup_inverse(rtc_zup: [f64; 3], site_zup: Option<&[f64]>) -> [f64; 16] {
-    let b = ifc_lite_processing::native_to_baked(
-        site_zup.map_or(
-            ifc_lite_processing::MeshCoordinateSpace::RawIfc,
-            |_| ifc_lite_processing::MeshCoordinateSpace::SiteLocal,
-        ),
-        site_zup,
-        rtc_zup,
-    );
+fn baked_basis_yup_inverse(
+    space: MeshCoordinateSpace,
+    rtc_zup: [f64; 3],
+    site_zup: Option<&[f64]>,
+) -> [f64; 16] {
+    let b = ifc_lite_processing::native_to_baked(space, site_zup, rtc_zup);
     #[rustfmt::skip]
     let r = [
         b[0], b[4], b[8],  0.0,
@@ -207,6 +209,7 @@ pub(super) fn compose_world_meta(meta: &InstanceMeta) -> [f64; 16] {
 pub(super) fn occurrence_node_matrix(
     occ: &InstanceMeta,
     m_ref_inv: &[f64; 16],
+    space: MeshCoordinateSpace,
     rtc_zup: [f64; 3],
     site_zup: Option<&[f64]>,
     template_origin_yup: [f64; 3],
@@ -215,6 +218,7 @@ pub(super) fn occurrence_node_matrix(
     occurrence_node_matrix_composed(
         compose_world_meta(occ),
         m_ref_inv,
+        space,
         rtc_zup,
         site_zup,
         template_origin_yup,
@@ -231,6 +235,7 @@ pub(super) fn occurrence_node_matrix(
 pub(super) fn occurrence_node_matrix_composed(
     m_k: [f64; 16],
     m_ref_inv: &[f64; 16],
+    space: MeshCoordinateSpace,
     rtc_zup: [f64; 3],
     site_zup: Option<&[f64]>,
     template_origin_yup: [f64; 3],
@@ -262,8 +267,8 @@ pub(super) fn occurrence_node_matrix_composed(
     // Anything that changes either — an f64 node matrix, a tighter tolerance —
     // makes the delta visible and this note is the warning.
     let rel_yup = mat4_mul(
-        &mat4_mul(&baked_basis_yup(rtc_zup, site_zup), &rel_pre),
-        &baked_basis_yup_inverse(rtc_zup, site_zup),
+        &mat4_mul(&baked_basis_yup(space, rtc_zup, site_zup), &rel_pre),
+        &baked_basis_yup_inverse(space, rtc_zup, site_zup),
     );
     let n = mat4_mul(
         &mat4_translation([-scene_center[0], -scene_center[1], -scene_center[2]]),
