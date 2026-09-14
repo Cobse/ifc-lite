@@ -61,6 +61,9 @@ permissions:
 jobs:
   validate-server-binaries:
     name: Validate Server Binary (${{ matrix.target }})
+    # Changesets emits a release event for every scoped package. Only the
+    # v-prefixed product release should spend runners validating server bins.
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:
@@ -203,7 +206,9 @@ jobs:
   # server-bin targets gate to read.
   validate-server-binaries-cross:
     name: Validate Server Binary (${{ matrix.target }})
-    if: github.event_name != 'pull_request'
+    if: >-
+      github.event_name != 'pull_request'
+      && (github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v'))
     runs-on: ${{ matrix.os }}
     timeout-minutes: 120
     strategy:

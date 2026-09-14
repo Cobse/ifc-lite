@@ -40,9 +40,17 @@ on:
     paths:
       - 'apps/server/Dockerfile'
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional v-prefixed release tag to rebuild and publish'
+        required: false
+        type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # A pinned release recovery must not share main's concurrency key: the
+  # workflow definition runs from main even though checkout uses the tag, and
+  # an unrelated main push must not cancel another hours-long arm64 rebuild.
+  group: ${{ github.workflow }}-${{ inputs.release_tag || github.ref }}
   # A newer push to main supersedes an in-flight image build — cancel the older
   # run rather than queueing behind it, so a slow/hung build can't jam the
   # queue (as happened when #874's large Rust diff cache-busted the build and a
@@ -59,15 +67,20 @@ env:
 jobs:
   docker:
     name: Build & Push Docker Image
+    # Changesets publishes one GitHub release per package. Only the v-prefixed
+    # product release owns the server image; scoped package releases must not
+    # fan out into duplicate multi-arch builds.
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
     # Keep recurring image builds out of Depot's metered runner pool. This is
     # a public repository, so GitHub's standard Ubuntu runner is free.
     runs-on: ${{ (vars.SELF_HOSTED_CI == 'true' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft == false && !contains(github.event.pull_request.labels.*.name, 'ci:hosted')))) && fromJSON('["self-hosted","linux","x64","dkr"]') || 'ubuntu-latest' }}
     # Cap a stuck "Build and push" so it can't run to GitHub's 6h default.
     # A *cold* build — cargo-chef cooking the whole workspace after a
     # deps-cache miss — is the long pole, and a cold build that gets cancelled
-    # never warms the registry cache, so the cap must let one complete. 120
-    # covers a cold build; warm builds finish in minutes.
-    timeout-minutes: 120
+    # never warms the registry cache, so the cap must let one complete. Release
+    # builds include QEMU arm64 and get a larger cap; amd64-only builds retain
+    # the tighter guardrail.
+    timeout-minutes: ${{ (github.event_name == 'release' || inputs.release_tag != '') && 180 || 120 }}
     permissions:
       contents: read
       packages: write
@@ -75,15 +88,23 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ inputs.release_tag || github.ref }}
           lfs: false
           persist-credentials: false
+
+      - name: Resolve image source revision
+        id: source
+        shell: bash
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
 
       # QEMU is only needed to emulate the non-native arm64 build, which we
       # now only do on `release: published` (see the `platforms` expression
       # below). Skipping it on main pushes shaves setup time off the frequent
       # amd64-only builds.
       - name: Set up QEMU
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || inputs.release_tag != ''
         uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4.3.0
 
       - name: Set up Docker Buildx
@@ -104,11 +125,16 @@ jobs:
           tags: |
             # tag release as version (e.g. 0.5.0)
             type=match,pattern=v(.*),group=1,event=tag
+            # workflow_dispatch recovery for a release that exceeded its cap
+            type=match,pattern=v(.*),group=1,value=${{ inputs.release_tag }},enable=${{ inputs.release_tag != '' }}
             # tag release also as latest
             type=raw,value=latest,enable={{is_default_branch}}
-            type=raw,value=latest,event=tag
-            # sha for push-to-main builds
-            type=sha,prefix=,event=branch
+            type=raw,value=latest,enable=${{ github.event_name == 'release' || inputs.release_tag != '' }}
+            # Preserve the normal event SHA tag except when recovery mode
+            # replaces it with the checked-out release commit below.
+            type=sha,prefix=,enable=${{ inputs.release_tag == '' }}
+            # Preserve the release commit tag on a manual pinned-tag recovery.
+            type=raw,value=${{ steps.source.outputs.short_sha }},enable=${{ inputs.release_tag != '' }}
             # pr-123 for the build-only PR lane. Never pushed (see `push:`
             # below); it just keeps the tag list non-empty so buildx has
             # something to name the image.
@@ -131,6 +157,7 @@ jobs:
           labels: |
             ${{ steps.meta.outputs.labels }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ steps.source.outputs.sha }}
           # Cache lives in GHCR (a `:buildcache` tag on the same package), not
           # in the GitHub Actions cache. `type=registry` is free for this public
           # package and preserves the cargo-chef layers across standard runners.
@@ -158,4 +185,4 @@ jobs:
           # trigger this workflow) we build amd64 only — the arm64 leg runs
           # under slow QEMU emulation and roughly doubled build time. The `latest`/sha main
           # images stay amd64; multi-arch manifests ship on release.
-          platforms: ${{ github.event_name == 'release' && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
+          platforms: ${{ (github.event_name == 'release' || inputs.release_tag != '') && 'linux/amd64,linux/arm64' || 'linux/amd64' }}
