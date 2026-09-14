@@ -131,24 +131,19 @@ impl MeshFrame {
         }
     }
 
-    /// The frame for a consumer that parses the file itself: the grid and
-    /// alignment overlays, and the symbolic stream on the browser path (#4665).
-    /// It runs the browser pre-pass selection (the bounds-fallback ladder, no
-    /// site tier) over the same file-scoped sample window every pipeline uses,
-    /// so the overlays and the browser's own meshes land on the same anchor
-    /// (#4611).
+    /// Frame for file-parsing consumers: grid/alignment overlays and the
+    /// browser symbolic stream (#4665). It uses the same file-scoped sample
+    /// window as the browser meshes, so their anchors agree (#4611).
     ///
     /// NOT for a consumer that ran the native pipeline over the same bytes:
     /// there is a site tier there, and this has none, so the two frames
     /// disagree on every translated `IfcSite`. Such a caller passes the frame
     /// its meshes were baked in (`ProcessingResult::frame`, #4706).
     ///
-    /// Also NOT guaranteed to match the STREAMING browser pre-pass. That one
-    /// emits its frame mid-scan, before the file has been read, so it samples
-    /// only the head its index covers (`MetaMode::StreamingPartial`); on a
-    /// model whose head does not represent the rest of the file the two
-    /// answers differ. Closing that means handing the emitted frame to the
-    /// overlay parse APIs instead of recomputing here (#4611).
+    /// Also NOT guaranteed to match the STREAMING browser pre-pass, which
+    /// samples only the indexed head when it emits mid-scan. A model whose
+    /// head does not represent its tail can therefore differ; closing that
+    /// requires handing the emitted frame to the overlay APIs (#4611).
     pub fn for_overlay(router: &GeometryRouter, content: &[u8], decoder: &mut EntityDecoder) -> Self {
         Self::select(None, router.detect_rtc_offset_for_file(content, decoder))
     }
