@@ -69,6 +69,7 @@ exists only as part of `*=`. Use a regular expression for wildcards.
 | `classification=`, `= NULL`, `!= NULL` | ✅ | matches the code or the name |
 | `location="Level 3"` | ⚠️ | see below |
 | GlobalId terms, `! <GlobalId>` | ✅ | several terms union (add) or subtract, mirroring class terms |
+| `GlobalId=`, `GlobalId!=` | ✅ | reuses the same globalId rule the bare term builds; `*=`, `>`/`>=`/`<`/`<=`, `/regex/`, and `NULL` are reported |
 | `Description=`, `ObjectType=`, `Tag=`, any other schema attribute | ✅ | all eight operators, `= NULL` / `!= NULL` as presence — see below |
 | `type=WT01` | ✅ | matches the relating type's Name; `=`, `!=`, `*=`, `!*=` and `/regex/`, like `Name=` — no `>`, `>=`, `<`, `<=` |
 | `parent=`, `query:` | ❌ | reported, not applied |
@@ -105,8 +106,12 @@ per-entity extraction the IDS attribute facet uses. All eight operators work, an
 `GlobalId=` (the comparison spelling, not the bare-GlobalId term) is the one
 exception: the underlying extraction skips `GlobalId` as a structural/display
 attribute, so routing it through the generic attribute rule would silently match
-nothing. It stays reported; use a bare GlobalId term (`325Q7Fhnf67OZC$$r43uzK`)
-instead, which IS supported — see the grammar table above.
+nothing. Instead `GlobalId=` and `GlobalId!=` reuse the same globalId rule the
+bare term builds — the same exact-identity, case-sensitive comparison, just
+spelled as a comparison. A GlobalId is a fixed 22-character identity rather
+than text to search within or order, so `*=`, `>`/`>=`/`<`/`<=`, a
+`/regex/` value, and `NULL` stay reported; use `=` or `!=` against a literal id, or the
+bare GlobalId term (`325Q7Fhnf67OZC$$r43uzK`) — see the grammar table above.
 
 ### How far `location=` reaches
 

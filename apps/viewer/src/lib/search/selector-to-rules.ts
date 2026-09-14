@@ -169,10 +169,14 @@ export function selectorToFilterRules(
 }
 
 /** A term carrying nothing selector-specific: a class name no schema knows
- *  (`IFC-Export`), or the one attribute comparison with no rule behind it
- *  (`GlobalId=x` — every other attribute name is now a generic `attribute`
- *  rule, #4094). Text made only of these is a search term that happens to
- *  parse. */
+ *  (`IFC-Export`), or a GlobalId attribute comparison (`adaptAttribute`
+ *  routes `=` / `!=` against a literal id onto a `globalId` rule, but every
+ *  other GlobalId comparison — `*=`, `>`, a regex — stays without one, #4094).
+ *  This predicate only decides `readsAsPlainText`, which is only consulted
+ *  when NO filter in the group produced a rule; a `=`/`!=` GlobalId term
+ *  always does, so this branch is reached only by the comparisons that
+ *  don't, regardless of which way it answers for the ones that do. Text made
+ *  only of these is a search term that happens to parse. */
 function isPlainTextTerm(filter: SelectorFilter): boolean {
   if (filter.kind === 'class') return !isKnownType(filter.name);
   return filter.kind === 'attribute' && filter.name.toLowerCase() === 'globalid';
@@ -232,9 +236,18 @@ function adaptAttribute(
     // structural/display attribute — it never appears in the rows an
     // `attribute` rule reads. Routing it there would silently match
     // nothing, exactly the #4091 defect class this whole adapter exists to
-    // avoid. The bare-GlobalId literal term already exists to find an
-    // element by id; `GlobalId=` written as a comparison stays unsupported.
-    return `${quote(text)}: "GlobalId=" is not supported, use a bare GlobalId term instead (#4094)`;
+    // avoid. Instead this reuses `Rule.globalId` — the exact-identity, exact
+    // set-membership rule the bare-GlobalId literal term already builds —
+    // rather than re-deriving a second GlobalId matcher: `GlobalId=X` is
+    // "find this one element by id" spelled as a comparison, and `!=` is its
+    // negation, the same `notIn` the bare term's `! <id>` form already uses.
+    // A GlobalId is a fixed 22-character identity, not text to search within
+    // or order, so `*=`, `>`/`>=`/`<`/`<=`, a `/…/` value and `NULL` carry no
+    // meaning `globalIdOpMatches` can express and stay refused by name.
+    if (value.kind === 'string' && (op === '=' || op === '!=')) {
+      return Rule.globalId([value.text], op === '=' ? 'in' : 'notIn');
+    }
+    return `${quote(text)}: "GlobalId" takes only "=" or "!=" against a literal id, use a bare GlobalId term instead (#4094)`;
   }
 
   if (FILTERABLE_ATTRIBUTES.has(attribute)) {

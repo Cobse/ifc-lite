@@ -15,12 +15,44 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseSelector } from '@ifc-lite/query';
+import { StringTable, EntityTableBuilder } from '@ifc-lite/data';
+import type { IfcDataStore } from '@ifc-lite/parser';
 import { selectorToFilterRules } from './selector-to-rules.js';
 import { Rule, type FilterRule } from './filter-rules.js';
 import { matchPropertyRule } from './filter-match.js';
 import { stringOpMatches } from './filter-ops.js';
+import { evaluateFilterRules } from './filter-evaluate.js';
+
+/**
+ * A minimal entity table with only GlobalId populated — enough for
+ * `evaluateFilterRules` to walk a `globalId` rule. Mirrors the fixture
+ * `filter-evaluate.test.ts` builds; duplicated here (not imported) so this
+ * file stays a pure adapter+evaluator round-trip, not a dependency on that
+ * file's test-only exports.
+ */
+function buildGlobalIdStore(ids: readonly string[]): IfcDataStore {
+  const strings = new StringTable();
+  const builder = new EntityTableBuilder(ids.length, strings);
+  ids.forEach((id, i) => builder.add(i + 1, 'IFCWALL', id, `Wall-${i}`, '', '', false, false));
+  const entities = builder.build();
+  const byType = new Map<string, number[]>([['IFCWALL', ids.map((_, i) => i + 1)]]);
+  return {
+    fileSize: 0,
+    schemaVersion: 'IFC4',
+    entityCount: ids.length,
+    parseTime: 0,
+    source: new Uint8Array(0),
+    entityIndex: { byId: { ranges: new Uint32Array(0), index: new Map() }, byType },
+    strings,
+    entities,
+    properties: { count: 0 },
+    quantities: { count: 0 },
+    relationships: { count: 0 },
+  } as unknown as IfcDataStore;
+}
 
 const GUID = '325Q7Fhnf67OZC$$r43uzK';
+const GUID2 = '925Q7Fhnf67OZC$$r43uzZ';
 
 /**
  * A property / quantity rule as the adapter builds it. Both names carry the
@@ -366,17 +398,77 @@ describe('selectorToFilterRules — nothing is dropped in silence', () => {
     ]);
   });
 
-  it('GlobalId written as a comparison, not a bare term, is still reported', () => {
-    // `GlobalId=X` parses as a generic attribute term, but the on-demand
+  it('GlobalId= and GlobalId!= reuse the same globalId rule the bare term builds', () => {
+    // `GlobalId=X` parses as a generic attribute term, and the on-demand
     // extraction the attribute rule reads never surfaces GlobalId (it's
-    // skipped as a structural/display attribute), so routing it there would
-    // silently match nothing. The bare-GlobalId literal is the supported
-    // spelling for "find this element by id".
-    const out = adapt(`GlobalId=${GUID}`);
-    assert.deepEqual(out.rules, []);
-    assert.equal(out.unsupported.length, 1);
-    assert.match(out.unsupported[0] ?? '', /GlobalId=/);
-    assert.match(out.unsupported[0] ?? '', /bare GlobalId/);
+    // skipped as a structural/display attribute), so routing it through
+    // `Rule.attribute` would silently match nothing. Routed through
+    // `Rule.globalId` instead — the same rule kind, and the same
+    // `globalIdOpMatches` evaluator, the bare-GlobalId literal already uses —
+    // "=" and "!=" are exact-identity comparisons anyway, so this is not a
+    // new matcher, just a second spelling reaching the existing one.
+    assert.deepEqual(rulesOf(`GlobalId=${GUID}`), [Rule.globalId([GUID], 'in')]);
+    assert.deepEqual(rulesOf(`GlobalId!=${GUID}`), [Rule.globalId([GUID], 'notIn')]);
+  });
+
+  it('GlobalId compared with anything other than = or != is reported, not approximated', () => {
+    // A GlobalId is an exact 22-character identity, not text to search
+    // within or order — "*=", ">", a regex, or NULL all imply a kind of
+    // comparison `globalIdOpMatches` cannot express, so each is refused by
+    // name rather than silently taking the wrong branch.
+    for (const text of [`GlobalId*=${GUID}`, `GlobalId>${GUID}`, `GlobalId=/${GUID}/`, 'GlobalId=NULL']) {
+      const out = adapt(text);
+      assert.deepEqual(out.rules, [], text);
+      assert.equal(out.unsupported.length, 1, text);
+      assert.match(out.unsupported[0] ?? '', /GlobalId/, text);
+    }
+  });
+
+  // Neither shape below was pinned before: two `GlobalId=` rules AND to
+  // nothing, and mixing a bare term with a comparison also does, because
+  // only the bare-term accumulator (`globalIdAdds`, see the header comment
+  // above `readSelector`) unions — a `GlobalId=` comparison always lands in
+  // the flat AND-combined `rules` array instead. That split mirrors
+  // IfcOpenShell's own `util/selector.py` (v0.8.0): `entity()`/`instance()`
+  // (class names, bare GUIDs) do `self.elements |= {...}` — additive — while
+  // `attribute()`, what `GlobalId=X` parses to, does
+  // `self.elements = set(filter(...))` — narrowing. The docs state the rule
+  // directly: "class and instance filters are OR whereas other filters are
+  // AND." A reader who only sees "two AND'd globalId rules always return
+  // empty" could plausibly "fix" this into a union and silently break that
+  // contract — these three cases pin the correct behaviour at both the rule
+  // shape and the actual matched set, so such a change reddens here.
+  it('two GlobalId= comparisons of different ids AND to nothing (attribute() narrows, does not union)', () => {
+    const rules = rulesOf(`GlobalId=${GUID}, GlobalId=${GUID2}`);
+    assert.deepEqual(rules, [Rule.globalId([GUID], 'in'), Rule.globalId([GUID2], 'in')]);
+
+    const store = buildGlobalIdStore([GUID, GUID2]);
+    assert.deepEqual(evaluateFilterRules('m1', store, rules, 'AND'), []);
+  });
+
+  it('a bare GlobalId (union-additive) AND a GlobalId= comparison (narrowing) of a different id also AND to nothing', () => {
+    const rules = rulesOf(`${GUID}, GlobalId=${GUID2}`);
+    // The bare term's rule lands in `head` (from `globalIdAdds`), the
+    // comparison's rule lands in `rules` (from `adaptAttribute`) — two
+    // separate entries in the flat AND-combined array, not one merged rule,
+    // because only bare terms share the union accumulator.
+    assert.deepEqual(rules, [Rule.globalId([GUID], 'in'), Rule.globalId([GUID2], 'in')]);
+
+    const store = buildGlobalIdStore([GUID, GUID2]);
+    assert.deepEqual(evaluateFilterRules('m1', store, rules, 'AND'), []);
+  });
+
+  it('two BARE GlobalId terms union into one rule and both match, unlike the two AND cases above', () => {
+    const rules = rulesOf(`${GUID}, ${GUID2}`);
+    // Both are `instance()`-shaped bare terms, so they fold into the SAME
+    // `globalIdAdds` accumulator (test 4b already pins this shape) and come
+    // out as one `Rule.globalId([A, B], 'in')` — OR-within-the-rule set
+    // membership, not two AND'd single-id rules.
+    assert.deepEqual(rules, [Rule.globalId([GUID, GUID2], 'in')]);
+
+    const store = buildGlobalIdStore([GUID, GUID2]);
+    const matched = evaluateFilterRules('m1', store, rules, 'AND').map((r) => r.globalId).sort();
+    assert.deepEqual(matched, [GUID, GUID2].sort());
   });
 
   it('an unknown class name', () => {
