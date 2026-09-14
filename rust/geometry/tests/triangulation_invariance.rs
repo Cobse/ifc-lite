@@ -1441,10 +1441,13 @@ fn issue_129_mixed_bool2d_residual_preserves_established_topology() {
     #[cfg(not(feature = "triangulation-alt"))]
     let triangulators = [false].as_slice();
 
+    // #32810's triangle counts grew when consolidation stopped filling small
+    // openings on its large slab faces (#4698): 1936 -> 3224 and 2005 -> 3207,
+    // open and strict unchanged.
     let expected = if std::env::var("IFC_LITE_PRISM_CUT").as_deref() == Ok("0") {
-        [(12381, 30, 31, 9400), (32810, 0, 0, 1936)]
+        [(12381, 30, 31, 9400), (32810, 0, 0, 3224)]
     } else {
-        [(12381, 25, 26, 7565), (32810, 3, 3, 2005)]
+        [(12381, 25, 26, 7565), (32810, 3, 3, 3207)]
     };
     for &alt in triangulators {
         set_alt(alt);
@@ -1969,7 +1972,9 @@ const ISSUE_068_MODEL: &str = "ara3d/ISSUE_068_ARK_NUS_skolebygg.ifc";
 /// [`the_heavy_golden_pins_the_known_3435_tear_population`], so the value
 /// cannot drift from the file it describes.
 // #3925: independently remeasured on pre-#3912 code with the loader frame.
-const ISSUE_068_KNOWN_TORN_HOSTS: usize = 26;
+// #4698: 26 -> 25. #893133 closed (open 25 -> 0) once consolidation stopped
+// dropping its 2 to 6 mm wedge regions and falling back to the raw kernel mesh.
+const ISSUE_068_KNOWN_TORN_HOSTS: usize = 25;
 
 /// Coverage floors, one per heavy fixture, bounding BOTH the checked-in golden
 /// and every sweep that gates or blesses against it. [`MIN_VOID_HOSTS`]'s job,

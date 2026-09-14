@@ -50,7 +50,7 @@ impl BooleanClippingProcessor {
         // above); exact + platform-deterministic.
         {
             let refs: Vec<&Mesh> = prisms.iter().collect();
-            let u = ClippingProcessor::consolidate_coplanar(
+            let u = clipper.consolidate(
                 crate::kernel::mesh_bridge::union_many_preserving_coordinates(&refs),
             );
             if !u.is_empty() {

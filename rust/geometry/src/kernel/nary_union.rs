@@ -77,6 +77,13 @@ const REORDER_POSITIONS: [[usize; 3]; 6] = [
 /// mechanism to this issue's, but the SAME lesson: whether a candidate
 /// ordering is actually good is only decidable after the same
 /// post-processing a real caller runs, not on the raw kernel output alone.
+///
+/// SCALE (#4744): this runs `consolidate_coplanar` at the metre default, while a
+/// FILE-UNIT caller (`processors/boolean`) consolidates at the model's length
+/// unit, so on a millimetre file the ring-noise width gate is inert here and
+/// live there. The disagreement can only pick a worse ORDERING — production
+/// still consolidates at the caller's scale, and its accept gates still run — so
+/// it is recorded rather than fixed in the PR that made the gate physical.
 fn survives_consolidation_closed(mesh: &Mesh) -> bool {
     if mesh.is_empty() {
         return false;

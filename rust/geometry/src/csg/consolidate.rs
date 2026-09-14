@@ -9,7 +9,9 @@ mod ring_ops;
 
 use super::ClippingProcessor;
 use conform::{build_seam_map, conform_plans, count_open_boundary_edges_at, emit_plans, PlanBucket, PlanRegion};
-use ring_ops::{floor_pow2, simplify_2d_collinear, weld_near_coincident_2d};
+use ring_ops::{clean_ring, floor_pow2};
+#[cfg(test)]
+use ring_ops::{ring_is_noise, weld_near_coincident_2d};
 
 /// Is `v` a degenerate NEEDLE — its shortest edge a hairline relative to its
 /// longest? Such a triangle is a zero-area-intended sliver: the exact kernel
@@ -108,6 +110,20 @@ impl ClippingProcessor {
     /// Returns the input mesh unchanged if the consolidate fails or yields
     /// nothing — never worse than the raw kernel output.
     pub(crate) fn consolidate_coplanar(mesh: Mesh) -> Mesh {
+        Self::consolidate_coplanar_with_unit_scale(mesh, 1.0)
+    }
+
+    /// Construct a clipper for operands that are still expressed in file units.
+    pub(crate) fn with_unit_scale(length_unit_scale: f64) -> Self {
+        Self { length_unit_scale, ..Self::new() }
+    }
+
+    /// Consolidate using this processor's caller-unit-to-metre scale.
+    pub(crate) fn consolidate(&self, mesh: Mesh) -> Mesh {
+        Self::consolidate_coplanar_with_unit_scale(mesh, self.length_unit_scale)
+    }
+
+    fn consolidate_coplanar_with_unit_scale(mesh: Mesh, length_unit_scale: f64) -> Mesh {
         use crate::grid::NORMAL_QUANT_F64 as NORMAL_QUANT;
         use crate::triangulation::project_to_2d_with_basis;
         use i_overlay::core::fill_rule::FillRule;
@@ -259,6 +275,8 @@ impl ClippingProcessor {
             }
             let mut subject: Vec<Vec<[f64; 2]>> = Vec::with_capacity(1);
             let mut clip: Vec<Vec<[f64; 2]>> = Vec::with_capacity(tris.len() - 1);
+            // The plane's total area, for `ring_is_noise`'s share test.
+            let mut plane_area = 0.0_f64;
             for (idx, tri) in tris.iter().enumerate() {
                 let pts_2d = project_to_2d_with_basis(&tri.v, &u_axis, &v_axis, &origin);
                 // Force CCW for i_overlay's NonZero fill — kernel output
@@ -268,6 +286,7 @@ impl ClippingProcessor {
                     * (pts_2d[2].y - pts_2d[0].y)
                     - (pts_2d[2].x - pts_2d[0].x)
                         * (pts_2d[1].y - pts_2d[0].y);
+                plane_area += 0.5 * signed_area.abs();
                 let path: Vec<[f64; 2]> = if signed_area >= 0.0 {
                     pts_2d.iter().map(|p| [p.x, p.y]).collect()
                 } else {
@@ -290,74 +309,17 @@ impl ClippingProcessor {
                 continue;
             }
 
-            // Total bucket area — used to filter sub-resolution shapes /
-            // holes (f64 noise leaves tiny spurious cavities after the
-            // i_overlay union).
-            let bucket_area: f64 = tris
-                .iter()
-                .map(|t| {
-                    let pts =
-                        project_to_2d_with_basis(&t.v, &u_axis, &v_axis, &origin);
-                    0.5_f64
-                        * ((pts[1].x - pts[0].x) * (pts[2].y - pts[0].y)
-                            - (pts[2].x - pts[0].x) * (pts[1].y - pts[0].y))
-                            .abs()
-                })
-                .sum();
-            let min_significant = (bucket_area * 1.0e-4).max(1.0e-8);
-
-            let signed_area_2d = |ring: &[nalgebra::Point2<f64>]| -> f64 {
-                let n = ring.len();
-                if n < 3 {
-                    return 0.0;
-                }
-                let mut s = 0.0;
-                for i in 0..n {
-                    let j = (i + 1) % n;
-                    s += ring[i].x * ring[j].y - ring[j].x * ring[i].y;
-                }
-                s * 0.5
-            };
-
             for shape in shapes {
-                if shape.is_empty() {
+                let Some(outer_simplified) =
+                    shape.first().and_then(|c| clean_ring(c, plane_area, length_unit_scale))
+                else {
                     continue;
-                }
-                let outer_2d: Vec<nalgebra::Point2<f64>> = shape[0]
-                    .iter()
-                    .map(|p| nalgebra::Point2::new(p[0], p[1]))
-                    .collect();
-                // Weld µm-scale near-coincident rim duplicates FIRST (the #1007
-                // diagonal-sliver source), THEN drop collinear phantoms.
-                let outer_welded = weld_near_coincident_2d(&outer_2d);
-                let outer_simplified = simplify_2d_collinear(&outer_welded);
-                if outer_simplified.len() < 3 {
-                    continue;
-                }
-                let outer_area = signed_area_2d(&outer_simplified).abs();
-                if outer_area < min_significant {
-                    continue;
-                }
-                let holes_simplified: Vec<Vec<nalgebra::Point2<f64>>> = shape
-                    .iter()
-                    .skip(1)
-                    .filter_map(|c| {
-                        let pts: Vec<_> = c
-                            .iter()
-                            .map(|p| nalgebra::Point2::new(p[0], p[1]))
-                            .collect();
-                        let welded = weld_near_coincident_2d(&pts);
-                        let simplified = simplify_2d_collinear(&welded);
-                        if simplified.len() < 3 {
-                            return None;
-                        }
-                        let area = signed_area_2d(&simplified).abs();
-                        if area < min_significant {
-                            return None;
-                        }
-                        Some(simplified)
-                    })
-                    .collect();
+                };
+                let holes_simplified: Vec<Vec<nalgebra::Point2<f64>>> =
+                    shape[1..]
+                        .iter()
+                        .filter_map(|c| clean_ring(c, plane_area, length_unit_scale))
+                        .collect();
 
                 plan.regions.push(PlanRegion {
                     changed: false,
@@ -488,6 +450,10 @@ impl ClippingProcessor {
         output
     }
 }
+
+#[cfg(test)]
+#[path = "consolidate_threshold_tests.rs"]
+mod threshold_tests;
 
 #[cfg(test)]
 mod tests {

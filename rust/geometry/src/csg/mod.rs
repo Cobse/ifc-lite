@@ -196,6 +196,8 @@ pub struct ClippingProcessor {
     /// on the `processors/boolean` path, METRES on `router/layers`. See
     /// [`plane_eps`] for the frames, the sizing and the KNOWN LIMITATION.
     pub epsilon: f64,
+    /// Metres per caller unit, used only by the physical ring-width noise gate.
+    length_unit_scale: f64,
     /// Boolean / CSG failures recorded since the last `take_failures()`.
     /// Interior-mutable so the existing `&self` API stays unchanged.
     failures: RefCell<Vec<BoolFailure>>,
@@ -206,6 +208,7 @@ impl ClippingProcessor {
     pub fn new() -> Self {
         Self {
             epsilon: 1e-6,
+            length_unit_scale: 1.0,
             failures: RefCell::new(Vec::new()),
         }
     }
@@ -346,7 +349,7 @@ impl ClippingProcessor {
             );
             return GroupCut::Rejected(GroupReject::BudgetTripped);
         }
-        let result = Self::consolidate_coplanar(raw);
+        let result = self.consolidate(raw);
         if !result.is_empty() && !self.validate_mesh(&result) {
             self.record_failure(BoolOp::Difference, BoolFailureReason::KernelOutputInvalid);
             return GroupCut::Rejected(GroupReject::InvalidOutput);
@@ -375,8 +378,7 @@ impl ClippingProcessor {
 
         // Pure-Rust exact kernel. An empty result is legitimate
         // (disjoint operands → empty intersection).
-        let result =
-            Self::consolidate_coplanar(crate::kernel::mesh_bridge::intersection(mesh_a, mesh_b));
+        let result = self.consolidate(crate::kernel::mesh_bridge::intersection(mesh_a, mesh_b));
         if !result.is_empty() && !self.validate_mesh(&result) {
             self.record_failure(BoolOp::Intersection, BoolFailureReason::KernelOutputInvalid);
             return Ok(Mesh::new());

@@ -135,7 +135,7 @@ impl ClippingProcessor {
                     return GroupCut::Rejected(GroupReject::Nonconforming);
                 }
             };
-            let next = Self::consolidate_coplanar(raw);
+            let next = self.consolidate(raw);
             // Validate each intermediate BEFORE it becomes the next chunk's host:
             // a non-watertight / invalid intermediate would silently corrupt every
             // subsequent subtraction. Same guard as `subtract_mesh`, per chunk.

@@ -347,7 +347,7 @@ impl BooleanClippingProcessor {
             }
         }
 
-        let clipper = ClippingProcessor::new();
+        let clipper = ClippingProcessor::with_unit_scale(decoder.length_unit_scale());
 
         // Per-cutter trial subtracts serve two roles:
         //   * reject the chain if any single cutter is degenerate (a full-
@@ -432,7 +432,7 @@ impl BooleanClippingProcessor {
             // candidate. Publish it only if its actual subtraction is clean;
             // otherwise retain the original result and its failure records.
             let refs: Vec<&Mesh> = prisms.iter().collect();
-            let repaired = ClippingProcessor::consolidate_coplanar(
+            let repaired = clipper.consolidate(
                 crate::kernel::mesh_bridge::union_many(&refs));
             if !repaired.is_empty() {
                 let candidate = Self::subtract_checked(&clipper, &base_mesh, &repaired);
@@ -808,7 +808,12 @@ impl BooleanClippingProcessor {
                     // See `single_cutter_gate.rs` for the #3919/#3923
                     // accept-gate check and why a rejection's fallback
                     // depends on `solo_step`.
-                    match self.resolve_single_cutter_subtract(&mesh, &bound_mesh, solo_step) {
+                    match self.resolve_single_cutter_subtract(
+                        &mesh,
+                        &bound_mesh,
+                        solo_step,
+                        decoder.length_unit_scale(),
+                    ) {
                         SingleCutterSubtract::Clipped(clipped) => {
                             return Ok((self.guard_against_full_host_removal(
                                 mesh,
@@ -868,7 +873,7 @@ impl BooleanClippingProcessor {
             {
                 return Ok((mesh, false));
             }
-            let clipper = ClippingProcessor::new();
+            let clipper = ClippingProcessor::with_unit_scale(decoder.length_unit_scale());
             let outcome = clipper.subtract_mesh(&mesh, &second_mesh);
             self.absorb_failures(clipper.take_failures());
             // A rejection keeps the host un-cut; any failure is on record above.
@@ -884,7 +889,7 @@ impl BooleanClippingProcessor {
                 self.record_empty_operand(BoolOp::Union, loss_recorded);
                 return Ok((mesh, false));
             }
-            let clipper = ClippingProcessor::new();
+            let clipper = ClippingProcessor::with_unit_scale(decoder.length_unit_scale());
             let result = clipper.union_mesh(&mesh, &second_mesh);
             self.absorb_failures(clipper.take_failures());
             return result.map(|m| (m, false));
@@ -899,7 +904,7 @@ impl BooleanClippingProcessor {
             // Emptied by a dropped operand that is now on record.
             return Ok((Mesh::new(), true));
         }
-        let clipper = ClippingProcessor::new();
+        let clipper = ClippingProcessor::with_unit_scale(decoder.length_unit_scale());
         let result = clipper.intersection_mesh(&mesh, &second_mesh);
         self.absorb_failures(clipper.take_failures());
         result.map(|m| (m, false))
