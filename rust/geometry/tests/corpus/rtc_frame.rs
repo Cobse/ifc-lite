@@ -55,7 +55,7 @@
 //! separate change that has to argue about dedup, not about speed.
 
 use ifc_lite_core::{
-    build_entity_index, has_geometry_by_name, EntityDecoder, EntityIndex, EntityScanner,
+    build_entity_index, EntityDecoder, EntityIndex, EntityScanner,
 };
 use ifc_lite_geometry::GeometryRouter;
 use std::sync::Arc;
@@ -106,18 +106,15 @@ impl<'a> ModelFrame<'a> {
 
 /// The loader's offset choice (`ifc_lite_processing::MeshFrame::select`): the
 /// site placement's translation when it is not at the origin, otherwise the
-/// sampled/bounds fallback over every geometry job when it judged the model large.
+/// file-scoped sampled/bounds detector the loader itself runs (#4611).
 fn detect_rtc_offset(content: &str, decoder: &mut EntityDecoder) -> (f64, f64, f64) {
     let router = GeometryRouter::with_units(content, decoder);
     let mut scan = EntityScanner::new(content);
-    let mut jobs = Vec::new();
     let mut site = None;
     while let Some((id, name, start, end)) = scan.next_entity() {
-        if name == "IFCSITE" && site.is_none() {
+        if name == "IFCSITE" {
             site = Some((id, start, end));
-        }
-        if has_geometry_by_name(name) {
-            jobs.push((id, start, end, ifc_lite_core::legacy_aware_ifc_type(name)));
+            break;
         }
     }
     let site_offset = site.and_then(|(id, start, end)| {
@@ -128,7 +125,7 @@ fn detect_rtc_offset(content: &str, decoder: &mut EntityDecoder) -> (f64, f64, f
     });
     site_offset.unwrap_or_else(|| {
         router
-            .detect_rtc_offset_with_fallback(&jobs, decoder, content.as_bytes())
+            .detect_rtc_offset_for_file(content.as_bytes(), decoder)
             .map(ifc_lite_core::RtcVerdict::offset)
             .unwrap_or((0.0, 0.0, 0.0))
     })

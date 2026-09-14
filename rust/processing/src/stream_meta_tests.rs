@@ -50,21 +50,6 @@ ENDSEC;
 END-ISO-10303-21;
 ";
 
-fn wall_job(content: &[u8]) -> Job {
-    // Locate the #40=IFCWALL span so we can hand the detector a real job.
-    let needle = "#40=IFCWALL";
-    let start = content
-        .windows(needle.len())
-        .position(|w| w == needle.as_bytes())
-        .expect("wall present");
-    // End at the terminating ';' of that line.
-    let rel_end = content[start..]
-        .iter()
-        .position(|&b| b == b';')
-        .expect("stmt end");
-    (40, start, start + rel_end + 1, IfcType::IfcWall)
-}
-
 /// SmallFileSingle over the FULL index resolves the metric scale and the
 /// large IfcSite/wall offset in one detect pass.
 #[test]
@@ -72,14 +57,12 @@ fn small_file_single_resolves_scale_and_offset() {
     let content = IFC.as_bytes();
     let full_index = ifc_lite_core::build_entity_index(content);
     let mut decoder = EntityDecoder::with_index(content, full_index);
-    let jobs = vec![wall_job(content)];
 
     let meta = resolve_stream_meta(
         MetaMode::SmallFileSingle,
         content,
         Some(1),
         None,
-        &jobs,
         &mut decoder,
     );
 
@@ -101,17 +84,15 @@ fn streaming_partial_full_index_fallback_recovers_offset() {
     let content = IFC.as_bytes();
     // A DELIBERATELY EMPTY partial index: the file-head scan hasn't reached
     // the wall/site placement rows yet, so the partial decoder resolves no
-    // usable samples and detect_rtc_offset_from_jobs returns None.
+    // usable samples and the first detect pass returns None.
     let partial_index = ifc_lite_core::EntityIndex::default();
     let mut decoder = EntityDecoder::with_index(content, partial_index);
-    let jobs = vec![wall_job(content)];
 
     let meta = resolve_stream_meta(
-        MetaMode::StreamingPartial,
+        MetaMode::StreamingPartial { scanned_through: content.len() },
         content,
         Some(1),
         None, // IfcSite not scanned yet → gates the full-index re-detect on
-        &jobs,
         &mut decoder,
     );
 
@@ -156,13 +137,12 @@ fn streaming_partial_first_pass_success_suppresses_fallback() {
         }
         p
     };
-    let jobs = vec![wall_job(content)];
 
     // The first pass genuinely SUCCEEDS with a no-shift result, and the
     // placement-bounds fallback WOULD differ (large) if it were reached.
     let mut probe = EntityDecoder::with_index(content, partial());
     assert_eq!(
-        GeometryRouter::with_scale(1.0).detect_rtc_offset_from_jobs(&jobs, &mut probe),
+        GeometryRouter::with_scale(1.0).detect_rtc_anchor_for_file(content, &mut probe),
         Some((0.0, 0.0, 0.0)),
         "first pass must succeed on the partial index"
     );
@@ -177,11 +157,10 @@ fn streaming_partial_first_pass_success_suppresses_fallback() {
     let site = *full.get(&20).expect("site present");
     let mut decoder = EntityDecoder::with_index(content, partial());
     let meta = resolve_stream_meta(
-        MetaMode::StreamingPartial,
+        MetaMode::StreamingPartial { scanned_through: content.len() },
         content,
         Some(1),
         Some((20, site.0, site.1)),
-        &jobs,
         &mut decoder,
     );
 
@@ -224,14 +203,12 @@ fn streaming_partial_stage3_placement_bounds_fallback() {
     let content = IFC_STAGE3.as_bytes();
     let full_index = ifc_lite_core::build_entity_index(content);
     let mut decoder = EntityDecoder::with_index(content, full_index);
-    let jobs = vec![wall_job(content)];
 
     let meta = resolve_stream_meta(
-        MetaMode::StreamingPartial,
+        MetaMode::StreamingPartial { scanned_through: content.len() },
         content,
         Some(1),
         None,
-        &jobs,
         &mut decoder,
     );
 
@@ -297,11 +274,13 @@ fn browser_and_native_pick_the_same_frame_for_a_sub_threshold_anchor() {
     assert_eq!(native.mesh_coordinate_space, crate::MeshCoordinateSpace::ModelRtc);
     assert_eq!(native.metadata.coordinate_info.origin_shift, [8500.0, 0.0, 0.0]);
 
-    for mode in [MetaMode::SmallFileSingle, MetaMode::StreamingPartial] {
+    for mode in [
+        MetaMode::SmallFileSingle,
+        MetaMode::StreamingPartial { scanned_through: content.len() },
+    ] {
         let full_index = ifc_lite_core::build_entity_index(content);
         let mut decoder = EntityDecoder::with_index(content, full_index);
-        let jobs = vec![wall_job(content)];
-        let meta = resolve_stream_meta(mode, content, Some(1), None, &jobs, &mut decoder);
+        let meta = resolve_stream_meta(mode, content, Some(1), None, &mut decoder);
         assert_eq!(meta.frame, MeshFrame::ModelRtc { anchor }, "{mode:?}");
         assert!(meta.frame.needs_shift(), "{mode:?}");
         assert_eq!(meta.frame.coordinate_space(), native.mesh_coordinate_space, "{mode:?}");
@@ -309,7 +288,7 @@ fn browser_and_native_pick_the_same_frame_for_a_sub_threshold_anchor() {
 }
 
 /// The unscaled-fallback hazard in the MILLIMETRE direction (JUDGMENT
-/// item 1): `SmallFileSingle` runs one `detect_rtc_offset_with_fallback`,
+/// item 1): `SmallFileSingle` runs one `detect_rtc_offset_for_file`,
 /// whose bounds arm used to hand back the RAW file-unit centroid. For a mm
 /// model 25 m wide whose only job carries no representation (so the job
 /// sampler abstains), that centroid is 25 000, which `coord_is_large` read
@@ -325,12 +304,11 @@ fn small_file_single_bounds_fallback_scales_millimetres_before_the_gate() {
     let content = mm.as_bytes();
     let full_index = ifc_lite_core::build_entity_index(content);
     let mut decoder = EntityDecoder::with_index(content, full_index);
-    let jobs = vec![wall_job(content)];
 
     // Premises: the job sampler abstains, and the raw centroid alone would
     // pass the gate.
     assert_eq!(
-        GeometryRouter::with_scale(0.001).detect_rtc_offset_from_jobs(&jobs, &mut decoder),
+        GeometryRouter::with_scale(0.001).detect_rtc_anchor_for_file(content, &mut decoder),
         None,
         "premise: no representation, so no job sample"
     );
@@ -344,7 +322,6 @@ fn small_file_single_bounds_fallback_scales_millimetres_before_the_gate() {
         content,
         Some(1),
         None,
-        &jobs,
         &mut decoder,
     );
 
@@ -374,7 +351,6 @@ fn small_file_single_bounds_fallback_rebases_a_kilometre_model() {
     let content = km.as_bytes();
     let full_index = ifc_lite_core::build_entity_index(content);
     let mut decoder = EntityDecoder::with_index(content, full_index);
-    let jobs = vec![wall_job(content)];
 
     assert!(
         !coord_is_large(ifc_lite_core::scan_placement_bounds(content).centroid()),
@@ -386,7 +362,6 @@ fn small_file_single_bounds_fallback_rebases_a_kilometre_model() {
         content,
         Some(1),
         None,
-        &jobs,
         &mut decoder,
     );
 
