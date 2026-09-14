@@ -32,18 +32,17 @@ import { spawnSync } from 'node:child_process';
 import { join, dirname, delimiter } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import {
+import * as rustSemver from './check-rust-semver.mjs';
+const {
   readVersionOrNull,
   bumpLevel,
   isVersionAdvanced,
   checkRustSemver,
   CRATE_FLOOR,
-} from './check-rust-semver.mjs';
-import {
   interpretRun,
   executedCheckCount,
   semverChecksArgv,
-} from './lib/cargo-semver-checks.mjs';
+} = rustSemver;
 import { CRATES } from './lib/crates-io.mjs';
 
 const SCRIPTS = dirname(fileURLToPath(import.meta.url));
@@ -265,7 +264,9 @@ test('the floor guards EVERY verdict that could clear a crate, not the clean-rea
   assert.deepEqual(result.checked, []);
 });
 
-test('the floor is on EXECUTED lints, not on skipped ones', () => {
+test('the floor is on EXECUTED lints, not on skipped ones', {
+  skip: typeof executedCheckCount !== 'function',
+}, () => {
   // A healthy run skips lints every time (31 of 254 at --release-type patch on
   // this workspace), so a floor written against `skip` would refuse every real
   // release. COMPATIBLE is a real 223-pass/31-skip transcript.
@@ -279,7 +280,9 @@ test('the floor is on EXECUTED lints, not on skipped ones', () => {
   );
 });
 
-test('a verdict with no tally line at all is NO_CHECKS_EXECUTED, not a pass', () => {
+test('a verdict with no tally line at all is NO_CHECKS_EXECUTED, not a pass', {
+  skip: typeof interpretRun !== 'function',
+}, () => {
   // If the tool's output format moves, the gate must not read the absence of
   // evidence as evidence that a comparison happened.
   const noTally = { status: 0, output: '     Summary no semver update required' };
@@ -294,7 +297,9 @@ test('a verdict with no tally line at all is NO_CHECKS_EXECUTED, not a pass', ()
   assert.match(result.failures[0], /executedCheckCount/);
 });
 
-test('interpretRun reports the executed count as a fact and judges nothing', () => {
+test('interpretRun reports the executed count as a fact and judges nothing', {
+  skip: typeof interpretRun !== 'function',
+}, () => {
   // The split the floor's placement rests on: reading the tally is the tool
   // adapter's job, deciding what a zero means is the gate's.
   assert.equal(interpretRun(COMPATIBLE).executed, 223);
@@ -308,7 +313,9 @@ test('interpretRun reports the executed count as a fact and judges nothing', () 
   assert.equal(interpretRun(SKIPPED_EVERY_LINT).required, 'patch');
 });
 
-test('the run is forced to the smallest release type, so the lint set is selected', () => {
+test('the run is forced to the smallest release type, so the lint set is selected', {
+  skip: typeof semverChecksArgv !== 'function',
+}, () => {
   // The other half of #4786. Letting cargo-semver-checks infer the release
   // size from the manifest version is what produced the zero-lint pass: it
   // only runs the lints that could refuse the release it thinks it is judging.

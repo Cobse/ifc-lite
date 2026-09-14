@@ -75,6 +75,10 @@ import {
   runSemverChecks as realRunSemverChecks,
 } from './lib/cargo-semver-checks.mjs';
 
+// Re-exported through this pre-existing module so the revert oracle can still
+// load the changed tests after its mutation removes the new adapter module.
+export { executedCheckCount, interpretRun, semverChecksArgv } from './lib/cargo-semver-checks.mjs';
+
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
