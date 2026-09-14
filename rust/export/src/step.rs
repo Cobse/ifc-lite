@@ -73,6 +73,26 @@ pub fn export_step_to_writer<W: std::io::Write>(
     Ok(stats)
 }
 
+/// Write one record this exporter SYNTHESIZES (a property set, its properties,
+/// the relationship that attaches it), through the IFC2X3 required-slot fills
+/// when the output is IFC2X3.
+///
+/// These records never reach `convert_step_line` — they are built here, after
+/// the emit loop — so before #4714 they went out with `$` in `OwnerHistory`,
+/// which IFC2X3 requires, even when the file had an owner history to point
+/// them at. Source records are filled inside the converter; these are filled
+/// here, through the same object, so both land in the same counters.
+fn write_synthesized<W: std::io::Write>(
+    out: &mut W,
+    line: String,
+    targets_ifc2x3: bool,
+    slot_fill: &mut crate::schema_ifc2x3_slots::Ifc2x3SlotFill,
+) -> std::io::Result<()> {
+    let line = if targets_ifc2x3 { slot_fill.apply(line) } else { line };
+    out.write_all(line.as_bytes())?;
+    out.write_all(b"\n")
+}
+
 #[allow(clippy::type_complexity)]
 fn emit<W: std::io::Write>(
     content: &[u8],
@@ -130,11 +150,17 @@ fn emit<W: std::io::Write>(
     // Only convert entity types/attributes when an explicit target differs from source.
     let converting = opts.schema.is_some()
         && crate::schema_convert::needs_conversion(&source_schema, &schema);
-    // The first owner history this export writes, for the `$` OwnerHistory
-    // slots an IFC2X3 downgrade must fill (#4686).
-    let mut owner_history = crate::schema_owner_history::OwnerHistoryFill::new(
+    // The slots IFC2X3 requires a value in: `OwnerHistory` from the first owner
+    // history this export writes (#4686), the rest from the generated
+    // required-slot table (#4714).
+    let mut slot_fill = crate::schema_ifc2x3_slots::Ifc2x3SlotFill::new(
         owner_histories.into_iter().find(|id| included.contains(id)),
     );
+    // The synthesized property sets below are filled whenever the OUTPUT is
+    // IFC2X3, not only when a conversion runs: an IFC2X3 source needs no
+    // conversion, and the records this exporter writes for it still have to be
+    // valid IFC2X3.
+    let targets_ifc2x3 = crate::schema_convert::targets_ifc2x3(&schema);
 
     // Root-attribute edits, resolved per (entity, attribute) as they are read.
     // A list plus a last-wins rule made "the value at this index" a derived
@@ -183,7 +209,7 @@ fn emit<W: std::io::Write>(
                             &source_schema,
                             &schema,
                             *id,
-                            &mut owner_history,
+                            &mut slot_fill,
                         )
                         .as_bytes(),
                     )?;
@@ -216,7 +242,7 @@ fn emit<W: std::io::Write>(
                         &source_schema,
                         &schema,
                         *copy_id,
-                        &mut owner_history,
+                        &mut slot_fill,
                     )
                     .as_bytes(),
                 )?;
@@ -256,7 +282,8 @@ fn emit<W: std::io::Write>(
                 copies_refused,
                 refused_refs,
                 attribute_edits_refused,
-                owner_history_unfilled: owner_history.unfilled(),
+                owner_history_unfilled: slot_fill.owner_history_unfilled(),
+                required_slots_unfilled: slot_fill.required_slots_unfilled(),
             });
         };
         for ((express_id, pset_name), props) in &groups {
@@ -273,12 +300,12 @@ fn emit<W: std::io::Write>(
             }
             let mut prop_refs: Vec<u32> = Vec::with_capacity(props.len());
             for (pname, value) in props {
-                writeln!(
-                    out,
+                let line = format!(
                     "#{next}=IFCPROPERTYSINGLEVALUE('{}',$,{},$);",
                     escape(pname),
                     value
-                )?;
+                );
+                write_synthesized(out, line, targets_ifc2x3, &mut slot_fill)?;
                 prop_refs.push(next);
                 next += 1;
                 written += 1;
@@ -286,21 +313,21 @@ fn emit<W: std::io::Write>(
             let psid = next;
             next += 1;
             let refs_str = prop_refs.iter().map(|r| format!("#{r}")).collect::<Vec<_>>().join(",");
-            writeln!(
-                out,
+            let line = format!(
                 "#{psid}=IFCPROPERTYSET('{}',$,'{}',$,({}));",
                 crate::schema_convert::placeholder_guid(psid),
                 escape(pset_name),
                 refs_str
-            )?;
+            );
+            write_synthesized(out, line, targets_ifc2x3, &mut slot_fill)?;
             written += 1;
             let rid = next;
             next += 1;
-            writeln!(
-                out,
+            let line = format!(
                 "#{rid}=IFCRELDEFINESBYPROPERTIES('{}',$,$,$,(#{express_id}),#{psid});",
                 crate::schema_convert::placeholder_guid(rid),
-            )?;
+            );
+            write_synthesized(out, line, targets_ifc2x3, &mut slot_fill)?;
             written += 1;
         }
     }
@@ -313,7 +340,8 @@ fn emit<W: std::io::Write>(
         copies_refused,
         refused_refs,
         attribute_edits_refused,
-        owner_history_unfilled: owner_history.unfilled(),
+        owner_history_unfilled: slot_fill.owner_history_unfilled(),
+        required_slots_unfilled: slot_fill.required_slots_unfilled(),
     })
 }
 

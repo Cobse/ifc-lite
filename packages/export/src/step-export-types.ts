@@ -31,7 +31,7 @@ import type { EffectiveEntityIndex } from './effective-index.js';
 // therefore correct and deliberate -- nothing here calls it, and the import
 // erases.
 import type { createSourceRefReader } from './source-ref-bounds.js';
-import type { OwnerHistoryFill } from './schema-converter-owner-history.js';
+import type { Ifc2x3SlotFill } from './schema-converter-ifc2x3-slots.js';
 
 /**
  * Options for STEP export
@@ -372,10 +372,11 @@ export interface ExportPass {
   readonly skipRelationshipIds: Set<number>;
   readonly newGeorefLines: string[];
   readonly warnings: string[];
-  /** The owner history an IFC2X3 downgrade writes into `$` OwnerHistory
-   *  slots (#4686). Settled by `export()` once `willBeEmitted` can answer,
-   *  before either writer converts a line; its warning joins the result. */
-  readonly ownerHistory: OwnerHistoryFill;
+  /** The slots an IFC2X3 downgrade must settle: `OwnerHistory` by reuse
+   *  (#4686), every other required slot from the generated table (#4714). The
+   *  owner history is settled by `export()` once `willBeEmitted` can answer,
+   *  before either writer converts a line; the warnings join the result. */
+  readonly slotFill: Ifc2x3SlotFill;
 
   // ---- the shared predicates (see item 1 above) ----
   readonly buildHeader: (modifications: number) => string;

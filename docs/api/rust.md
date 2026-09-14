@@ -616,8 +616,13 @@ signals that callers should inspect: `copies_refused` counts copy-on-write
 edits that were not emitted, `refused_refs` counts out-of-range STEP
 references, and `attribute_edits_refused` counts root-attribute edits that
 could not be applied. `owner_history_unfilled` counts records in an IFC2X3
-downgrade that still have `$` in the schema-required `OwnerHistory` slot;
-when it is non-zero, the emitted file is not valid IFC2X3.
+downgrade that still have `$` in the schema-required `OwnerHistory` slot, and
+`required_slots_unfilled` counts the OTHER slots IFC2X3 requires a value in
+that stayed `$` because the schema offers no default that claims nothing (a
+measure, a label, an entity reference, or an enum with no `NOTDEFINED`
+member); slots whose declaration does offer one take `.NOTDEFINED.` or `.F.`
+and are not counted. When either is non-zero, the emitted file is not valid
+IFC2X3.
 
 `ModelOptions::default().with_placements(true)` resolves each product's
 `ObjectPlacement` into

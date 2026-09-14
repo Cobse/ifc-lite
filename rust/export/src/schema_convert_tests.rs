@@ -19,8 +19,8 @@
 use super::*;
 
 /// A fill with no owner history to write: the conversion itself, unchanged.
-fn none() -> OwnerHistoryFill {
-    OwnerHistoryFill::new(None)
+fn none() -> Ifc2x3SlotFill {
+    Ifc2x3SlotFill::new(None)
 }
 
 #[test]
@@ -405,12 +405,12 @@ fn ifc2x3_subset_downgrade_never_points_at_an_owner_history_it_does_not_write() 
 /// OwnerHistory is optional there.
 #[test]
 fn owner_history_fill_only_applies_to_an_ifc2x3_target() {
-    let mut fill = OwnerHistoryFill::new(Some(9));
+    let mut fill = Ifc2x3SlotFill::new(Some(9));
     let wall = "#2=IFCWALL('2abcdefghijklmnopqrstu',$,'W',$,$,$,$,$);";
     assert_eq!(slot(&convert_step_line(wall, "IFC2X3", "IFC4", 2, &mut fill), 1), "$");
     let bridge = "#3=IFCBRIDGE('3abcdefghijklmnopqrstu',$,'B',$,$,$,$,$,$,$,$);";
     assert_eq!(slot(&convert_step_line(bridge, "IFC4X3", "IFC4", 3, &mut fill), 1), "$");
-    assert_eq!(fill.unfilled(), 0);
+    assert_eq!(fill.owner_history_unfilled(), 0);
 }
 
 /// #4686, merged export: a later model without an owner history of its own
@@ -439,6 +439,124 @@ fn merged_ifc2x3_downgrade_reuses_an_owner_history_across_models() {
     assert_eq!(slot(wall, 1), "$");
     assert!(
         stats.warnings.iter().any(|w| w.starts_with("1 record(s) keep $ in OwnerHistory")),
+        "{:?}",
+        stats.warnings
+    );
+}
+
+/// #4714: IFC4 made attributes optional that IFC2X3 declares mandatory. The
+/// shared vectors (an enum with `NOTDEFINED` and a BOOLEAN taking the values
+/// that claim nothing, an enum without one keeping `$`, required references
+/// never invented, `IfcOwnerHistory`'s own `ChangeAction`, the by-name door
+/// remap) run through this exporter here and through `StepExporter` in
+/// `packages/export/src/schema-converter-required-slots.test.ts`.
+#[test]
+fn ifc2x3_required_slot_fill_matches_the_shared_vectors() {
+    let raw = include_str!("../tests/fixtures/ifc2x3_required_slot_vectors.json");
+    let doc: serde_json::Value = serde_json::from_str(raw).expect("fixture is valid JSON");
+    let cases = doc["cases"].as_array().expect("cases");
+    assert!(cases.len() >= 5, "the vector file lost cases");
+    for case in cases {
+        let why = case["why"].as_str().unwrap();
+        let data: Vec<&str> = case["data"].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect();
+        let (out, stats) = downgrade(&step_file(case["schema"].as_str().unwrap(), &data.join("\n")));
+        for (id, want_slots) in case["slots"].as_object().unwrap() {
+            let line = line_with_id(&out, &format!("#{id}"));
+            for (index, want) in want_slots.as_object().unwrap() {
+                let index: usize = index.parse().expect("slot index");
+                assert_eq!(slot(line, index), want.as_str().unwrap(), "{why}: slot {index} of {line}");
+            }
+        }
+        assert_eq!(
+            stats.required_slots_unfilled as u64,
+            case["unfilled"].as_u64().unwrap(),
+            "{why}\n{out}"
+        );
+    }
+}
+
+/// #4714: the table's indexes are positions in the IFC2X3 attribute list, so a
+/// record that does not carry that many slots was never reconciled to it.
+/// Filling slot 8 of an 8-slot IfcFooting would write `.NOTDEFINED.` over
+/// whatever position 8 does hold, so the record is left alone -- and NOT
+/// counted, because nothing about its required slots was established.
+#[test]
+fn ifc2x3_required_slot_fill_refuses_a_record_of_the_wrong_arity() {
+    let src = step_file(
+        "IFC4",
+        "#10=IFCFOOTING('2O2Fr$t4X7Zf8NOew3FLOH',$,'F',$,$,$,$,$);\n\
+         #11=IFCFOOTING('3O2Fr$t4X7Zf8NOew3FLOH',$,'F',$,$,$,$,$,$);",
+    );
+    let (out, stats) = downgrade(&src);
+    let short = line_with_id(&out, "#10");
+    assert_eq!(short.matches(',').count(), 7, "left at 8 slots: {short}");
+    assert!(!short.contains(".NOTDEFINED."), "nothing written into it: {short}");
+    // The well-formed sibling still gets its PredefinedType, so the refusal is
+    // the arity and not the fill being off.
+    assert_eq!(slot(line_with_id(&out, "#11"), 8), ".NOTDEFINED.");
+    assert_eq!(stats.required_slots_unfilled, 0, "{out}");
+}
+
+/// #4714: IFC4 and IFC4X3 declare these slots optional, so a target that is
+/// not IFC2X3 keeps whatever the source wrote and counts nothing.
+#[test]
+fn required_slot_fill_only_applies_to_an_ifc2x3_target() {
+    let mut fill = Ifc2x3SlotFill::new(None);
+    let footing = "#10=IFCFOOTING('2O2Fr$t4X7Zf8NOew3FLOH',$,'F',$,$,$,$,$,$);";
+    let out = convert_step_line(footing, "IFC2X3", "IFC4", 10, &mut fill);
+    assert_eq!(slot(&out, 8), "$", "{out}");
+    assert_eq!(fill.required_slots_unfilled(), 0);
+}
+
+/// #4714: the property sets this exporter SYNTHESIZES from `property_mutations`
+/// are built after the emit loop and never reach `convert_step_line`, so they
+/// used to go out with `$` in `OwnerHistory` -- which IFC2X3 requires -- even
+/// when the file had an owner history to point them at. They are filled
+/// whenever the OUTPUT is IFC2X3, including when the source already is and no
+/// conversion runs at all.
+#[test]
+fn ifc2x3_synthesized_property_sets_name_an_owner_history() {
+    for source_schema in ["IFC4", "IFC2X3"] {
+        let src = step_file(
+            source_schema,
+            "#5=IFCOWNERHISTORY(#6,#7,$,.NOCHANGE.,$,$,$,0);\n\
+             #10=IFCWALL('2O2Fr$t4X7Zf8NOew3FLOH',#5,'Wall',$,$,$,$,$);",
+        );
+        let (out, _) = crate::export_step_with_stats(
+            src.as_bytes(),
+            &crate::StepOptions {
+                schema: Some("IFC2X3".to_string()),
+                property_mutations: vec![crate::PropMutation {
+                    express_id: 10,
+                    pset_name: "Pset_Test".to_string(),
+                    prop_name: "IsExternal".to_string(),
+                    value: "IFCBOOLEAN(.T.)".to_string(),
+                }],
+                ..Default::default()
+            },
+        );
+        let pset = out.lines().find(|l| l.contains("IFCPROPERTYSET(")).unwrap_or_else(|| panic!("{out}"));
+        assert_eq!(slot(pset, 1), "#5", "{source_schema}: {pset}");
+        let rel = out.lines().find(|l| l.contains("IFCRELDEFINESBYPROPERTIES(")).unwrap_or_else(|| panic!("{out}"));
+        assert_eq!(slot(rel, 1), "#5", "{source_schema}: {rel}");
+    }
+}
+
+/// #4714, merged export: the required-slot count reaches the caller through
+/// the `warnings` channel the merge already had.
+#[test]
+fn merged_ifc2x3_downgrade_warns_about_required_slots_it_left() {
+    let model = step_file(
+        "IFC4",
+        "#1=IFCOWNERHISTORY(#8,#9,$,.NOCHANGE.,$,$,$,0);\n\
+         #2=IFCBUILDINGSTOREY('1abcdefghijklmnopqrstu',$,'S',$,$,$,$,$,$,$);",
+    );
+    let opts = crate::MergedOptions { schema: Some("IFC2X3".to_string()), ..Default::default() };
+    let (out, stats) = crate::export_merged_with_stats(&[model.as_bytes()], &opts);
+    let storey = out.lines().find(|l| l.contains("'S'")).unwrap_or_else(|| panic!("{out}"));
+    assert_eq!(slot(storey, 8), "$", "CompositionType has no NOTDEFINED member: {storey}");
+    assert!(
+        stats.warnings.iter().any(|w| w.starts_with("1 slot(s) keep $ where IFC2X3 requires")),
         "{:?}",
         stats.warnings
     );

@@ -29,7 +29,7 @@ import { getEffectiveEntityIndex } from './effective-index.js';
 import { createModificationLedger } from './delta-modification-ledger.js';
 import { createSourceRefReader } from './source-ref-bounds.js';
 import { buildStepHeader } from './step-header.js';
-import { OwnerHistoryFill } from './schema-converter-owner-history.js';
+import { Ifc2x3SlotFill } from './schema-converter-ifc2x3-slots.js';
 
 /**
  * Everything the pass literal reads that is not its own field.
@@ -317,7 +317,7 @@ export function buildExportPass(input: PassBuildInput): ExportPass {
     // assembly, which is why they are pass state and not phase locals.
     newGeorefLines: [],
     warnings: [],
-    ownerHistory: new OwnerHistoryFill(),
+    slotFill: new Ifc2x3SlotFill(),
   };
   // The same object, deliberately. See the file header.
   return pass;

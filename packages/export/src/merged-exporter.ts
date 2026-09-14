@@ -26,7 +26,7 @@ import {
 import { collectStyleEntities, STYLE_RESCUE_TYPES } from './style-closure.js';
 import { collectGeoreferencingEntities } from './georef-closure.js';
 import { convertStepLine, needsConversion, type IfcSchemaVersion } from './schema-converter.js';
-import { firstWrittenOwnerHistoryRef, OwnerHistoryFill } from './schema-converter-owner-history.js';
+import { firstWrittenOwnerHistoryRef, Ifc2x3SlotFill } from './schema-converter-ifc2x3-slots.js';
 import { assembleStepBytes, assembleStepBlob } from './step-file-assembly.js';
 import { getCompleteEntityIndex, getMaxExpressId, type CompleteEntityIndex, type ExportEntityRef } from './entity-iteration.js';
 import { StepExporter } from './step-exporter.js';
@@ -514,7 +514,7 @@ export class MergedExporter {
     let federatedModelCount = 0;
     let normalizedModelCount = 0;
     const normalizeWarnings = new Set<string>();
-    const ownerHistory = new OwnerHistoryFill(); // IFC2X3 `$` OwnerHistory slots (#4686)
+    const slotFill = new Ifc2x3SlotFill(); // slots IFC2X3 requires (#4686, #4714)
 
     for (const model of models) {
       const offset = setup.modelOffsets.get(model.id)!;
@@ -532,21 +532,21 @@ export class MergedExporter {
       const plan = this.planModel(model, completeIndex, isFirstModel, mode.compatible, mode.lengthFactor, setup, guidToFinalId);
       this.applyContainerDrops(plan, containerDrops?.byModel.get(model.id));
       const written = (id: number) => (visibility === null || visibility.included.has(id)) && !plan.skipEntityIds.has(id);
-      if (schema === 'IFC2X3') ownerHistory.prefer(firstWrittenOwnerHistoryRef(model.dataStore.entityIndex.byType.get('IFCOWNERHISTORY'), written, offset));
+      if (schema === 'IFC2X3') slotFill.prefer(firstWrittenOwnerHistoryRef(model.dataStore.entityIndex.byType.get('IFCOWNERHISTORY'), written, offset));
 
       const sourceSchema = (model.dataStore.schemaVersion as IfcSchemaVersion) || 'IFC4';
       for (const [expressId, entityRef] of completeIndex) {
         if (!written(expressId)) continue;
         const line = this.renderEntity(
           expressId, entityRef, source, offset, plan, sourceSchema, schema, guidToFinalId, mode,
-          visibility?.hiddenProductIds ?? null, completeIndex, visibility?.included ?? null, ownerHistory,
+          visibility?.hiddenProductIds ?? null, completeIndex, visibility?.included ?? null, slotFill,
         );
         if (line !== null) allEntityLines.push(line);
       }
 
       isFirstModel = false;
     }
-    for (const warning of ownerHistory.unfilledWarnings()) normalizeWarnings.add(warning);
+    for (const warning of slotFill.warnings()) normalizeWarnings.add(warning);
 
     // Assemble final file as Uint8Array chunks to avoid V8 string length limit
     if (onProgress) onProgress({ phase: 'assembling', percent: 0.9, entitiesProcessed: allEntityLines.length, entitiesTotal: allEntityLines.length });
@@ -643,7 +643,7 @@ export class MergedExporter {
     let normalizedModelCount = 0;
     const normalizeWarnings = new Set<string>();
     const YIELD_INTERVAL = 2000;
-    const ownerHistory = new OwnerHistoryFill(); // IFC2X3 `$` OwnerHistory slots (#4686)
+    const slotFill = new Ifc2x3SlotFill(); // slots IFC2X3 requires (#4686, #4714)
 
     if (onProgress) onProgress({ phase: 'preparing', percent: 0, entitiesProcessed: 0, entitiesTotal: totalEntities });
 
@@ -671,7 +671,7 @@ export class MergedExporter {
       const plan = this.planModel(model, completeIndex, isFirstModel, mode.compatible, mode.lengthFactor, setup, guidToFinalId);
       this.applyContainerDrops(plan, containerDrops?.byModel.get(model.id));
       const written = (id: number) => (visibility === null || visibility.included.has(id)) && !plan.skipEntityIds.has(id);
-      if (schema === 'IFC2X3') ownerHistory.prefer(firstWrittenOwnerHistoryRef(model.dataStore.entityIndex.byType.get('IFCOWNERHISTORY'), written, offset));
+      if (schema === 'IFC2X3') slotFill.prefer(firstWrittenOwnerHistoryRef(model.dataStore.entityIndex.byType.get('IFCOWNERHISTORY'), written, offset));
       const sourceSchema = (model.dataStore.schemaVersion as IfcSchemaVersion) || 'IFC4';
 
       let entityCount = 0;
@@ -680,7 +680,7 @@ export class MergedExporter {
 
         const line = this.renderEntity(
           expressId, entityRef, source, offset, plan, sourceSchema, schema, guidToFinalId, mode,
-          visibility?.hiddenProductIds ?? null, completeIndex, visibility?.included ?? null, ownerHistory,
+          visibility?.hiddenProductIds ?? null, completeIndex, visibility?.included ?? null, slotFill,
         );
         if (line !== null) allEntityLines.push(line);
 
@@ -704,7 +704,7 @@ export class MergedExporter {
 
       isFirstModel = false;
     }
-    for (const warning of ownerHistory.unfilledWarnings()) normalizeWarnings.add(warning);
+    for (const warning of slotFill.warnings()) normalizeWarnings.add(warning);
 
     // Assembly phase
     if (onProgress) {
@@ -1197,7 +1197,7 @@ export class MergedExporter {
     hiddenProductIds: ReadonlySet<number> | null,
     completeIndex: CompleteEntityIndex,
     includedIds: ReadonlySet<number> | null,
-    ownerHistory: OwnerHistoryFill,
+    slotFill: Ifc2x3SlotFill,
   ): string | null {
     let entityText = decodeRange(source, entityRef.byteOffset, entityRef.byteOffset + entityRef.byteLength);
 
@@ -1272,7 +1272,7 @@ export class MergedExporter {
       finalText = rescaleEntityLengths(finalText, entityRef.type.toUpperCase(), mode.lengthFactor, mode.areaFactor, mode.volumeFactor);
     }
 
-    if (needsConversion(sourceSchema, targetSchema)) finalText = convertStepLine(finalText, sourceSchema, targetSchema, undefined, ownerHistory);
+    if (needsConversion(sourceSchema, targetSchema)) finalText = convertStepLine(finalText, sourceSchema, targetSchema, undefined, slotFill);
 
     // Record the emitted GlobalId → final express id + unit scale, for rooted
     // entities only. Read it from the FINAL line, not the source: schema

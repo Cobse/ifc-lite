@@ -196,15 +196,30 @@ fn property_synthesis_attaches_new_pset() {
         step.contains("=IFCPROPERTYSINGLEVALUE('MyProp',$,IFCLABEL('hello'),$);"),
         "single value synthesized"
     );
-    assert!(step.contains("'Pset_Test'"), "pset name present");
-    // The synthesized rel ($-owner/name/desc) relates the wall to the new pset —
-    // distinct from duplex's original rels which carry a real OwnerHistory ref.
-    let synth_rel = format!(",$,$,$,(#{wall}),#");
-    assert!(
-        step.lines()
-            .any(|l| l.contains("=IFCRELDEFINESBYPROPERTIES(") && l.contains(&synth_rel)),
-        "synthesized rel targeting the wall not found"
-    );
+    // The synthesized rel relates the wall to the SYNTHESIZED pset, which is
+    // what tells it apart from duplex's original rels on the same wall. It
+    // used to be told apart by `$,$,$` in OwnerHistory/Name/Description, and
+    // that stopped working the moment the export started filling OwnerHistory
+    // on the records it synthesizes: duplex is IFC2X3, which requires one on
+    // every IfcRoot, so the `$` this asserted was the defect #4714 fixed.
+    let pset = step
+        .lines()
+        .find(|l| l.contains("=IFCPROPERTYSET(") && l.contains("'Pset_Test'"))
+        .expect("synthesized pset not found");
+    let pset_id = &pset[..pset.find('=').expect("an id")];
+    let synth_rel = step
+        .lines()
+        .find(|l| {
+            l.contains("=IFCRELDEFINESBYPROPERTIES(") && l.contains(&format!("(#{wall}),{pset_id});"))
+        })
+        .expect("synthesized rel targeting the wall not found");
+    // …and it names an owner history rather than `$`, the #4714 guarantee.
+    for record in [pset, synth_rel] {
+        let open = record.find('(').expect("an argument list");
+        let close = record.rfind(')').expect("an argument list");
+        let slots = crate::step_slot::split_top_level_args(&record[open + 1..close]).expect("slots");
+        assert_ne!(slots[1], "$", "IFC2X3 requires OwnerHistory: {record}");
+    }
 
     // Re-parses, and the synthesized entities are counted (written = original + 3).
     let (reparsed, _ids, _schema) = parse_back(&step);

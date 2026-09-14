@@ -5,7 +5,7 @@
 //! trimming on downgrade, padding of the attributes a newer target schema appended
 //! (`schema_pad`), and a proxy fallback for types with no target representation.
 
-use crate::schema_owner_history::OwnerHistoryFill;
+use crate::schema_ifc2x3_slots::Ifc2x3SlotFill;
 use crate::step_slot::split_top_level_args;
 
 /// Canonicalize a FILE_SCHEMA label to one of the four families we convert between.
@@ -92,35 +92,30 @@ fn by_name_attr_remap_names(entity_type: &str) -> Option<(&'static [&'static str
     }
 }
 
-/// The IFC2X3 default for a target slot that is NOT optional there, so the
-/// downgraded record never carries `$` in a slot the schema requires a
-/// value in. `IfcDoorStyle`/`IfcWindowStyle` declare `OperationType`,
-/// `ConstructionType`, `ParameterTakesPrecedence` and `Sizeable` mandatory;
-/// `IfcDoorType`/`IfcWindowType` have no `ConstructionType` or `Sizeable`,
-/// and their `ParameterTakesPrecedence` is optional. `.NOTDEFINED.` is a
-/// member of both construction enums and both operation enums, and `.F.` is
-/// the BOOLEAN that claims nothing. Only the remap's own target slots are
-/// covered: a `$` the source already wrote in a slot IFC2X3 also requires
-/// passes through, except `OwnerHistory`, which [`convert_step_line`] fills
-/// (#4686).
-///
-/// Same table as `IFC2X3_MANDATORY_DEFAULTS` in the TypeScript twin
-/// (`schema-converter-attr-remap.ts`).
-fn ifc2x3_mandatory_default(tgt_name: &str) -> Option<&'static str> {
-    match tgt_name {
-        "OperationType" | "ConstructionType" => Some(".NOTDEFINED."),
-        "ParameterTakesPrecedence" | "Sizeable" => Some(".F."),
-        _ => None,
-    }
-}
-
 /// Reconcile a renamed entity's attribute list by matching attribute NAMES
 /// between the source and target schema tables, rather than by position.
 /// A target attribute with no same-named source attribute becomes `$`
-/// (unknown), unless the target schema requires a value there, in which case
-/// it becomes that schema's default ([`ifc2x3_mandatory_default`]); a source
-/// attribute with no same-named target slot is dropped.
-/// Mirrors TS `schema-converter-attr-remap.ts`'s `remapRenamedAttributesByName`.
+/// (unknown); a source attribute with no same-named target slot is dropped.
+///
+/// The `$` is not the last word on a slot IFC2X3 requires a value in.
+/// `IfcDoorStyle`/`IfcWindowStyle` declare `OperationType`,
+/// `ConstructionType`, `ParameterTakesPrecedence` and `Sizeable` mandatory,
+/// and `IfcDoorType`/`IfcWindowType` have no `ConstructionType` or `Sizeable`
+/// at all; [`Ifc2x3SlotFill`] settles all four from the generated
+/// required-slot table straight after this runs, because the remap's output
+/// carries exactly the target's attribute count. Same policy and same shape as
+/// the TypeScript twin's `remapRenamedAttributesByName`, which reaches it
+/// through its own fill: `convertStepLine` applies one on every IFC2X3 target,
+/// substituting a throwaway when the caller passes none.
+///
+/// The `trim` below has no twin, and that is a real divergence rather than a
+/// compensation: NEITHER splitter trims its tokens (measured:
+/// `splitTopLevelStepArguments("'a' ,  $  , #3 ")` returns
+/// `["'a' ", "  $  ", " #3 "]`). So a source slot written `  $  ` is
+/// normalised to `$` here and passed through verbatim there. It predates
+/// #4714, it is whitespace-only, and the four mandatory slots this doc is
+/// about are overwritten by the fill either way; left as found rather than
+/// changed on the way past.
 fn remap_attrs_by_name(attrs: &str, src_names: &[&str], tgt_names: &[&str]) -> Option<String> {
     let values = split_top_level_args(attrs)?;
     let mut by_name: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
@@ -131,7 +126,7 @@ fn remap_attrs_by_name(attrs: &str, src_names: &[&str], tgt_names: &[&str]) -> O
         .iter()
         .map(|name| {
             let given = by_name.get(name).copied().filter(|v| v.trim() != "$");
-            given.or_else(|| ifc2x3_mandatory_default(name)).unwrap_or("$")
+            given.unwrap_or("$")
         })
         .collect::<Vec<_>>()
         .join(","))
@@ -246,17 +241,18 @@ fn trim_attributes(attrs: &str, max_count: usize) -> Option<String> {
 /// Convert one STEP entity line `#id=TYPE(attrs);` from `from` to `to`.
 /// Returns the line unchanged when it isn't a parseable entity line.
 ///
-/// On a downgrade to IFC2X3, a `$` in a converted record's mandatory
-/// `OwnerHistory` slot is filled from `owner_history` (#4686); see
-/// [`crate::schema_owner_history`]. Required rather than defaulted, so an
+/// On a downgrade to IFC2X3, `slots` settles the slots IFC2X3 requires a value
+/// in that the converted record still holds `$` in: `OwnerHistory` by reuse
+/// (#4686) and the rest from the generated required-slot table (#4714); see
+/// [`crate::schema_ifc2x3_slots`]. Required rather than defaulted, so an
 /// exporter cannot convert without having decided which owner history it
-/// writes.
+/// writes, and cannot lose the count of what stayed `$`.
 pub fn convert_step_line(
     line: &str,
     from: &str,
     to: &str,
     express_id: u32,
-    owner_history: &mut OwnerHistoryFill,
+    slots: &mut Ifc2x3SlotFill,
 ) -> String {
     let (cfrom, cto) = (canon(from), canon(to));
     if cfrom == cto {
@@ -264,13 +260,13 @@ pub fn convert_step_line(
     }
     let converted = convert_record(line, cfrom, cto, express_id);
     if cto == "IFC2X3" {
-        owner_history.apply(converted)
+        slots.apply(converted)
     } else {
         converted
     }
 }
 
-/// [`convert_step_line`] before the IFC2X3 OwnerHistory fill, between two
+/// [`convert_step_line`] before the IFC2X3 required-slot fills, between two
 /// different canonical schemas.
 fn convert_record(line: &str, cfrom: &'static str, cto: &'static str, express_id: u32) -> String {
     // Parse #ID=TYPE(attrs); (multi-line tolerant: rfind ')').

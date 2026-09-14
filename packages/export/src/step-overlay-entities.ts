@@ -201,7 +201,7 @@ export function writeOverlayCreatedEntities(
       }
     }
     if (pass.converting) {
-      pass.entities.push(convertStepLine(line, pass.sourceSchema, pass.schema, options.guidRandom, pass.ownerHistory));
+      pass.entities.push(convertStepLine(line, pass.sourceSchema, pass.schema, options.guidRandom, pass.slotFill));
       pass.newEntityCount++;
     } else {
       pass.entities.push(line);

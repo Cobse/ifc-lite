@@ -136,4 +136,13 @@ pub struct StepStats {
     /// Records the source gave `$` are otherwise pointed at the first owner
     /// history the export writes; none is invented.
     pub owner_history_unfilled: usize,
+    /// SLOTS other than `OwnerHistory` written to an IFC2X3 export with `$`
+    /// where IFC2X3 requires a value and the schema offers no default that
+    /// claims nothing (#4714): measures, labels, identifiers, entity
+    /// references, and enums with no `NOTDEFINED` member such as
+    /// `IfcBuildingStorey.CompositionType`. Non-zero means the file is not
+    /// valid IFC2X3. Counted per slot, not per record: one record can leave
+    /// several. Slots whose IFC2X3 declaration DOES offer such a default take
+    /// `.NOTDEFINED.` or `.F.` and are not counted.
+    pub required_slots_unfilled: usize,
 }

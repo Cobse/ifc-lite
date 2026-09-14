@@ -326,7 +326,7 @@ export function writeSourceEntityLines(
 
       // Apply schema conversion if exporting to a different schema version
       if (pass.converting) {
-        pass.entities.push(convertStepLine(nextEntityText, pass.sourceSchema, pass.schema, options.guidRandom, pass.ownerHistory));
+        pass.entities.push(convertStepLine(nextEntityText, pass.sourceSchema, pass.schema, options.guidRandom, pass.slotFill));
       } else {
         pass.entities.push(nextEntityText);
       }

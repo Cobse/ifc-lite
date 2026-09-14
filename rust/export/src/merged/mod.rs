@@ -39,7 +39,7 @@ use guid::{read_leading_guid, replace_global_id, GuidMinter};
 pub use guid::{deterministic_global_id, leading_rooted_global_id};
 use line_edit::{rewrite_refs, LineDecision};
 use plan::{build_plan, model_salt, ModelIndex, PlanCtx};
-use crate::schema_owner_history::OwnerHistoryFill;
+use crate::schema_ifc2x3_slots::Ifc2x3SlotFill;
 use units::{resolve_length_scale, resolve_model_modes};
 pub use units::UnitReconciliation;
 
@@ -224,7 +224,7 @@ pub fn export_merged_models(models: &[MergedModel], opts: &MergedOptions) -> (St
     let mut emitted_guids: HashSet<String> = HashSet::new();
     let mut minter = GuidMinter::new();
     let mut offset: u32 = 0;
-    let mut owner_history = OwnerHistoryFill::new(None);
+    let mut slot_fill = Ifc2x3SlotFill::new(None);
 
     for (i, model) in models.iter().enumerate() {
         let is_first = i == 0;
@@ -277,7 +277,7 @@ pub fn export_merged_models(models: &[MergedModel], opts: &MergedOptions) -> (St
 
         // IFC2X3 `$` OwnerHistory: this model's first written one, else an earlier model's (#4686).
         if crate::schema_convert::targets_ifc2x3(&schema) {
-            owner_history.prefer(index.order.iter().copied().find(|&id| {
+            slot_fill.prefer(index.order.iter().copied().find(|&id| {
                 index.type_of.get(&id).is_some_and(|t| t == "IFCOWNERHISTORY")
                     && included.contains(&id)
                     && !plan.skip.contains(&id)
@@ -327,7 +327,7 @@ pub fn export_merged_models(models: &[MergedModel], opts: &MergedOptions) -> (St
                     &source_schema,
                     &schema,
                     id.saturating_add(offset),
-                    &mut owner_history,
+                    &mut slot_fill,
                 )
             } else {
                 after_guid
@@ -389,7 +389,7 @@ pub fn export_merged_models(models: &[MergedModel], opts: &MergedOptions) -> (St
         ));
     }
 
-    stats.warnings.extend(owner_history.unfilled_warning());
+    stats.warnings.extend(slot_fill.warnings());
 
     out.push_str("ENDSEC;\nEND-ISO-10303-21;\n");
     (out, stats)
