@@ -41,6 +41,18 @@ export interface AssemblyGeometry {
    *  caller's already-resolved values — passed in rather than recomputed,
    *  because every caller needs both for the rows that survive. */
   renders(typeName: string, expressId: number, globalId: number): boolean;
+  /**
+   * A physical element that belongs in a product tree but has neither its
+   * own geometry nor a geometry-bearing aggregated part — the row `renders`
+   * drops. `false` while the geometry filter is inert (streaming): absence
+   * is unanswerable until geometry is known, so nothing is "other" yet
+   * (#4764's mid-load requirement — see `makeShapeTest`'s `geometryKnown`
+   * gate, the same contract). A caller that gets `false` from BOTH `renders`
+   * and `isOther` should drop the row entirely — it never belonged in a
+   * products tree (not a product-tree class, or a non-physical class with no
+   * geometry of its own).
+   */
+  isOther(typeName: string, expressId: number, globalId: number): boolean;
   /** Geometry-bearing aggregated parts for a row whose own id carries none —
    *  what click / eye / isolate must act on instead (undefined if not an
    *  assembly, or if the row renders under its own id). `typeName` is the
@@ -112,6 +124,16 @@ export function makeAssemblyGeometry(
       if (knownGeometryIds.has(globalId)) return true;
       if (!physical) return false;
       return hasAggregatedGeometry(relationships, expressId, toGlobal, knownGeometryIds, cache);
+    },
+    isOther(typeName, expressId, globalId) {
+      // Mirrors `renders` exactly, but isolates the ONE branch that means
+      // "belongs here, but has no shape" rather than "belongs here" or
+      // "doesn't belong at all" — see the interface doc above.
+      if (!applyFilter) return false;
+      if (!isProductTreeClass(typeName)) return false;
+      if (knownGeometryIds.has(globalId)) return false;
+      if (!isPhysicalObjectType(typeName)) return false;
+      return !hasAggregatedGeometry(relationships, expressId, toGlobal, knownGeometryIds, cache);
     },
     parts(expressId, typeName) {
       if (!relationships) return undefined;

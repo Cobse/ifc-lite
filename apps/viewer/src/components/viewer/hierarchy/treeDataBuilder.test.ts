@@ -1362,6 +1362,25 @@ describe('buildIfcTypeTree — geometry-less assembly occurrences (By Type tab)'
     assert.ok(classNode, 'the type row itself still exists');
     assert.strictEqual(classNode.elementCount, 0, 'an assembly with no renderable part contributes nothing');
   });
+
+  it('buckets that same occurrence under "Other" instead of dropping it (#4764)', () => {
+    const ds = createDecompositionDataStore();
+    const rel = ds.relationships as unknown as {
+      getRelated: (id: number, t: RelationshipType, d: 'forward' | 'inverse') => number[];
+    };
+    const inner = rel.getRelated;
+    rel.getRelated = (id, t, d) =>
+      t === RelationshipType.DefinesByType && d === 'forward' && id === 20 ? [13] : inner(id, t, d);
+
+    const nodes = buildIfcTypeTree(new Map(), ds, new Set(['typeclass-other']), false, DECOMPOSITION_GEOMETRIC_IDS);
+    const otherGroup = nodes.find((n) => n.type === 'other-group');
+    assert.ok(otherGroup, 'a flat "Other" bucket exists');
+    assert.strictEqual(otherGroup?.elementCount, 1);
+    const row = nodes.find((n) => n.type === 'element' && n.expressIds[0] === 13);
+    assert.ok(row, 'the shapeless occurrence is a row under it');
+    assert.strictEqual(row?.noGeometry, true);
+    assert.strictEqual(row?.ifcType, 'IfcElementAssembly');
+  });
 });
 
 describe('makeAssemblyGeometry — spatial guard (deep-review follow-up)', () => {
