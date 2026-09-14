@@ -63,12 +63,13 @@
 //!
 //! ## Watertightness
 //!
-//! Welding moves SHARED canonical vertices (deduped by snapped position), so
+//! Welding moves SHARED canonical vertices (deduped on a 100 µm cell), so
 //! every facet incident to a moved vertex moves WITH it — no gaps and no
 //! T-junctions. When a vertex is eligible for more than one plane cluster, the
 //! candidate projected positions are averaged (deterministic order) and the
 //! result is still bounded by `MAX_VERTEX_MOVE`, so a single final position is
-//! used by all incident facets.
+//! used by all incident facets. Only cells that weld are written back; every
+//! other vertex keeps its input position bit-for-bit (#4698).
 
 use crate::mesh::Mesh;
 use std::collections::BTreeMap;
@@ -146,8 +147,8 @@ fn tri_normal(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Option<([f64; 3], f64)> 
 /// already-planar extrusion hosts and for meshes whose facets are genuinely
 /// distinct planes (the offset / move guards keep real features apart).
 ///
-/// The returned mesh keeps the SAME topology (same indices); only positions of
-/// welded shared vertices move, snapped to the kernel grid.
+/// The returned mesh keeps the SAME topology (same indices); only vertices in
+/// welded dedup cells move, snapped to the kernel grid.
 pub fn weld_near_coplanar_facets(mesh: &Mesh) -> Mesh {
     let vertex_count = mesh.positions.len() / 3;
     let tri_count = mesh.indices.len() / 3;
@@ -438,12 +439,11 @@ pub fn weld_near_coplanar_facets(mesh: &Mesh) -> Mesh {
         process_cluster(&keyed[cluster_start..]);
     }
 
-    // ── Step 5: resolve each canonical vertex's final position. A vertex with
-    // candidate projections (from one or more clusters) gets their average
-    // (deterministic — they were pushed in cluster-iteration order), snapped to
-    // the kernel grid; a vertex with none stays put.
-    let mut new_canon_pos = canon_pos.clone();
-    let mut any_moved = false;
+    // ── Step 5: each canonical vertex's welded position, if any: the average of
+    // its candidate projections (deterministic — pushed in cluster-iteration
+    // order), snapped to the kernel grid; `None` when it has no candidates or the
+    // average breaks `MAX_VERTEX_MOVE`.
+    let mut welded: Vec<Option<[f32; 3]>> = vec![None; n_canon];
     for cv in 0..n_canon {
         let cands = &vertex_moves[cv];
         if cands.is_empty() {
@@ -464,22 +464,20 @@ pub fn weld_near_coplanar_facets(mesh: &Mesh) -> Mesh {
         if d2 > MAX_VERTEX_MOVE * MAX_VERTEX_MOVE {
             continue;
         }
-        new_canon_pos[cv] = [snap_grid(avg[0]), snap_grid(avg[1]), snap_grid(avg[2])];
-        any_moved = true;
+        welded[cv] = Some([
+            snap_grid(avg[0]) as f32,
+            snap_grid(avg[1]) as f32,
+            snap_grid(avg[2]) as f32,
+        ]);
     }
 
-    if !any_moved {
-        return mesh.clone();
-    }
-
-    // ── Step 6: rebuild with the SAME indices/normals, replacing each ORIGINAL
-    // vertex position with its (possibly welded) canonical position.
+    // ── Step 6: same indices/normals; only welded cells are written back (see
+    // the module's Watertightness section). With nothing welded this is `mesh`.
     let mut out = mesh.clone();
-    for i in 0..vertex_count {
-        let np = new_canon_pos[canon_of[i]];
-        out.positions[i * 3] = np[0] as f32;
-        out.positions[i * 3 + 1] = np[1] as f32;
-        out.positions[i * 3 + 2] = np[2] as f32;
+    for (dst, &cv) in out.positions.chunks_exact_mut(3).zip(&canon_of) {
+        if let Some(p) = welded[cv] {
+            dst.copy_from_slice(&p);
+        }
     }
     out
 }

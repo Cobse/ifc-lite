@@ -639,4 +639,33 @@ mod offset_anchor_tests {
             }
         }
     }
+
+    /// `weld_near_coplanar_facets` writes back only the dedup cells it welds
+    /// (#4698, C8). A jittered slab gives it something to weld; a separate facet
+    /// pair 5 m away has two corners 20 µm apart in one 100 µm dedup cell that no
+    /// cluster welds. The weld must hand those back exactly as they came in.
+    #[test]
+    fn weld_leaves_vertices_it_did_not_weld_where_they_were_4698() {
+        let j = 15.0e-6;
+        let mesh = mesh_from_tris(&[
+            // Welded: a z = 0 slab split in two, the second triangle 15 µm high.
+            [[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+            [[1.0, 0.0, j], [1.0, 1.0, j], [0.0, 1.0, j]],
+            // Not welded: two facets on distinct planes, sharing a dedup cell at
+            // (5.00002, 5, 5) and (5.00004, 5, 5).
+            [[5.00002, 5.0, 5.0], [6.0, 5.0, 5.0], [5.0, 6.0, 5.0]],
+            [[5.00004, 5.0, 5.0], [5.0, 5.0, 6.0], [6.0, 5.0, 5.5]],
+        ]);
+        let welded = weld_near_coplanar_facets(&mesh);
+        assert_eq!(
+            vert(&welded, 0)[2],
+            vert(&welded, 3)[2],
+            "the jittered slab must weld, or this test measures nothing"
+        );
+        assert_eq!(
+            welded.positions[18..],
+            mesh.positions[18..],
+            "vertices outside every welded cell moved"
+        );
+    }
 }
