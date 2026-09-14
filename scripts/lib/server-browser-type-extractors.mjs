@@ -85,23 +85,17 @@ export function assertNoUnrecognizedSiblingBindings(
   }
 }
 
-/** Extracts the bounded `let rel_types = [ ... ];` array in relationships.rs.
- * See `assertNoUnrecognizedSiblingBindings` above: also refuses to guess if a
- * sibling `let X = [...]` binding carrying IFC-looking literals exists
- * alongside `rel_types` — a shape this bounded regex would otherwise never
- * see. */
+/** Extracts every generated relationship lookup arm. The Rust server now
+ * gates extraction through this generated table, so this is the executable
+ * coverage surface rather than the deleted hand-written `rel_types` array.
+ * The exact `=> Some(RelationshipSlots {` suffix avoids counting prose,
+ * comments, or unrelated IFC literals elsewhere in the generated module. */
 export function rustRelationshipTypes(src) {
   const code = stripComments(src);
-  assertNoUnrecognizedSiblingBindings(code, {
-    bindingPattern: /let\s+(\w+)\s*=\s*\[([\s\S]*?)\];/g,
-    valuePattern: /"[A-Z][A-Z0-9]{3,}"/,
-    nameFilter: /types/i,
-    recognizedNames: ['rel_types'],
-    label: 'rustRelationshipTypes',
-  });
-  const m = /let rel_types = \[([\s\S]*?)\];/.exec(code);
-  if (!m) return new Set();
-  return new Set([...m[1].matchAll(/"([A-Z0-9]+)"/g)].map((x) => x[1]));
+  return new Set(
+    [...code.matchAll(/"(IFCREL[A-Z0-9]+)"\s*=>\s*Some\(RelationshipSlots\s*\{/g)]
+      .map((match) => match[1]),
+  );
 }
 
 /** Union of the three Sets that gate what the TS columnar parser collects as

@@ -1507,6 +1507,11 @@ jobs:
       # toolchain needed (issue #1780).
       - name: Check server attr-indices freshness
         run: node scripts/generate-server-attr-indices.mjs --check
+      # The server relationship lookup is generated from the parser's schema
+      # plans too. Type-name parity alone cannot detect a stale slot index or
+      # list/single cardinality while the same lookup arms remain present.
+      - name: Check server relationship-slot freshness
+        run: node scripts/generate-server-relationship-slots.mjs --check
       # The sandbox `bim` ambient type surface (apps/viewer/.../bim-globals.d.ts)
       # is generated from @ifc-lite/sandbox's NAMESPACE_SCHEMAS — the SAME schema
       # the script editor's completions and the LLM system prompt read live.

@@ -36,68 +36,11 @@
  * absent from one side today, and a reader of this file can go verify that.
  */
 export const ALLOWLIST = {
-  // #3964: server extracted 9 IfcRel* types, TS ~19. PR #3969 (merged) added
-  // IfcRelAssignsToGroup(ByFactor)/Nests/ConnectsPathElements server-side —
-  // those 4 entries are gone from this list because `staleAllowlistEntries()`
-  // (see the file header) confirmed the Rust source now names them; do not
-  // re-add them without re-confirming they diverge again. The remaining
-  // connect/port/space-boundary/referenced-in-spatial-structure types below
-  // are the same shape of gap, still open, and tracked under the same issue.
-  'relationships:IFCRELCONNECTSELEMENTS': { status: 'pending', note: '#3964, tracked with #3969' },
-  'relationships:IFCRELCONNECTSPORTTOELEMENT': { status: 'pending', note: '#3964, tracked with #3969' },
-  'relationships:IFCRELCONNECTSPORTS': { status: 'pending', note: '#3964, tracked with #3969' },
-  'relationships:IFCRELSPACEBOUNDARY': { status: 'pending', note: '#3964, tracked with #3969' },
-  'relationships:IFCRELASSIGNSTOPRODUCT': { status: 'pending', note: '#3964, tracked with #3969' },
-  'relationships:IFCRELREFERENCEDINSPATIALSTRUCTURE': { status: 'pending', note: '#3964, tracked with #3969' },
-
-  // #4205: HIERARCHY_REL_TYPES (packages/parser/src/columnar-parser-indexes.ts)
-  // switched from a ~19-entry hand-written literal to every concrete
-  // `IfcRelationship` subtype the bundled schemas declare
-  // (`getAllConcreteRelationshipTypes()`), so the TS parser now recognizes
-  // every one of the 55 concrete subtypes across IFC2X3/IFC4/IFC4X3 — most
-  // of them (task/resource assignment, structural-analysis connections,
-  // space-boundary variants, ...) the Rust server's narrower data model
-  // (`apps/server/src/services/data_model/relationships.rs`, still the
-  // pre-#4205 9-type list) was never asked to handle. This is the intended
-  // shape of #4205 (index every subtype, once, from the schema) rather than
-  // a regression: extending the Rust server to match is tracked by #4205
-  // itself, not a silent, undocumented gap.
-  'relationships:IFCRELADHERESTOELEMENT': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSIGNSTASKS': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSIGNSTOACTOR': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSIGNSTOCONTROL': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSIGNSTOPROCESS': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSIGNSTOPROJECTORDER': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSIGNSTORESOURCE': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSOCIATES': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSOCIATESAPPLIEDVALUE': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSOCIATESAPPROVAL': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSOCIATESCONSTRAINT': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSOCIATESLIBRARY': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSOCIATESPROFILEDEF': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELASSOCIATESPROFILEPROPERTIES': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELCONNECTSSTRUCTURALACTIVITY': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELCONNECTSSTRUCTURALELEMENT': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELCONNECTSSTRUCTURALMEMBER': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELCONNECTSWITHECCENTRICITY': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELCONNECTSWITHREALIZINGELEMENTS': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELCOVERSBLDGELEMENTS': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELCOVERSSPACES': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELDECLARES': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELDEFINESBYOBJECT': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELDEFINESBYTEMPLATE': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELFLOWCONTROLELEMENTS': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELINTERACTIONREQUIREMENTS': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELINTERFERESELEMENTS': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELOCCUPIESSPACES': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELOVERRIDESPROPERTIES': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELPOSITIONS': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELPROJECTSELEMENT': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELSCHEDULESCOSTITEMS': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELSEQUENCE': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELSERVICESBUILDINGS': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELSPACEBOUNDARY1STLEVEL': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
-  'relationships:IFCRELSPACEBOUNDARY2NDLEVEL': { status: 'pending', note: '#4205: TS now derives relationship coverage from the schema (getAllConcreteRelationshipTypes); the Rust server data model has not been extended to match' },
+  // The generated server table now covers every schema-derived concrete
+  // relationship except IFCRELASSOCIATES. The bundled IFC2X3 registry marks
+  // that base type concrete, but it has no RelatingX attribute and therefore
+  // cannot produce a meaningful relationship edge.
+  'relationships:IFCRELASSOCIATES': { status: 'deliberate', note: '#4205: schema exception — no RelatingX attribute exists to extract' },
 
   // #3254: IfcPhysicalComplexQuantity groups other quantities instead of
   // carrying a measure itself, so neither side resolves it to a Quantity —

@@ -144,7 +144,7 @@ function read(rel) {
 
 // ---------------------------------------------------------------------------
 
-const RUST_REL = 'apps/server/src/services/data_model/relationships.rs';
+const RUST_REL = 'apps/server/src/services/data_model/generated/relationship_slots.rs';
 const TS_REL_INDEXES = 'packages/parser/src/columnar-parser-indexes.ts';
 const RUST_SPATIAL = 'apps/server/src/services/data_model/spatial.rs';
 const TS_SPATIAL = 'packages/data/src/spatial-types.ts';

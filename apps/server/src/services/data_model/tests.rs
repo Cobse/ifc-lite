@@ -2055,3 +2055,145 @@ fn complex_property_nesting_within_the_depth_cap_is_not_marked_truncated() {
     // truncation — it keeps its bare UsageName at any depth.
     assert_eq!(depth_cap_property_value(&dm, "Empty"), "EmptyUsage");
 }
+
+/// Schema-derived relationship-slot parity (issue #4205 Rust half).
+///
+/// Before the generated `relationship_slots.rs` table, `extract_relationship`
+/// hand-enumerated 13 STEP relationship types; everything else silently
+/// dropped. This fixture exercises three types that were NEVER extracted
+/// before this fix — `IfcRelAssignsToActor`, `IfcRelDeclares`,
+/// `IfcRelSequence` — using the SAME entity ids and attribute values as
+/// `packages/parser/test/relationship-subtype-coverage.test.ts`'s `IFC`
+/// fixture (the TS-side test for the same three types, written for #4205's
+/// TS half). The two fixtures are kept textually parallel (see comments
+/// below pinning each attribute position against that file) so a change to
+/// either side's schema-derived slot plan that disagrees with the other
+/// shows up as a failure on both suites, not just one — the "both halves
+/// agree" check called for in the task write-up. A true single-process
+/// dual-stack fixture (running one file through both `ColumnarParser` and
+/// `extract_data_model` in the same test) was not practical without adding a
+/// Rust<->TS bridge that does not otherwise exist in this repo; running the
+/// TS suite (`pnpm --filter @ifc-lite/parser test`) and this Rust suite
+/// against textually-matched fixtures is the fallback documented in the task
+/// write-up for that case.
+///
+/// #10/#11/#12 stand in for arbitrary related objects (`IfcWall` placeholders,
+/// exactly as the TS fixture's comment explains) - nothing here exercises
+/// attribute typing, only relationship-level attribute position and
+/// cardinality.
+const NEW_REL_SUBTYPES_IFC: &str = r#"ISO-10303-21;
+HEADER;
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCOWNERHISTORY($,$,$,$,$,$,$,0);
+#2=IFCPROJECT('Prj0000000000000000001',#1,'P',$,$,$,$,$,$);
+#10=IFCWALL('w1',#1,'Wall1',$,$,$,$,$);
+#11=IFCWALL('w2',#1,'Wall2',$,$,$,$,$);
+#12=IFCWALL('w3',#1,'Wall3',$,$,$,$,$);
+#20=IFCRELASSIGNSTOACTOR('ra',#1,$,$,(#10,#11),$,#12);
+#21=IFCRELDECLARES('rd',#1,$,$,#12,(#10));
+#22=IFCRELSEQUENCE('rs',#1,$,$,#10,#11);
+ENDSEC;
+END-ISO-10303-21;
+"#;
+
+/// `IFCRELASSIGNSTOACTOR`: `RelatedObjects` (a LIST) is the FIRST attribute
+/// after the shared root prefix (absolute index 4), `RelatingActor` (a single
+/// ref) is the THIRD (absolute index 6, `RelatedObjectsType` — an enum, never
+/// a ref — sits at 5 and is skipped by the schema-derived slot walk). This is
+/// the "related is a LIST" half of the required list-vs-single-ref coverage.
+/// Matches `packages/parser/test/relationship-subtype-coverage.test.ts`'s
+/// `'IfcRelAssignsToActor: RelatingActor is the LAST attribute, RelatedObjects
+/// the FIRST'` case exactly (relating=#12, related={#10,#11}).
+#[test]
+fn extracts_assigns_to_actor_relationship_previously_unindexed() {
+    let dm = extract_data_model_checked(NEW_REL_SUBTYPES_IFC);
+    let mut related: Vec<u32> = dm
+        .relationships
+        .iter()
+        .filter(|r| r.rel_type.eq_ignore_ascii_case("IFCRELASSIGNSTOACTOR") && r.relating_id == 12)
+        .map(|r| r.related_id)
+        .collect();
+    related.sort_unstable();
+    assert_eq!(
+        related,
+        vec![10, 11],
+        "IFCRELASSIGNSTOACTOR (actor #12 -> walls #10,#11) missing or misoriented: {:?}",
+        dm.relationships
+    );
+}
+
+/// `IFCRELDECLARES`: both `RelatingContext` and `RelatedDefinitions` are
+/// SELECT-typed (`IfcContext`/`IfcDefinitionSelect`), not plain entity refs —
+/// exactly the case that caught a real generation-time bug on the TS side
+/// (`relationship-schema-slots.ts` must check `registry.selects` BEFORE
+/// `registry.types`, since a SELECT declaration also appears in `.types`).
+/// This test proves the GENERATED Rust table inherited the correct (already
+/// SELECT-aware) indices — nothing further to fix or mutate on the Rust side
+/// for that defect class, since the distinction is made once, at generation
+/// time, in the shared TS module. Matches the TS fixture's `'IfcRelDeclares
+/// gets its own edge type'` case (relating=#12, related=#10).
+#[test]
+fn extracts_declares_relationship_with_select_typed_attributes() {
+    let dm = extract_data_model_checked(NEW_REL_SUBTYPES_IFC);
+    assert!(
+        dm.relationships.iter().any(|r| {
+            r.rel_type.eq_ignore_ascii_case("IFCRELDECLARES")
+                && r.relating_id == 12
+                && r.related_id == 10
+        }),
+        "IFCRELDECLARES (context #12 -> definition #10) missing or misoriented: {:?}",
+        dm.relationships
+    );
+    // Must not be folded into IFCRELASSIGNSTOACTOR's bucket even though both
+    // touch #12 — same "own edge type" guard as the TS-side test.
+    assert!(
+        !dm.relationships.iter().any(|r| {
+            r.rel_type.eq_ignore_ascii_case("IFCRELASSIGNSTOACTOR")
+                && r.related_id == 10
+                && r.relating_id != 12
+        }),
+        "IFCRELDECLARES edge leaked into an IFCRELASSIGNSTOACTOR-shaped row"
+    );
+}
+
+/// `IFCRELSEQUENCE`: BOTH `RelatingProcess` and `RelatedProcess` are single
+/// refs — the "related is a single ref, not a list" half of the required
+/// list-vs-single-ref coverage, for a type that was never extracted before
+/// this fix (unlike `IFCRELVOIDSELEMENT`/`IFCRELFILLSELEMENT`, which already
+/// had a hand-written single-ref special case). Matches the TS fixture's
+/// `'IfcRelSequence: both RelatingProcess and RelatedProcess are single
+/// references'` case exactly (relating=#10, related=#11).
+#[test]
+fn extracts_sequence_relationship_single_ref_both_sides() {
+    let dm = extract_data_model_checked(NEW_REL_SUBTYPES_IFC);
+    assert!(
+        dm.relationships.iter().any(|r| {
+            r.rel_type.eq_ignore_ascii_case("IFCRELSEQUENCE")
+                && r.relating_id == 10
+                && r.related_id == 11
+        }),
+        "IFCRELSEQUENCE (process #10 -> process #11) missing or misoriented: {:?}",
+        dm.relationships
+    );
+}
+
+/// Control, mirroring `fixture_without_new_types_is_unaffected`: a fixture
+/// with none of the three newly-covered types above must extract exactly as
+/// before — the schema-derived gate must not start matching an unrelated
+/// type.
+#[test]
+fn fixture_without_newly_covered_subtypes_is_unaffected_by_the_schema_derived_gate() {
+    let dm = extract_data_model_checked(ASSOCIATIONS_IFC);
+    assert!(
+        !dm.relationships.iter().any(|r| {
+            matches!(
+                r.rel_type.to_uppercase().as_str(),
+                "IFCRELASSIGNSTOACTOR" | "IFCRELDECLARES" | "IFCRELSEQUENCE"
+            )
+        }),
+        "fixture has none of the newly-covered types, but one was extracted: {:?}",
+        dm.relationships
+    );
+}

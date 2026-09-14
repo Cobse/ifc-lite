@@ -53,7 +53,7 @@ const ROOT = join(SCRIPTS, '..');
 const CHECKER = join(SCRIPTS, 'check-server-browser-type-parity.mjs');
 
 const FILES = {
-  RUST_REL: 'apps/server/src/services/data_model/relationships.rs',
+  RUST_REL: 'apps/server/src/services/data_model/generated/relationship_slots.rs',
   TS_REL_INDEXES: 'packages/parser/src/columnar-parser-indexes.ts',
   RUST_SPATIAL: 'apps/server/src/services/data_model/spatial.rs',
   TS_SPATIAL: 'packages/data/src/spatial-types.ts',
@@ -132,8 +132,12 @@ test('RELATIONSHIPS (#4672): a complete alternate checkout uses its matching bui
 
 // -- relationships -----------------------------------------------------
 
-test('RELATIONSHIPS: RED when a type is removed from the Rust rel_types array', () => {
-  const rust = replaceOnce(real.RUST_REL, '"IFCRELAGGREGATES",\n', '');
+test('RELATIONSHIPS: RED when a type is removed from the generated Rust slot table', () => {
+  const rust = replaceOnce(
+    real.RUST_REL,
+    '"IFCRELAGGREGATES" => Some(RelationshipSlots {',
+    '"__REMOVED__" => Some(RelationshipSlots {',
+  );
   const { status, out } = runOn({ RUST_REL: rust });
   assert.equal(status, 1, out);
   assert.match(out, /\[relationships\]/);
@@ -169,13 +173,8 @@ test('RELATIONSHIPS (documents the corrected claim, #4205): emptying PROPERTY_RE
 // divergences, the gate's stale-entry check demanded the entries go, and
 // suppression is concept-agnostic, so this test and the `deliberate` one
 // below cover the mechanism for every concept.
-test('RELATIONSHIPS: an allowlisted divergence (IFCRELCONNECTSELEMENTS) does not fail on its own', () => {
-  // IFCRELNESTS/IFCRELASSIGNSTOGROUP(BYFACTOR)/IFCRELCONNECTSPATHELEMENTS
-  // used to be the entries checked here, but #3969 merged and added all four
-  // server-side — `staleAllowlistEntries()` (added for #3979) confirmed that
-  // and they were removed from ALLOWLIST, so this now exercises a relationship
-  // type still genuinely missing server-side (#3964, not yet fixed).
-  assert.ok(Object.hasOwn(ALLOWLIST, 'relationships:IFCRELCONNECTSELEMENTS'));
+test('RELATIONSHIPS: the schema exception IFCRELASSOCIATES is allowlisted', () => {
+  assert.ok(Object.hasOwn(ALLOWLIST, 'relationships:IFCRELASSOCIATES'));
   const { status, out } = runOn({});
   assert.equal(status, 0, out);
 });
@@ -204,8 +203,8 @@ test('RELATIONSHIPS: adding a type to BOTH sides keeps it passing', () => {
   // the literal set that stays source-text-readable after #4205.
   const rust = replaceOnce(
     real.RUST_REL,
-    'let rel_types = [',
-    'let rel_types = [\n        "IFCRELINVENTEDFAKETYPE",',
+    'match upper_type_name {',
+    'match upper_type_name {\n        "IFCRELINVENTEDFAKETYPE" => Some(RelationshipSlots { relating_idx: 4, related_idx: 5, related_is_list: true }),',
   );
   const ts = replaceOnce(
     real.TS_REL_INDEXES,
@@ -422,10 +421,10 @@ test('MATERIALS: RED when a case is removed from the TS resolver', () => {
 
 // -- vacuity guard ------------------------------------------------------
 
-test('vacuity guard: RED when the Rust relationships extractor is starved', () => {
-  const { status, out } = runOn({ RUST_REL: '// no rel_types array at all\n' });
+test('vacuity guard: RED when the generated Rust relationship table is starved', () => {
+  const { status, out } = runOn({ RUST_REL: '// no relationship slot arms at all\n' });
   assert.equal(status, 1, out);
-  assert.match(out, /no types extracted from apps\/server\/src\/services\/data_model\/relationships\.rs/);
+  assert.match(out, /no types extracted from apps\/server\/src\/services\/data_model\/generated\/relationship_slots\.rs/);
   assert.match(out, /this gate compared nothing/);
 });
 
@@ -493,37 +492,7 @@ test('checkConcept() reports no failures when both sides agree exactly', () => {
   assert.deepEqual(failures, []);
 });
 
-// -- under-read guard (review finding: a "secondary array" refactor of
-// relationships.rs, or a 4th TS `*_REL_TYPES` Set, is otherwise invisible to
-// the bounded extractors and produces a SILENT PASS rather than a failure) --
-
-test('RELATIONSHIPS UNDER-READ: RED when a sibling `let extra_rel_types = [...]` array appears alongside `rel_types`', () => {
-  // Reproduces the review-verified silent pass: a later patch that adds
-  // genuinely new relationship types via a second bounded array, rather than
-  // extending the one this extractor reads, must not compare as clean.
-  const rust = replaceOnce(
-    real.RUST_REL,
-    'let rel_types = [',
-    'let extra_rel_types = ["IFCRELASSIGNSTOPRODUCT"];\n    let rel_types = [',
-  );
-  const { status, out } = runOn({ RUST_REL: rust });
-  assert.equal(status, 1, out);
-  assert.match(out, /rustRelationshipTypes: found a binding `extra_rel_types`/);
-  assert.match(out, /extractor may be under-reading; update it/);
-  assert.match(out, /this gate refused to compare it/);
-});
-
-test('RELATIONSHIPS UNDER-READ: a sibling array whose name does not look like a types binding does not false-positive', () => {
-  // `nameFilter: /types/i` should not fire on an unrelated helper array that
-  // happens to also be bounded by `let NAME = [ ... ];`.
-  const rust = replaceOnce(
-    real.RUST_REL,
-    'let rel_types = [',
-    'let unrelated_helper = ["not an ifc type", "also not one"];\n    let rel_types = [',
-  );
-  const { status, out } = runOn({ RUST_REL: rust });
-  assert.equal(status, 0, out);
-});
+// -- under-read guard --------------------------------------------------
 
 test('RELATIONSHIPS UNDER-READ: RED when a 4th `*_REL_TYPES` Set appears on the TS side alongside the recognized three', () => {
   const ts = replaceOnce(
@@ -592,65 +561,6 @@ test('QUANTITIES UNDER-READ: RED when a sibling quantity map appears alongside `
   assert.equal(status, 1, out);
   assert.match(out, /tsQuantityTypes: found a binding `LEGACY_QUANTITY_MAP`/);
   assert.match(out, /extractor may be under-reading; update it/);
-});
-
-test('mutation control: disabling the under-read detector lets the same silent-pass repro go green again', () => {
-  // Directly verifies the guard is load-bearing: with the detector's body
-  // replaced by an early return (simulating it being disabled/deleted), the
-  // exact same sibling-array mutation that RED above must go GREEN again.
-  const libPath = join(SCRIPTS, 'lib', 'server-browser-type-extractors.mjs');
-  const libSrc = readFileSync(libPath, 'utf8');
-  const anchor =
-    "export function assertNoUnrecognizedSiblingBindings(\n  code,\n  { bindingPattern, valuePattern, nameFilter, recognizedNames, label },\n) {\n";
-  // @source-text-assertion-ok mutation anchor guard, not a subject assertion
-  assert.ok(libSrc.includes(anchor), 'assertNoUnrecognizedSiblingBindings signature drifted');
-  const mutatedLib = libSrc.replace(anchor, `${anchor}  return; // mutated: detector disabled\n`);
-
-  const dir = mkdtempSync(join(tmpdir(), 'server-browser-type-parity-mutation-'));
-  try {
-    for (const [key, rel] of Object.entries(FILES)) {
-      const abs = join(dir, rel);
-      mkdirSync(dirname(abs), { recursive: true });
-      writeFileSync(abs, real[key]);
-    }
-    // Overwrite the checker's own lib copy is not possible via --root (the
-    // checker always imports its OWN scripts/lib, not one under --root), so
-    // this test instead runs the checker's real entry point but against a
-    // temp copy of the WHOLE scripts dir with the mutated lib swapped in.
-    const scriptsCopy = join(dir, '__scripts__');
-    mkdirSync(scriptsCopy, { recursive: true });
-    // Whole-`lib`-dir copy (not an enumerated file list): server-browser-type-extractors.mjs
-    // now has its own sibling modules (hierarchy-schema-loader.mjs,
-    // ts-source-loader.mjs, #4672) — an enumerated copy silently drifts out
-    // of sync with its import graph every time a new sibling is split out,
-    // which is exactly the shape of bug this whole file's method (copy the
-    // REAL sources, mutate one) exists to avoid.
-    writeFileSync(join(scriptsCopy, 'check-server-browser-type-parity.mjs'), readFileSync(CHECKER, 'utf8'));
-    cpSync(join(SCRIPTS, 'lib'), join(scriptsCopy, 'lib'), { recursive: true });
-    writeFileSync(join(scriptsCopy, 'lib', 'server-browser-type-extractors.mjs'), mutatedLib);
-
-    const relMutated = replaceOnce(
-      real.RUST_REL,
-      'let rel_types = [',
-      'let extra_rel_types = ["IFCRELASSIGNSTOPRODUCT"];\n    let rel_types = [',
-    );
-    for (const [key, rel] of Object.entries(FILES)) {
-      const content = key === 'RUST_REL' ? relMutated : real[key];
-      const abs = join(dir, rel);
-      mkdirSync(dirname(abs), { recursive: true });
-      writeFileSync(abs, content);
-    }
-
-    const r = spawnSync(
-      process.execPath,
-      [join(scriptsCopy, 'check-server-browser-type-parity.mjs'), '--root', dir],
-      { encoding: 'utf8' },
-    );
-    assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
-    assert.match(`${r.stdout}${r.stderr}`, /check-server-browser-type-parity: OK/);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
 });
 
 // -- vacuity guard claim correction (review finding: the header claims BOTH
