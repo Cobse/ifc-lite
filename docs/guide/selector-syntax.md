@@ -67,7 +67,7 @@ exists only as part of `*=`. Use a regular expression for wildcards.
 | `Qto_….Quantity > 10` | ⚠️ | only a `Qto_` set, and only a numeric comparison — see below |
 | `material=` | ⚠️ | matches material **names**; Category is not read yet |
 | `classification=`, `= NULL`, `!= NULL` | ✅ | matches the code or the name |
-| `location="Level 3"` | ⚠️ | see below |
+| `location="Level 3"` | ✅ | reaches one level through a containing space — see below |
 | GlobalId terms, `! <GlobalId>` | ✅ | several terms union (add) or subtract, mirroring class terms |
 | `GlobalId=`, `GlobalId!=` | ✅ | reuses the same globalId rule the bare term builds; `*=`, `>`/`>=`/`<`/`<=`, `/regex/`, and `NULL` are reported |
 | `Description=`, `ObjectType=`, `Tag=`, any other schema attribute | ✅ | all eight operators, `= NULL` / `!= NULL` as presence — see below |
@@ -116,13 +116,16 @@ bare GlobalId term (`325Q7Fhnf67OZC$$r43uzK`) — see the grammar table above.
 ### How far `location=` reaches
 
 `location="Level 3"` becomes a storey-name rule, and that rule matches an element the
-storey **contains directly**, plus the parts aggregated under such an element.
+storey **contains directly**, its aggregated parts, and — one hop through a containing
+`IfcSpace`/`IfcSpatialZone` — an element inside a space on that storey. So
+IfcOpenShell's example `IfcPump, location="Level 3"` — a pump in a room on Level 3 —
+now finds the pump in IFClite too. This is measured, not assumed: see `storey rule
+reach` in `apps/viewer/src/lib/search/filter-evaluate.test.ts`.
 
-It does **not** reach an element one level further down, inside an `IfcSpace` on that
-storey. So IfcOpenShell's example `IfcPump, location="Level 3"` — a pump in a room on
-Level 3 — finds the pump in IfcOpenShell and not in IFClite. This is measured, not
-assumed: see `storey rule reach` in `apps/viewer/src/lib/search/filter-evaluate.test.ts`.
-A spatial-ancestor rule is part of #4094.
+The reach stops at one hop: an element inside a space nested inside *another* space,
+rather than directly under the storey, is not resolved. That deeper case is
+uncommon (most authoring tools put a space directly under its storey) and is left
+open in #4094 rather than guessed at.
 
 ## Where else can I filter?
 

@@ -715,3 +715,23 @@ it('server hydration uses live authored space membership (#4308)', () => {
   assert.equal(hierarchy.getContainingSpace(4), null);
   assert.deepEqual(hierarchy.getPath(4), []);
 });
+
+it('server hydration preserves one-hop IfcSpatialZone storey membership (#4775)', () => {
+  const model: DataModel = {
+    entities: ServerEntityIndex.fromRows([]), propertySets: new Map(), quantitySets: new Map(),
+    relationships: [], classifications: [], materials: [], documents: [],
+    spatialHierarchy: {
+      nodes: [
+        { entity_id: 1, parent_id: 0, level: 0, path: 'P', type_name: 'IFCPROJECT', children_ids: [2], element_ids: [] },
+        { entity_id: 2, parent_id: 1, level: 1, path: 'P/L1', type_name: 'IFCBUILDINGSTOREY', name: 'Level 1', children_ids: [3], element_ids: [] },
+        { entity_id: 3, parent_id: 2, level: 2, path: 'P/L1/Zone', type_name: 'IFCSPATIALZONE', name: 'Zone A', children_ids: [], element_ids: [4] },
+      ], project_id: 1, element_to_storey: new Map(), element_to_building: new Map(),
+      element_to_site: new Map(), element_to_space: new Map([[4, 3]]),
+    },
+  };
+
+  const hierarchy = convertServerDataModel(model, parseResult, { size: 1 }, []).spatialHierarchy!;
+  assert.deepEqual(hierarchy.bySpace.get(3), [4]);
+  assert.equal(hierarchy.elementToStorey.get(3), 2);
+  assert.equal(hierarchy.getContainingSpace(4), 3);
+});

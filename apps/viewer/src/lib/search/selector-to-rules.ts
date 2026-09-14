@@ -371,10 +371,10 @@ function adaptLocation(op: SelectorOp, value: SelectorValue, text: string): Filt
   }
   const setOp = setOpFor(op);
   if (!setOp) return `${quote(text)}: "location=" takes only "=" and "!="`;
-  // Storey NAME only, and only for elements the storey contains directly (or
-  // their aggregated parts) — measured in `filter-evaluate.test.ts`. An element
-  // inside a space on that storey does NOT match, which is where this differs
-  // from IfcOpenShell's "directly or indirectly" (#4094).
+  // Storey NAME. Includes direct elements, aggregated parts, and one hop
+  // through a containing IfcSpace / IfcSpatialZone; the widening is in the
+  // evaluator/prefilter, not this rule shape. Measured in
+  // `filter-evaluate.test.ts`; nested spaces do not extend the reach.
   return Rule.storey([value.text], setOp);
 }
 
@@ -397,4 +397,3 @@ function adaptTypeName(op: SelectorOp, value: SelectorValue, text: string): Filt
   if (invalid) return `${quote(text)}: ${invalid}`;
   return Rule.typeName(stringOp, literalOf(value), regexValueKind(value));
 }
-

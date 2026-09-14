@@ -240,6 +240,47 @@ describe('evaluateFilterRules — storey & predefinedType resolvers', () => {
     );
     assert.deepStrictEqual(byOtherModelRef.map((r) => r.expressId), []);
   });
+
+  // The pre-existing refs tests above never populate `bySpace` /
+  // `getContainingSpace`, so they cannot see whether the exact-refs path
+  // gets the same one-hop-through-a-space widening the Name-matching path
+  // gets (`storeyIdOf`, shared by both). This fixture gives both storeys
+  // a same-named "Level 3" sibling, each with its OWN space, so a
+  // ref-matched element sitting in the WRONG sibling's space is a
+  // wrong-result test, not a parses-without-error one.
+  it('exact refs widen through a containing space too, and reject a same-named sibling storey\'s space (#4094)', () => {
+    const storeyRows = [
+      ...rows,
+      { expressId: 500, type: 'IFCBUILDINGSTOREY', globalId: '5abcdefghijklmnopqrstu', name: 'Level 3' },
+      { expressId: 700, type: 'IFCBUILDINGSTOREY', globalId: '7abcdefghijklmnopqrstu', name: 'Level 3' },
+      { expressId: 550, type: 'IFCSPACE', globalId: '5abcdefghijklmnopqrstv', name: 'Room-West' },
+      { expressId: 750, type: 'IFCSPACE', globalId: '7abcdefghijklmnopqrstv', name: 'Room-East' },
+      { expressId: 900, type: 'IFCPUMP', globalId: '9abcdefghijklmnopqrstu', name: 'Pump-West' },
+      { expressId: 901, type: 'IFCPUMP', globalId: '9abcdefghijklmnopqrstv', name: 'Pump-East' },
+    ];
+    const store = buildStore(storeyRows);
+    (store as unknown as { spatialHierarchy: unknown }).spatialHierarchy = {
+      byStorey: new Map<number, number[]>([
+        [500, []],
+        [700, []],
+      ]),
+      // Each space is itself mapped to its own storey — same shape
+      // `SpatialHierarchyBuilder` produces for a real parse.
+      elementToStorey: new Map<number, number>([[550, 500], [750, 700]]),
+      bySpace: new Map<number, number[]>([
+        [550, [900]],
+        [750, [901]],
+      ]),
+      getContainingSpace: (expressId: number) => (expressId === 900 ? 550 : expressId === 901 ? 750 : undefined),
+    };
+
+    // Refs pin storey 500's "Level 3" — the pump in ITS space (550) should
+    // widen in, the same-named sibling storey's pump (in space 750) must not.
+    const byRef = evaluateFilterRules(
+      'm1', store, [Rule.storey(['Level 3'], 'in', [{ modelId: 'm1', expressId: 500 }])], 'AND',
+    );
+    assert.deepStrictEqual(byRef.map((r) => r.expressId), [900]);
+  });
 });
 
 describe('evaluateFilterRulesFederated', () => {
@@ -826,6 +867,42 @@ describe('selectIterationSource — index prefilter (AND + op:in)', () => {
     const ids = Array.from(source as Iterable<number>);
     assert.deepStrictEqual(ids.sort(), [10, 30]);
   });
+
+  // The test above never populates `bySpace`, so it cannot see whether
+  // `unionByStorey`'s ref-branch calls `spaceElementsOfStorey` at all — it
+  // only proves the guard doesn't crash. This fixture gives the ref'd
+  // storey (500) a space-contained element (900) AND gives its same-named
+  // sibling (700) its own space-contained element (901), so a bucket that
+  // widened through the wrong sibling's space would be a wrong-result
+  // failure, not a silent pass.
+  it('unionByStorey ref-branch widens through the ref\'d storey\'s own space, not a same-named sibling\'s (#4094)', () => {
+    const storeyRows = [
+      ...rows,
+      { expressId: 500, type: 'IFCBUILDINGSTOREY', globalId: '5abcdefghijklmnopqrstu', name: 'Level 3' },
+      { expressId: 700, type: 'IFCBUILDINGSTOREY', globalId: '7abcdefghijklmnopqrstu', name: 'Level 3' },
+      { expressId: 550, type: 'IFCSPACE', globalId: '5abcdefghijklmnopqrstv', name: 'Room-West' },
+      { expressId: 750, type: 'IFCSPACE', globalId: '7abcdefghijklmnopqrstv', name: 'Room-East' },
+      { expressId: 900, type: 'IFCPUMP', globalId: '9abcdefghijklmnopqrstu', name: 'Pump-West' },
+      { expressId: 901, type: 'IFCPUMP', globalId: '9abcdefghijklmnopqrstv', name: 'Pump-East' },
+    ];
+    const s2 = buildStore(storeyRows);
+    (s2 as unknown as { spatialHierarchy: unknown }).spatialHierarchy = {
+      byStorey: new Map<number, number[]>([
+        [500, []],
+        [700, []],
+      ]),
+      elementToStorey: new Map<number, number>([[550, 500], [750, 700]]),
+      bySpace: new Map<number, number[]>([
+        [550, [900]],
+        [750, [901]],
+      ]),
+    };
+    const source = select(
+      s2, [Rule.storey(['Level 3'], 'in', [{ modelId: 'm1', expressId: 500 }])], 'AND', undefined, 'm1',
+    );
+    const ids = Array.from(source as Iterable<number>);
+    assert.deepStrictEqual(ids.sort(), [900]);
+  });
 });
 
 describe('evaluateFilterRulesFederated — large-model scaling', () => {
@@ -990,20 +1067,31 @@ DATA;
 #42= IFCBUILDING('0Bldg00000000000000001',$,'Building',$,$,#40,$,$,.ELEMENT.,$,$,$);
 #43= IFCBUILDINGSTOREY('0Storey00000000000001',$,'Level 3',$,$,#40,$,$,.ELEMENT.,9.);
 #44= IFCSPACE('0Space000000000000001',$,'Room 301',$,$,#40,$,$,.ELEMENT.,.INTERNAL.,$);
+#45= IFCBUILDINGSTOREY('0Storey00000000000002',$,'Level 4',$,$,#40,$,$,.ELEMENT.,12.);
+#46= IFCSPACE('0Space000000000000002',$,'Room 401',$,$,#40,$,$,.ELEMENT.,.INTERNAL.,$);
 #50= IFCPUMP('0Pump0000000000000001',$,'Pump-01',$,$,#40,$,'tag',$);
 #51= IFCWALL('0Wall0000000000000001',$,'Wall-01',$,$,#40,$,'tag',$);
+#52= IFCPUMP('0Pump0000000000000002',$,'Pump-02',$,$,#40,$,'tag',$);
+#53= IFCWALL('0Wall0000000000000002',$,'Wall-02',$,$,#40,$,'tag',$);
 #60= IFCRELAGGREGATES('0Agg00000000000000001',$,$,$,#1,(#41));
 #61= IFCRELAGGREGATES('0Agg00000000000000002',$,$,$,#41,(#42));
-#62= IFCRELAGGREGATES('0Agg00000000000000003',$,$,$,#42,(#43));
+#62= IFCRELAGGREGATES('0Agg00000000000000003',$,$,$,#42,(#43,#45));
 #63= IFCRELAGGREGATES('0Agg00000000000000004',$,$,$,#43,(#44));
+#64= IFCRELAGGREGATES('0Agg00000000000000005',$,$,$,#45,(#46));
 #70= IFCRELCONTAINEDINSPATIALSTRUCTURE('0Cont0000000000000001',$,$,$,(#50),#44);
 #71= IFCRELCONTAINEDINSPATIALSTRUCTURE('0Cont0000000000000002',$,$,$,(#51),#43);
+#72= IFCRELCONTAINEDINSPATIALSTRUCTURE('0Cont0000000000000003',$,$,$,(#52),#46);
+#73= IFCRELCONTAINEDINSPATIALSTRUCTURE('0Cont0000000000000004',$,$,$,(#53),#45);
 ENDSEC;
 END-ISO-10303-21;
 `;
 
-const PUMP_IN_SPACE = 50;
-const WALL_IN_STOREY = 51;
+const PUMP_IN_SPACE = 50;       // in space 44, which is on Level 3
+const WALL_IN_STOREY = 51;      // directly in Level 3
+const PUMP_IN_OTHER_SPACE = 52; // in space 46, which is on Level 4
+const WALL_IN_OTHER_STOREY = 53; // directly in Level 4
+const SPACE_ON_LEVEL_3 = 44;
+const STOREY_LEVEL_3 = 43;
 
 async function parseSpatialStore(): Promise<IfcDataStore> {
   const bytes = new TextEncoder().encode(SPATIAL_IFC);
@@ -1012,22 +1100,22 @@ async function parseSpatialStore(): Promise<IfcDataStore> {
   );
 }
 
-describe('storey rule reach — what location="Level 3" resolves to (#4091)', () => {
-  it('the fixture really holds a pump in a space and a wall in the storey', async () => {
+describe('storey rule reach — what location="Level 3" resolves to (#4091, #4094)', () => {
+  it('the fixture really holds a pump in a space and a wall in the storey, on two storeys', async () => {
     const store = await parseSpatialStore();
     const ids = evaluateFilterRules('m1', store, [Rule.ifcType(['IfcPump', 'IfcWall'])], 'AND')
       .map((e) => e.expressId).sort((a, b) => a - b);
-    assert.deepStrictEqual(ids, [PUMP_IN_SPACE, WALL_IN_STOREY]);
-    assert.strictEqual(store.spatialHierarchy?.getContainingSpace(PUMP_IN_SPACE), 44);
+    assert.deepStrictEqual(ids, [PUMP_IN_SPACE, WALL_IN_STOREY, PUMP_IN_OTHER_SPACE, WALL_IN_OTHER_STOREY]);
+    assert.strictEqual(store.spatialHierarchy?.getContainingSpace(PUMP_IN_SPACE), SPACE_ON_LEVEL_3);
   });
 
   it('MEASURED: a storey rule matches the directly-contained wall', async () => {
     const store = await parseSpatialStore();
-    const out = evaluateFilterRules('m1', store, [Rule.storey(['Level 3'])], 'AND');
+    const out = evaluateFilterRules('m1', store, [Rule.ifcType(['IfcWall']), Rule.storey(['Level 3'])], 'AND');
     assert.deepStrictEqual(out.map((e) => e.expressId), [WALL_IN_STOREY]);
   });
 
-  it('MEASURED: it does NOT reach the pump one level down, inside the space', async () => {
+  it('MEASURED: it now reaches the pump one level down, inside the space (#4094)', async () => {
     const store = await parseSpatialStore();
     const out = evaluateFilterRules(
       'm1',
@@ -1035,16 +1123,41 @@ describe('storey rule reach — what location="Level 3" resolves to (#4091)', ()
       [Rule.ifcType(['IfcPump']), Rule.storey(['Level 3'])],
       'AND',
     );
-    // Documented consequence, not an aspiration: the viewer's storey rule is
-    // direct containment (plus aggregated parts), so IfcOpenShell example 17
-    // is only partly answered until a spatial-ancestor rule lands (#4094).
-    assert.deepStrictEqual(out.map((e) => e.expressId), []);
+    // IfcOpenShell example 17: a pump inside a space on Level 3 answers
+    // location="Level 3". The parser still records no storey for the pump
+    // itself - the widening is a filter-local hop through its space.
+    assert.deepStrictEqual(out.map((e) => e.expressId), [PUMP_IN_SPACE]);
     assert.strictEqual(store.spatialHierarchy?.elementToStorey.get(PUMP_IN_SPACE), undefined);
   });
 
   it('MEASURED: the space itself IS mapped to its storey', async () => {
     const store = await parseSpatialStore();
-    assert.strictEqual(store.spatialHierarchy?.elementToStorey.get(44), 43);
+    assert.strictEqual(store.spatialHierarchy?.elementToStorey.get(SPACE_ON_LEVEL_3), STOREY_LEVEL_3);
+  });
+
+  it('the hop does NOT leak another storey\'s space-contained elements (#4094)', async () => {
+    const store = await parseSpatialStore();
+    const out = evaluateFilterRules('m1', store, [Rule.ifcType(['IfcPump', 'IfcWall']), Rule.storey(['Level 3'])], 'AND')
+      .map((e) => e.expressId).sort((a, b) => a - b);
+    // Pump-02 sits in Room 401 on Level 4 and Wall-02 directly on Level 4:
+    // a hop that resolved "any space" rather than "a space on THIS storey"
+    // would pull both in.
+    assert.deepStrictEqual(out, [PUMP_IN_SPACE, WALL_IN_STOREY]);
+  });
+
+  it('the widened rule still matches the other storey on its own name (#4094)', async () => {
+    const store = await parseSpatialStore();
+    const out = evaluateFilterRules('m1', store, [Rule.ifcType(['IfcPump', 'IfcWall']), Rule.storey(['Level 4'])], 'AND')
+      .map((e) => e.expressId).sort((a, b) => a - b);
+    assert.deepStrictEqual(out, [PUMP_IN_OTHER_SPACE, WALL_IN_OTHER_STOREY]);
+  });
+
+  it('a storey name nothing sits on returns [], not the whole model (#4659)', async () => {
+    const store = await parseSpatialStore();
+    const unfiltered = evaluateFilterRules('m1', store, [Rule.ifcType(['IfcPump', 'IfcWall'])], 'AND');
+    assert.strictEqual(unfiltered.length, 4, 'the no-filter case is non-empty, so [] below is a real narrowing');
+    const out = evaluateFilterRules('m1', store, [Rule.storey(['Level 9'])], 'AND');
+    assert.deepStrictEqual(out.map((e) => e.expressId), []);
   });
 });
 
