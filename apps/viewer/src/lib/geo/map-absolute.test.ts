@@ -19,11 +19,27 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
-import type { CoordinateInfo } from '@ifc-lite/geometry';
+import { NORMAL_COORD_THRESHOLD_M, type CoordinateInfo } from '@ifc-lite/geometry';
 import type { MapConversion } from '@ifc-lite/parser';
 
 import { effectiveMapConversionForGeometry } from './map-absolute.js';
 import { getEffectiveAxisScales, getEffectiveHorizontalScale } from './geo-scale.js';
+
+/**
+ * Model geometry centred `offsetE` metres east of the declared anchor
+ * (ifcX == anchorE + offsetE, ifcY == anchorN).
+ */
+function coordinateInfoNearAnchor(anchorE: number, anchorN: number, offsetE: number): CoordinateInfo {
+  // ifcX = worldYupX = cx; ifcY = -worldYupZ = -cz  =>  cz = -ifcY.
+  const cx = anchorE + offsetE;
+  const bounds = { min: { x: cx, y: 0, z: -anchorN }, max: { x: cx, y: 0, z: -anchorN } };
+  return {
+    originShift: { x: 0, y: 0, z: 0 },
+    originalBounds: bounds,
+    shiftedBounds: bounds,
+    hasLargeCoordinates: true,
+  };
+}
 
 /** Model geometry centred exactly at the declared anchor (ifcX/ifcY == anchorE/anchorN). */
 function coordinateInfoAtAnchor(anchorE: number, anchorN: number): CoordinateInfo {
@@ -128,5 +144,58 @@ describe('effectiveMapConversionForGeometry — scale neutralisation', () => {
     const effective = effectiveMapConversionForGeometry(conversion, 1, coordinateInfo);
     assert.strictEqual(effective, conversion, 'guard must not fire for a compliant small-offset file');
     assert.strictEqual(effective.scale, 0.9996, 'authored scale is untouched when the guard does not fire');
+  });
+});
+
+/**
+ * The detection radius IS the RTC re-base threshold, not a second copy of its
+ * value (#4611).
+ *
+ * The doc on `MAP_ABSOLUTE_MAX_CENTER_DISTANCE_METERS` says "matches the wasm
+ * RTC re-base threshold (10 km)", and the reason it has to is causal: a
+ * compliant file's geometry sits near the local origin BECAUSE the re-base put
+ * it there, so this radius is the one distance at which "the model is drawn at
+ * its anchor" and "the model was re-based away from its anchor" separate. It
+ * was its own `10_000` literal, so moving the re-base threshold would have left
+ * the radius behind.
+ *
+ * Both boundaries below are derived from the imported constant. Mutation: set
+ * `NORMAL_COORD_THRESHOLD_M` to 40_000 in packages/geometry and, with the
+ * literal back, "just inside" goes red — the detection still stops at 10 km
+ * while a model re-based at 40 km is now the one it has to recognise.
+ */
+describe('effectiveMapConversionForGeometry — centre radius is the RTC threshold', () => {
+  it('fires for a centre just inside the RTC re-base threshold of the anchor', () => {
+    const conversion = makeConversion();
+    const coordinateInfo = coordinateInfoNearAnchor(
+      conversion.eastings,
+      conversion.northings,
+      NORMAL_COORD_THRESHOLD_M * 0.99,
+    );
+    const effective = effectiveMapConversionForGeometry(conversion, 1, coordinateInfo);
+    assert.strictEqual(effective.eastings, 0, 'a centre inside the threshold is the absolute-placement signature');
+    assert.strictEqual(effective.scale, 1);
+  });
+
+  it('does not fire for a centre just outside the RTC re-base threshold', () => {
+    const conversion = makeConversion();
+    const coordinateInfo = coordinateInfoNearAnchor(
+      conversion.eastings,
+      conversion.northings,
+      NORMAL_COORD_THRESHOLD_M * 1.01,
+    );
+    const effective = effectiveMapConversionForGeometry(conversion, 1, coordinateInfo);
+    assert.strictEqual(effective, conversion, 'a centre beyond the threshold is an ordinary offset model');
+  });
+
+  it('does not fire at exactly the threshold: the comparison is >=', () => {
+    const conversion = makeConversion();
+    const coordinateInfo = coordinateInfoNearAnchor(
+      conversion.eastings,
+      conversion.northings,
+      NORMAL_COORD_THRESHOLD_M,
+    );
+    const effective = effectiveMapConversionForGeometry(conversion, 1, coordinateInfo);
+    assert.strictEqual(effective, conversion);
   });
 });

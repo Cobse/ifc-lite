@@ -30,6 +30,9 @@ import type { MeshData } from './types.js';
  * nothing enforcing it. Raising all three to 250 km left the entire viewer suite
  * (5751 tests) green, so the agreement was prose only. Import this rather than
  * writing `10000` again.
+ *
+ * Until #4611 the class below read a private `THRESHOLD = 10000` instead, and
+ * the viewer's map-absolute radius held a third copy. Both now read this one.
  */
 export const NORMAL_COORD_THRESHOLD_M = 10000;
 
@@ -65,7 +68,6 @@ export interface CoordinateInfo {
 
 export class CoordinateHandler {
     private originShift: Vec3 = { x: 0, y: 0, z: 0 };
-    private readonly THRESHOLD = 10000; // 10km - threshold for large coordinates
     // Maximum reasonable coordinate - 10,000 km covers any georeferenced building on Earth
     // Values beyond this are garbage/corrupted data (safety net)
     private readonly MAX_REASONABLE_COORD = 1e7;
@@ -76,8 +78,6 @@ export class CoordinateHandler {
 
     // WASM RTC detection - if WASM already applied RTC, skip TypeScript shift
     private wasmRtcDetected: boolean = false;
-    // Threshold for "normal" coordinates when WASM RTC is active (10km = reasonable campus/site size)
-    private readonly NORMAL_COORD_THRESHOLD = NORMAL_COORD_THRESHOLD_M;
     // Active threshold for coordinate validation (set based on wasmRtcDetected)
     private activeThreshold: number = 1e7;
 
@@ -223,7 +223,7 @@ export class CoordinateHandler {
             Math.abs(bounds.min.z), Math.abs(bounds.max.z)
         );
 
-        return maxCoord > this.THRESHOLD;
+        return maxCoord > NORMAL_COORD_THRESHOLD_M;
     }
 
     /**
@@ -425,7 +425,7 @@ export class CoordinateHandler {
     processMeshesIncremental(batch: MeshData[]): void {
         // If WASM RTC was detected, use stricter threshold to exclude outliers
         // Store in instance variable so shiftPositions uses the same threshold
-        this.activeThreshold = this.wasmRtcDetected ? this.NORMAL_COORD_THRESHOLD : this.MAX_REASONABLE_COORD;
+        this.activeThreshold = this.wasmRtcDetected ? NORMAL_COORD_THRESHOLD_M : this.MAX_REASONABLE_COORD;
         const batchBounds = this.calculateBounds(batch, this.activeThreshold);
 
         if (this.accumulatedBounds === null) {
@@ -462,7 +462,7 @@ export class CoordinateHandler {
                 // If majority of meshes have small coordinates, WASM already shifted them
                 let smallCoordCount = 0;
                 let largeCoordCount = 0;
-                const SMALL_COORD_THRESHOLD = this.THRESHOLD; // Use same threshold as RTC detection
+                const SMALL_COORD_THRESHOLD = NORMAL_COORD_THRESHOLD_M; // Use same threshold as RTC detection
 
                 for (const mesh of batch) {
                     const positions = mesh.positions;
@@ -487,11 +487,11 @@ export class CoordinateHandler {
                 if (wasmRtcLikelyApplied) {
                     this.wasmRtcDetected = true;
                     // Recalculate bounds excluding outliers (use stricter threshold)
-                    this.accumulatedBounds = this.calculateBounds(batch, this.NORMAL_COORD_THRESHOLD);
+                    this.accumulatedBounds = this.calculateBounds(batch, NORMAL_COORD_THRESHOLD_M);
                 }
 
                 // Check if shift is needed (>10km from origin) AND WASM didn't already apply RTC
-                if ((distanceFromOrigin > this.THRESHOLD || maxSize > this.THRESHOLD) && !wasmRtcLikelyApplied) {
+                if ((distanceFromOrigin > NORMAL_COORD_THRESHOLD_M || maxSize > NORMAL_COORD_THRESHOLD_M) && !wasmRtcLikelyApplied) {
                     this.originShift = centroid;
                 }
             }
@@ -539,7 +539,7 @@ export class CoordinateHandler {
         this.originShift = { x: 0, y: 0, z: 0 };
         this.wasmRtcDetected = true;
         this.shiftCalculated = true;
-        this.activeThreshold = this.NORMAL_COORD_THRESHOLD;
+        this.activeThreshold = NORMAL_COORD_THRESHOLD_M;
     }
 
     /**

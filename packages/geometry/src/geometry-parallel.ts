@@ -38,6 +38,7 @@ import { restashWasmPanicLocation } from './wasm-panic-forward.js';
 // (and vice versa) instead of fetching the same binary a second time.
 import { compileSharedWasmModule } from './wasm-shared-module.js';
 import { stitchShards, type ShardColumns } from './shard-stitch.js';
+import { resolveRtcFrame } from './rtc-frame.js';
 
 /**
  * Prepass class-byte layout, mirroring the `PREPASS_CLASS_*` definitions in
@@ -694,11 +695,10 @@ export async function* processParallel(
     if (streamStartSentToWorkers || !prepassMeta) return;
     streamStartSentToWorkers = true;
 
-    const useSharedRtc = sharedRtcOffset != null;
-    const rtcX = useSharedRtc ? sharedRtcOffset.x : prepassMeta.rtcOffset[0];
-    const rtcY = useSharedRtc ? sharedRtcOffset.y : prepassMeta.rtcOffset[1];
-    const rtcZ = useSharedRtc ? sharedRtcOffset.z : prepassMeta.rtcOffset[2];
-    const effectiveNeedsShift = useSharedRtc ? true : prepassMeta.needsShift;
+    // The federation-override rule (shared offset wins, and forces needsShift)
+    // is shared with the sync and streaming paths in index.ts — see rtc-frame.ts.
+    const { x: rtcX, y: rtcY, z: rtcZ, needsShift: effectiveNeedsShift } =
+      resolveRtcFrame(prepassMeta, sharedRtcOffset);
 
     // Surface the world→render metadata (unit scale + the effective applied
     // RTC, which is the shared offset under federation) on coordinateInfo for

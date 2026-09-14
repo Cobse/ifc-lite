@@ -93,6 +93,7 @@ import type { HbjsonStats } from './hbjson-stats.js';
 
 // Extracted sub-modules
 import { getStreamingBatchSize, convertMeshCollectionToBatch, withBuildingRotation } from './geometry-coordinate.js';
+import { resolveRtcFrame, type RtcFrame } from './rtc-frame.js';
 import { streamNativeGeometry } from './geometry-native.js';
 import { processParallel } from './geometry-parallel.js';
 
@@ -404,21 +405,20 @@ export class GeometryProcessor {
   /**
    * Surface the world→render metadata (unit scale + applied RTC offset) from
    * a pre-pass result onto the coordinate handler (issue #945). Used by the
-   * sync WASM mesh path; `sharedRtcOffset` overrides the model's own detected
-   * offset for federation alignment (mirrors `useSharedRtc` in
-   * geometry-parallel.ts and `processStreamingBytes`).
+   * sync WASM mesh path and the streaming path; the federation-override rule
+   * itself lives in `resolveRtcFrame` (rtc-frame.ts), shared with
+   * `geometry-parallel.ts`.
    */
   private applyPrePassMetadata(
     prePass: ByteStreamingPrePassResult,
     sharedRtcOffset?: { x: number; y: number; z: number },
-  ): { x: number; y: number; z: number; needsShift: boolean } {
-    const useShared = sharedRtcOffset != null;
-    const x = useShared ? sharedRtcOffset.x : (prePass.rtcOffset?.[0] ?? 0);
-    const y = useShared ? sharedRtcOffset.y : (prePass.rtcOffset?.[1] ?? 0);
-    const z = useShared ? sharedRtcOffset.z : (prePass.rtcOffset?.[2] ?? 0);
-    const needsShift = useShared ? true : Boolean(prePass.needsShift);
-    this.coordinateHandler.setWasmMetadata(prePass.unitScale, needsShift ? { x, y, z } : null);
-    return { x, y, z, needsShift };
+  ): RtcFrame {
+    const frame = resolveRtcFrame(prePass, sharedRtcOffset);
+    this.coordinateHandler.setWasmMetadata(
+      prePass.unitScale,
+      frame.needsShift ? { x: frame.x, y: frame.y, z: frame.z } : null,
+    );
+    return frame;
   }
 
   private collectMeshesViaPrePass(
@@ -494,23 +494,20 @@ export class GeometryProcessor {
 
     const api = this.bridge.getApi();
     const prePass = api.buildPrePassOnce(buffer) as ByteStreamingPrePassResult;
-    const useSharedRtc = sharedRtcOffset != null;
-    const rtc = useSharedRtc
-      ? sharedRtcOffset
-      : { x: prePass.rtcOffset?.[0] ?? 0, y: prePass.rtcOffset?.[1] ?? 0, z: prePass.rtcOffset?.[2] ?? 0 };
-    const effectiveNeedsShift = useSharedRtc || Boolean(prePass.needsShift);
-    this.coordinateHandler.setWasmMetadata(prePass.unitScale, effectiveNeedsShift ? { ...rtc } : null);
+    const rtc = this.applyPrePassMetadata(prePass, sharedRtcOffset);
 
     // try/finally releases the pre-pass cache on every exit: the totalJobs===0
     // early return, a throw, or the consumer abandoning the generator.
     try {
       yield { type: 'model-open', modelID: 0 };
 
-      if (prePass.rtcOffset || useSharedRtc) {
+      // The event is emitted whenever there is an offset to report at all:
+      // the pre-pass detected one, or a federation override supplied one.
+      if (prePass.rtcOffset || sharedRtcOffset != null) {
         yield {
           type: 'rtcOffset',
           rtcOffset: { x: rtc.x, y: rtc.y, z: rtc.z },
-          hasRtc: effectiveNeedsShift,
+          hasRtc: rtc.needsShift,
         };
       }
 
@@ -540,7 +537,7 @@ export class GeometryProcessor {
           rtc.x,
           rtc.y,
           rtc.z,
-          effectiveNeedsShift,
+          rtc.needsShift,
           prePass.voidKeys,
           prePass.voidCounts,
           prePass.voidValues,
