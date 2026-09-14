@@ -57,7 +57,7 @@ import { projectedEnh, useProjectedLatLon, type Vec3Like } from './measure-modes
 function CoordRow({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="flex items-baseline gap-2 whitespace-nowrap">
-      <span className="w-[4.5rem] shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
+      <span className="w-[4.5rem] shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
       <span className="font-mono text-[11px] tabular-nums">{value}</span>
@@ -183,7 +183,7 @@ export function MeasurePointReadout() {
       </div>
 
       {frame.rebased && (
-        <div className="font-mono text-[9px] leading-tight text-muted-foreground/70">
+        <div className="font-mono text-[9px] leading-tight text-muted-foreground">
           Federation alignment re-based one or more models into
           {frame.anchorName ? ` ${frame.anchorName}` : ' the anchor model'}'s frame,
           so these are anchor coordinates, not necessarily the picked file's own.
@@ -191,7 +191,7 @@ export function MeasurePointReadout() {
       )}
 
       {enh && anchor && (
-        <div className="flex items-center gap-1 font-mono text-[9px] text-muted-foreground/70">
+        <div className="flex items-center gap-1 font-mono text-[9px] text-muted-foreground">
           <Globe className="h-2.5 w-2.5" />
           {anchor.eff.projectedCRS.name}
         </div>

@@ -122,18 +122,18 @@ export function TourStepCard({ tour, step, stepIndex, targetEl }: TourStepCardPr
       <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{step.body}</p>
 
       {redockedPanel && (
-        <p className="mt-2 text-[11px] text-muted-foreground/80">
+        <p className="mt-2 text-[11px] text-muted-foreground">
           The panel was docked back into the sidebar for this step.
         </p>
       )}
       {hintVisible && !showNext && (
-        <p className="mt-2 text-[11px] text-muted-foreground/80">
+        <p className="mt-2 text-[11px] text-muted-foreground">
           Stuck? Skip this step and keep going.
         </p>
       )}
 
       <div className="mt-3 flex items-center justify-between gap-2">
-        <span className="text-[11px] tabular-nums text-muted-foreground/70">
+        <span className="text-[11px] tabular-nums text-muted-foreground">
           {stepIndex + 1} / {total}
         </span>
         <div className="flex items-center gap-1.5">

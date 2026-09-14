@@ -1448,8 +1448,8 @@ export function PropertiesPanel() {
                     onCopy={copyCoords}
                   />
                   <div className="flex items-start gap-1.5">
-                    <span className="text-[9px] font-medium text-muted-foreground/50 uppercase tracking-wider w-[34px] shrink-0 pt-px">Size</span>
-                    <span className="font-mono text-[10px] text-muted-foreground/50 tabular-nums">
+                    <span className="text-[9px] font-medium text-muted-foreground uppercase tracking-wider w-[34px] shrink-0 pt-px">Size</span>
+                    <span className="font-mono text-[10px] text-muted-foreground tabular-nums">
                       {(entityCoordinates.local.max.x - entityCoordinates.local.min.x).toFixed(2)} x {(entityCoordinates.local.max.y - entityCoordinates.local.min.y).toFixed(2)} x {(entityCoordinates.local.max.z - entityCoordinates.local.min.z).toFixed(2)}
                     </span>
                   </div>

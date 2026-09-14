@@ -739,7 +739,7 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
             >
               {controlsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
               <span>Detection</span>
-              <span className="normal-case tracking-normal text-muted-foreground/60">{mode}</span>
+              <span className="normal-case tracking-normal text-muted-foreground">{mode}</span>
             </button>
             {!controlsOpen && (
               <Button

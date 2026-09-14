@@ -531,7 +531,7 @@ export function MeasureQuantities() {
               className="flex items-baseline gap-2 whitespace-nowrap"
               title={r.provenance.join('\n')}
             >
-              <span className="w-[5.5rem] shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
+              <span className="w-[5.5rem] shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
                 {QUANTITY_TYPE_LABEL[r.quantityType] ?? r.quantityType} {BASIS_LABEL[r.basis]}
               </span>
               <span className="font-mono text-[11px] tabular-nums">{render(r.total, r.quantityType)}</span>
@@ -548,7 +548,7 @@ export function MeasureQuantities() {
               className="flex items-baseline gap-2 whitespace-nowrap"
               title="Enclosed volume computed from the meshed geometry, after opening cuts. Not an IFC GrossVolume."
             >
-              <span className="w-[5.5rem] shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
+              <span className="w-[5.5rem] shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
                 Volume mesh
               </span>
               <span className="font-mono text-[11px] tabular-nums">{render(geometry.total, 2)}</span>
@@ -565,7 +565,7 @@ export function MeasureQuantities() {
               className="flex items-baseline gap-2 whitespace-nowrap"
               title="Total triangulated surface of the meshed geometry — every face, not one side. Not an IFC NetSideArea/GrossSideArea."
             >
-              <span className="w-[5.5rem] shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
+              <span className="w-[5.5rem] shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
                 Area mesh
               </span>
               <span className="font-mono text-[11px] tabular-nums">{render(meshArea.total, 1)}</span>
@@ -589,7 +589,7 @@ export function MeasureQuantities() {
               className="flex items-baseline gap-2 whitespace-nowrap"
               title={[DERIVED_WEIGHT_TITLE[r.basis as Exclude<WeightBasis, 'declared'>], ...r.provenance].join('\n')}
             >
-              <span className="w-[5.5rem] shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground/70">
+              <span className="w-[5.5rem] shrink-0 font-mono text-[9px] uppercase tracking-wider text-muted-foreground">
                 {DERIVED_WEIGHT_LABEL[r.basis as Exclude<WeightBasis, 'declared'>]}
               </span>
               <span className="font-mono text-[11px] tabular-nums">
@@ -612,7 +612,7 @@ export function MeasureQuantities() {
           volume; stating it here is what lets the two features be compared
           instead of quietly differing. */}
       {!nothing && (
-        <div className="font-mono text-[9px] leading-tight text-muted-foreground/70">
+        <div className="font-mono text-[9px] leading-tight text-muted-foreground">
           net = openings excluded · gross = openings included · mesh = as built,
           after opening cuts (volume) or total triangulated surface (area)
         </div>
@@ -622,7 +622,7 @@ export function MeasureQuantities() {
           label: a derived mass is a calculation of ours, not a quantity the
           file authored, and the reader is told which density it used. */}
       {derivedWeights.length > 0 && (
-        <div className="font-mono text-[9px] leading-tight text-muted-foreground/70">
+        <div className="font-mono text-[9px] leading-tight text-muted-foreground">
           mass derived = mesh volume × the file&apos;s Pset_MaterialCommon.MassDensity
           {derivedWeights.some((r) => r.basis === 'derived-library-density')
             ? '; mass estimated = mesh volume × a project library density the file does not declare'
@@ -631,7 +631,7 @@ export function MeasureQuantities() {
         </div>
       )}
       {weights.withheld['density-ambiguous'] > 0 && (
-        <div className="font-mono text-[9px] leading-tight text-muted-foreground/70">
+        <div className="font-mono text-[9px] leading-tight text-muted-foreground">
           {weights.withheld['density-ambiguous']} element
           {weights.withheld['density-ambiguous'] === 1 ? '' : 's'} declare
           materials with different densities and no share of the volume to
@@ -654,13 +654,13 @@ export function MeasureQuantities() {
       )}
 
       {geometry.unproved > 0 && (
-        <div className="font-mono text-[9px] leading-tight text-muted-foreground/70">
+        <div className="font-mono text-[9px] leading-tight text-muted-foreground">
           {geometry.unproved} element{geometry.unproved === 1 ? '' : 's'} had no
           provable enclosed volume (open shell, layered or multi-part geometry).
         </div>
       )}
       {meshArea.withoutMesh > 0 && (
-        <div className="font-mono text-[9px] leading-tight text-muted-foreground/70">
+        <div className="font-mono text-[9px] leading-tight text-muted-foreground">
           {meshArea.withoutMesh} element{meshArea.withoutMesh === 1 ? '' : 's'} had
           no triangulated mesh to measure (e.g. instanced-only geometry).
         </div>
@@ -677,14 +677,14 @@ export function MeasureQuantities() {
         </div>
       )}
       {rescaled > 0 && (
-        <div className="font-mono text-[9px] leading-tight text-muted-foreground/70">
+        <div className="font-mono text-[9px] leading-tight text-muted-foreground">
           {rescaled} element{rescaled === 1 ? '' : 's'} sit{rescaled === 1 ? 's' : ''} in
           a model federation alignment rescaled; {rescaled === 1 ? 'its' : 'their'} proved
           volume no longer describes the geometry on screen and is withheld.
         </div>
       )}
       {withoutStore > 0 && (
-        <div className="font-mono text-[9px] leading-tight text-muted-foreground/70">
+        <div className="font-mono text-[9px] leading-tight text-muted-foreground">
           {withoutStore} selected element{withoutStore === 1 ? '' : 's'} could not
           be resolved to a loaded model.
         </div>

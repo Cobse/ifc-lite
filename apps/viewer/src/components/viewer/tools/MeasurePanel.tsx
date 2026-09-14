@@ -672,7 +672,7 @@ export function MeasureOverlay() {
               <span className="ml-2 text-muted-foreground">m</span>
             </div>
           </div>
-          <div className="font-mono text-[9px] text-muted-foreground/80 mt-0.5 pl-5">
+          <div className="font-mono text-[9px] text-muted-foreground mt-0.5 pl-5">
             {anchor.eff.projectedCRS.name}
           </div>
           {liveLatLon && (

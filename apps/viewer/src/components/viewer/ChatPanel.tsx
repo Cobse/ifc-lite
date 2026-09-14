@@ -1750,7 +1750,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         </div>
         <div className="flex items-center justify-between mt-1 px-0.5">
           {isActive ? (
-            <span className="text-[10px] text-muted-foreground/50">Streaming...</span>
+            <span className="text-[10px] text-muted-foreground">Streaming...</span>
           ) : displayUsage ? (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -1762,7 +1762,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
                       style={{ width: `${Math.min(100, displayUsage.pct)}%` }}
                     />
                   </div>
-                  <span className="text-[10px] text-muted-foreground/40 tabular-nums">{displayUsage.pct}%</span>
+                  <span className="text-[10px] text-muted-foreground tabular-nums">{displayUsage.pct}%</span>
                 </div>
               </TooltipTrigger>
               <TooltipContent>
@@ -1773,9 +1773,9 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
               </TooltipContent>
             </Tooltip>
           ) : (
-            <span className="text-[10px] text-muted-foreground/40">Shift+Enter new line</span>
+            <span className="text-[10px] text-muted-foreground">Shift+Enter new line</span>
           )}
-          <span className="text-[10px] text-muted-foreground/30">⌘L</span>
+          <span className="text-[10px] text-muted-foreground">⌘L</span>
         </div>
       </div>
 

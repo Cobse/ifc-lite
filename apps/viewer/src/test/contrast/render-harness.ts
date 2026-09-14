@@ -161,12 +161,22 @@ async function resolveOverBackdrop(page: Page, color: string, backdrop: string):
 }
 
 /**
- * Renders `TOOLTIP_CONTENT_SURFACE_CLASS` with one child `<span>` carrying
+ * Renders `surfaceClassName` with one child `<span>` carrying
  * `textClassName`, under the given theme, with the compiled app CSS loaded,
- * and returns the measured WCAG contrast ratio of the text against the
- * tooltip surface — a real paint, not a className comparison.
+ * and returns the measured WCAG contrast ratio of the text against that
+ * surface — a real paint, not a className comparison. Generalizes
+ * {@link measureTooltipTextContrast} (which hardcodes the tooltip's popover
+ * surface) to any `(surfaceClass, textClass, theme)` triple, since a WCAG
+ * ratio for a given class pair is a pure function of those three inputs —
+ * it doesn't depend on which component uses it (see #4792's survey, which
+ * measured every distinct combination in source this way before this helper
+ * existed as a script).
  */
-export async function measureTooltipTextContrast(theme: Theme, textClassName: string): Promise<number> {
+export async function measureTextContrastOnSurface(
+  theme: Theme,
+  surfaceClassName: string,
+  textClassName: string,
+): Promise<number> {
   const css = await compileAppCss();
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -175,7 +185,7 @@ export async function measureTooltipTextContrast(theme: Theme, textClassName: st
 <html class="${themeHtmlClass(theme)}">
 <head><meta charset="utf-8"><style>${css}</style></head>
 <body>
-  <div id="surface" class="${TOOLTIP_CONTENT_SURFACE_CLASS}"><span id="txt" class="${textClassName}">Sample text</span></div>
+  <div id="surface" class="${surfaceClassName}"><span id="txt" class="${textClassName}">Sample text</span></div>
 </body>
 </html>`;
     await page.setContent(html, { waitUntil: 'load' });
@@ -187,4 +197,14 @@ export async function measureTooltipTextContrast(theme: Theme, textClassName: st
   } finally {
     await page.close();
   }
+}
+
+/**
+ * Renders `TOOLTIP_CONTENT_SURFACE_CLASS` with one child `<span>` carrying
+ * `textClassName`, under the given theme, with the compiled app CSS loaded,
+ * and returns the measured WCAG contrast ratio of the text against the
+ * tooltip surface — a real paint, not a className comparison.
+ */
+export function measureTooltipTextContrast(theme: Theme, textClassName: string): Promise<number> {
+  return measureTextContrastOnSurface(theme, TOOLTIP_CONTENT_SURFACE_CLASS, textClassName);
 }
