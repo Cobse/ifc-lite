@@ -71,7 +71,7 @@
   1098 apps/viewer/src/components/viewer/CesiumPlacementEditor.tsx
    418 apps/viewer/src/components/viewer/chat/ExecutableCodeBlock.tsx
   1802 apps/viewer/src/components/viewer/ChatPanel.tsx
-  1312 apps/viewer/src/components/viewer/ClashPanel.tsx
+  1321 apps/viewer/src/components/viewer/ClashPanel.tsx
    751 apps/viewer/src/components/viewer/CommandPalette.tsx
    410 apps/viewer/src/components/viewer/ComparePanel.tsx
   1059 apps/viewer/src/components/viewer/DataConnector.tsx
@@ -133,7 +133,7 @@
    598 apps/viewer/src/hooks/ingest/federationAlign.ts
    525 apps/viewer/src/hooks/ingest/pointCloudIngest.ts
    461 apps/viewer/src/hooks/useAnnotation2D.ts
-   718 apps/viewer/src/hooks/useBCF.ts
+   769 apps/viewer/src/hooks/useBCF.ts
   1358 apps/viewer/src/hooks/useClash.ts
    482 apps/viewer/src/hooks/useCompare.ts
   1353 apps/viewer/src/hooks/useDrawingExport.ts

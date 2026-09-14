@@ -18,6 +18,23 @@ export interface IdLookupResult {
   modelId: string;
 }
 
+/** Resolve refs to IFC GlobalIds once, preserving first-seen order. Passing a
+ * shared `seen` set deduplicates across several serialized BCF groups. */
+export function resolveUniqueGlobalIds(
+  refs: Iterable<number>,
+  resolve: (ref: number) => string | null,
+  seen = new Set<string>(),
+): string[] {
+  const guids: string[] = [];
+  for (const ref of refs) {
+    const guid = resolve(ref);
+    if (guid === null || seen.has(guid)) continue;
+    seen.add(guid);
+    guids.push(guid);
+  }
+  return guids;
+}
+
 /**
  * Convert IFC GlobalId string to expressId (with model offset for federation).
  * Searches federated models first, then falls back to the legacy single-model store.

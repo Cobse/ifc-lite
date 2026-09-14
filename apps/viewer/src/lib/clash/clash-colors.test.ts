@@ -5,7 +5,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert';
 
-import { buildClashPairColors, CLASH_COLOR_A, CLASH_COLOR_B } from './clash-colors.js';
+import { buildClashPairColors, clashColorToBcfArgb, CLASH_COLOR_A, CLASH_COLOR_B, CLASH_COLOR_OVERLAP } from './clash-colors.js';
 
 describe('buildClashPairColors (#1277/#1339)', () => {
   it('gives the two clashing elements DISTINCT colours', () => {
@@ -32,5 +32,23 @@ describe('buildClashPairColors (#1277/#1339)', () => {
       assert.equal(c.length, 4);
       for (const v of c) assert.ok(v >= 0 && v <= 1, `component ${v} out of range`);
     }
+  });
+});
+
+describe('clashColorToBcfArgb (#4806)', () => {
+  it('encodes as opaque ARGB hex — the exact 8-char, no-# form BCF <Color> expects', () => {
+    assert.equal(clashColorToBcfArgb(CLASH_COLOR_A), 'FFFF800D');
+    assert.equal(clashColorToBcfArgb(CLASH_COLOR_B), 'FF00D1FF');
+    assert.equal(clashColorToBcfArgb(CLASH_COLOR_OVERLAP), 'FFFF1AD9');
+  });
+
+  it('always writes full opacity (leading FF), regardless of the source alpha', () => {
+    assert.equal(clashColorToBcfArgb([1, 0, 0, 0]).slice(0, 2), 'FF');
+    assert.equal(clashColorToBcfArgb([1, 0, 0, 1]).slice(0, 2), 'FF');
+  });
+
+  it('round black and white to the expected extremes', () => {
+    assert.equal(clashColorToBcfArgb([0, 0, 0, 1]), 'FF000000');
+    assert.equal(clashColorToBcfArgb([1, 1, 1, 1]), 'FFFFFFFF');
   });
 });

@@ -28,6 +28,7 @@ import type { EntityRef } from '@/store/types';
 import {
   globalIdToExpressId as globalIdToExpressIdLookup,
   expressIdToGlobalId as expressIdToGlobalIdLookup,
+  resolveUniqueGlobalIds,
 } from './bcfIdLookup';
 import { fromGlobalIdFromModels } from '@/store/globalId';
 import { resolvePresentationIds } from '@/lib/presentation/resolvePresentationIds';
@@ -53,6 +54,31 @@ interface CreateViewpointOptions {
   includeSelection?: boolean;
   /** Include hidden entities */
   includeHidden?: boolean;
+  /**
+   * Federated entity refs to record in the viewpoint's `<Selection>` as
+   * "found objects", INDEPENDENT of the live viewer selection (merged in
+   * alongside whatever `includeSelection` derives, deduped).
+   *
+   * Exists for the clash-to-BCF export (#4806): `focusClash` deliberately
+   * clears the live selection and paints the clashing pair only through the
+   * clash-highlight colour channel (#1277/#1339), so by the time
+   * `createViewpointFromState` runs, `selectedEntityId`/`selectedEntityIds`
+   * are empty and carry nothing to write — the exported topic's
+   * `<Selection>` was entirely absent, not merely empty. This lets a caller
+   * name the "found objects" directly instead of resurrecting an actual
+   * viewer selection, which would re-introduce exactly what #1277/#1339
+   * removed (selection-blue, the 2-SEL counter, selected-treatment under
+   * isolate/ghost).
+   */
+  additionalSelectedRefs?: number[];
+  /**
+   * Federated entity refs to record as BCF `<Coloring>`, grouped by an ARGB
+   * hex colour (e.g. `'FFFF8000'`, matching `BCFColoring.color`).
+   * Independent of any renderer state — for the clash export, this mirrors
+   * the on-screen amber/cyan clash-pair tint (`CLASH_COLOR_A`/`CLASH_COLOR_B`)
+   * into the exported viewpoint.
+   */
+  additionalColoredRefs?: { color: string; refs: number[] }[];
 }
 
 interface UseBCFResult {
@@ -329,6 +355,8 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
         includeSnapshot = true,
         includeSelection = true,
         includeHidden = true,
+        additionalSelectedRefs,
+        additionalColoredRefs,
       } = opts;
 
       // Snapshot FIRST, camera after: the PNG and the camera's `aspectRatio`
@@ -365,22 +393,44 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
       // Get bounds for section plane conversion
       const bounds = getBounds() ?? undefined;
 
-      // Get selected GUIDs - convert expressIds to IFC GlobalId strings
-      const selectedGuids: string[] | undefined = includeSelection
-        ? (() => {
-            const guids: string[] = [];
-            if (selectedEntityId !== null) {
-              const guid = expressIdToGlobalId(selectedEntityId);
+      // Get selected GUIDs - convert expressIds to IFC GlobalId strings.
+      // `additionalSelectedRefs` (the clash pair, #4806) is merged in
+      // UNCONDITIONALLY — not gated behind `includeSelection` — because it
+      // names "found objects" the caller supplies directly, independent of
+      // whatever the live viewer selection happens to be (often empty here,
+      // e.g. right after `focusClash`'s `clearEntitySelection()`).
+      const selectedGuids: string[] | undefined = (() => {
+        const guids: string[] = [];
+        if (includeSelection) {
+          if (selectedEntityId !== null) {
+            const guid = expressIdToGlobalId(selectedEntityId);
+            if (guid) guids.push(guid);
+          }
+          for (const id of selectedEntityIds) {
+            if (id !== selectedEntityId) {
+              const guid = expressIdToGlobalId(id);
               if (guid) guids.push(guid);
             }
-            for (const id of selectedEntityIds) {
-              if (id !== selectedEntityId) {
-                const guid = expressIdToGlobalId(id);
-                if (guid) guids.push(guid);
-              }
-            }
-            return guids.length > 0 ? guids : undefined;
-          })()
+          }
+        }
+        for (const ref of additionalSelectedRefs ?? []) {
+          const guid = expressIdToGlobalId(ref);
+          if (guid && !guids.includes(guid)) guids.push(guid);
+        }
+        return guids.length > 0 ? guids : undefined;
+      })();
+
+      // Extra BCF `<Coloring>` groups (the clash pair's amber/cyan tint,
+      // #4806) — independent of any renderer colour-override state, which
+      // this app does not otherwise mirror into BCF.
+      const emittedColoredGuids = new Set<string>();
+      const coloredGuids: { color: string; guids: string[] }[] | undefined = additionalColoredRefs
+        ? additionalColoredRefs
+            .map(({ color, refs }) => ({
+              color,
+              guids: resolveUniqueGlobalIds(refs, expressIdToGlobalId, emittedColoredGuids),
+            }))
+            .filter((entry) => entry.guids.length > 0)
         : undefined;
 
       // Visibility GUIDs — the isolate allowlist or the hide-list, whichever the
@@ -410,6 +460,7 @@ export function useBCF(options: UseBCFOptions = {}): UseBCFResult {
         selectedGuids,
         hiddenGuids,
         visibleGuids,
+        coloredGuids,
       });
     },
     [

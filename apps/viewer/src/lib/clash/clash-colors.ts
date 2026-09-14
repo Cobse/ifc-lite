@@ -39,3 +39,20 @@ export function buildClashPairColors(
   if (bRef !== null && bRef !== aRef) map.set(bRef, CLASH_COLOR_B);
   return map;
 }
+
+/**
+ * Convert one of the RGBA floats above (0..1, alpha ignored) to the ARGB hex
+ * string BCF's `<Coloring>/<Color Color="...">` expects (e.g. `'FFFF8000'` —
+ * see `BCFColoring.color` in `@ifc-lite/bcf`'s types, and the round-trip
+ * fixture in `packages/bcf/src/writer.test.ts`). Alpha is always written
+ * opaque (`FF`): these are UI highlight tints, not translucency the exported
+ * viewpoint needs to reproduce.
+ */
+export function clashColorToBcfArgb(rgba: RGBA): string {
+  const channel = (v: number): string =>
+    Math.round(Math.min(1, Math.max(0, v)) * 255)
+      .toString(16)
+      .padStart(2, '0')
+      .toUpperCase();
+  return `FF${channel(rgba[0])}${channel(rgba[1])}${channel(rgba[2])}`;
+}

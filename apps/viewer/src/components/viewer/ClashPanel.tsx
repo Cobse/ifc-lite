@@ -28,6 +28,7 @@ import { tourAnchor, TOUR_ANCHORS } from '@/lib/tours/anchors';
 import { useClash, type ClashFocusMode } from '@/hooks/useClash';
 import type { SaveResult } from '@/lib/clash/persistence';
 import { formatClashSolidVolumeM3 } from '@/lib/clash/clash-solid-volume-format';
+import { CLASH_COLOR_A, CLASH_COLOR_B, clashColorToBcfArgb } from '@/lib/clash/clash-colors';
 import { useBCF } from '@/hooks/useBCF';
 import { useViewerStore } from '@/store';
 import { ModelBadge } from './ModelBadge';
@@ -584,7 +585,30 @@ export function ClashPanel({ onClose }: ClashPanelProps) {
         : `${total} ${total === 1 ? 'clash' : 'clashes'} detected across the loaded model(s).`;
       const topic = createBCFTopic({ title, description, author: bcfAuthor, topicType: 'Clash', topicStatus: 'Open' });
       addTopic(topic);
-      const vp = await createViewpointFromState({ includeSnapshot: true, includeSelection: true, includeHidden: true });
+      // The clash pair is never in the LIVE selection at this point —
+      // `focusClash` above deliberately clears it and paints the pair only
+      // via the clash-highlight colour channel (#1277/#1339) — so the
+      // "found objects" have to be named directly, independent of
+      // `includeSelection`'s (empty) live-selection read (#4806). Also
+      // mirror the on-screen amber/cyan clash tint into BCF `<Coloring>` so
+      // the exported topic matches what the user sees.
+      const vp = await createViewpointFromState({
+        includeSnapshot: true,
+        includeSelection: true,
+        includeHidden: true,
+        additionalSelectedRefs: clash ? [clash.a.ref, clash.b.ref] : undefined,
+        additionalColoredRefs: clash
+          ? [
+              { color: clashColorToBcfArgb(CLASH_COLOR_A), refs: [clash.a.ref] },
+              // Degenerate self-clash (both refs resolve to the same id):
+              // A's colour already covers it — don't add a second, redundant
+              // Coloring group for the identical ref.
+              ...(clash.b.ref !== clash.a.ref
+                ? [{ color: clashColorToBcfArgb(CLASH_COLOR_B), refs: [clash.b.ref] }]
+                : []),
+            ]
+          : undefined,
+      });
       if (vp) addViewpoint(topic.guid, vp);
       setBcfPanelVisible(true);
     } catch (err) {
