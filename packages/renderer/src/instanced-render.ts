@@ -119,8 +119,6 @@ export interface InstancedRenderTemplate {
   origin: [number, number, number];
   /** Interleaved instance data: per occurrence mat4(64B) + entityId(4B) + rgba(16B) + flags(4B). */
   instanceBuffer: ArrayBuffer;
-  /** World-space bounding sphere per occurrence: center xyz + conservative radius. */
-  boundingSpheres: Float32Array;
   /** Number of occurrences (the `instanceCount` for drawIndexed). */
   instanceCount: number;
   /** Per-occurrence express ids, in buffer order (occurrence i is at byte i*stride).
@@ -137,43 +135,6 @@ export interface InstancedRenderTemplate {
    *  picker. This is host-query data: it answers "which entity produced this
    *  piece", never "how is it drawn". */
   itemIds?: Uint32Array;
-}
-
-/**
- * Transform a template-local AABB into a conservative world-space sphere.
- * Testing all eight transformed half-extent corners covers rotation, non-uniform
- * scale, and shear without inflating ordinary rigid transforms.
- */
-export function transformBoundingSphere(
-  localMin: readonly [number, number, number],
-  localMax: readonly [number, number, number],
-  matrix: Float32Array,
-): [number, number, number, number] {
-  const cx = (localMin[0] + localMax[0]) * 0.5;
-  const cy = (localMin[1] + localMax[1]) * 0.5;
-  const cz = (localMin[2] + localMax[2]) * 0.5;
-  const hx = (localMax[0] - localMin[0]) * 0.5;
-  const hy = (localMax[1] - localMin[1]) * 0.5;
-  const hz = (localMax[2] - localMin[2]) * 0.5;
-  let radius = 0;
-  for (let xSign = -1; xSign <= 1; xSign += 2) {
-    for (let ySign = -1; ySign <= 1; ySign += 2) {
-      for (let zSign = -1; zSign <= 1; zSign += 2) {
-        const x = xSign * hx, y = ySign * hy, z = zSign * hz;
-        radius = Math.max(radius, Math.hypot(
-          matrix[0] * x + matrix[4] * y + matrix[8] * z,
-          matrix[1] * x + matrix[5] * y + matrix[9] * z,
-          matrix[2] * x + matrix[6] * y + matrix[10] * z,
-        ));
-      }
-    }
-  }
-  return [
-    matrix[0] * cx + matrix[4] * cy + matrix[8] * cz + matrix[12],
-    matrix[1] * cx + matrix[5] * cy + matrix[9] * cz + matrix[13],
-    matrix[2] * cx + matrix[6] * cy + matrix[10] * cz + matrix[14],
-    radius,
-  ];
 }
 
 /**
@@ -236,15 +197,6 @@ export function prepareInstancedRender(shard: DecodedInstancedShard): InstancedR
     // per-template allocation and no zero-fill for a column that would be all
     // zeros — these live for the model's lifetime, one per template per shard.
     const itemIds = shard.carriesItemIds ? new Uint32Array(insts.length) : undefined;
-    const boundingSpheres = new Float32Array(insts.length * 4);
-    let minX = Infinity, minY = Infinity, minZ = Infinity;
-    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-    for (let i = 0; i < tmpl.positions.length; i += 3) {
-      const x = tmpl.positions[i], y = tmpl.positions[i + 1], z = tmpl.positions[i + 2];
-      if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
-      if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
-    }
-    const haveBounds = Number.isFinite(minX);
     for (let i = 0; i < insts.length; i++) {
       const inst = insts[i];
       const mat = composeInstanceMatrix(inst.transform, tmpl.origin);
@@ -252,12 +204,6 @@ export function prepareInstancedRender(shard: DecodedInstancedShard): InstancedR
       writeInstanceRecord(dv, i * INSTANCE_STRIDE_BYTES, mat, inst.entityId, inst.color, 0);
       entityIds[i] = inst.entityId >>> 0;
       if (itemIds) itemIds[i] = (inst.itemId ?? 0) >>> 0;
-      if (haveBounds) {
-        boundingSpheres.set(
-          transformBoundingSphere([minX, minY, minZ], [maxX, maxY, maxZ], mat),
-          i * 4,
-        );
-      }
     }
 
     out.push({
@@ -267,7 +213,6 @@ export function prepareInstancedRender(shard: DecodedInstancedShard): InstancedR
       indices: tmpl.indices,
       origin: tmpl.origin,
       instanceBuffer: buffer,
-      boundingSpheres,
       instanceCount: insts.length,
       entityIds,
       itemIds,

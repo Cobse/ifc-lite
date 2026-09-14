@@ -6,22 +6,30 @@
 
 # IFNS GPU culling evaluation
 
-Status: **parked — do not ship or expose as an opt-in**
+Status: **dropped — the implementation was removed, this record is kept**
 
-Decision date: 2026-09-14
+Decision date: 2026-09-14. Implementation removed the same day.
 
 ## Decision
 
-The WebGPU compute-culling experiment is not approved for production. Its code
-and corpus harness may remain temporarily for reproducibility, but the render
-option is internal test infrastructure, not a supported API or viewer setting.
-The accompanying patch changeset records the internal renderer/viewer work; it
-does not make the experiment a supported opt-in.
+The WebGPU compute-culling experiment is not approved for production, and the
+code has been deleted rather than left dormant. This file is retained on its
+own: the corpus run below cost 161 fixtures and 1.054 GB to produce, and it is
+the reason not to attempt the same design again without first solving the
+picker divergence.
 
-If nobody intends to complete the acceptance gates below, delete the experiment
-and its internal bridge rather than maintaining a second dormant render path.
+The implementation landed in `04fbc7578` and was reverted. Recover it from that
+commit if the acceptance gates below are ever worth completing; the revert is a
+clean inverse, so `git revert` of the revert restores the whole experiment
+including its corpus harness.
 
-## Why it is parked
+The original version of this note said the code "may remain temporarily for
+reproducibility" and that it should be deleted if nobody intended to finish the
+gates. Nobody did, and it went further than dormant: the experiment put main
+red on four CI lanes, because it landed without the typecheck, lint and
+Node-tests gates passing.
+
+## Why it was dropped
 
 The complete fixture corpus did not show enough broad benefit to justify the
 current costs and correctness gap:

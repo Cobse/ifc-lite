@@ -227,16 +227,6 @@ export interface RenderOptions {
    */
   enableDepthTest?: boolean;
   enableFrustumCulling?: boolean;
-  /**
-   * @internal Corpus-benchmark control for the parked IFNS GPU-culling
-   * experiment. Not supported for production use and must not be exposed in a
-   * viewer setting or documented as a public opt-in. See
-   * docs/research/ifns-gpu-culling-evaluation.md.
-   */
-  instancedGpuCulling?: {
-    enabled?: boolean;
-    minProjectedDiameter?: number;
-  };
   spatialIndex?: import('@ifc-lite/spatial').SpatialIndex;
   /**
    * Entities to hide. Change detection is by CONTENT, not reference: the

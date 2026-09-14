@@ -105,15 +105,12 @@ describe('Scene.translateMeshesForEntity', () => {
 const INSTANCE_STRIDE = 88; // mirrors INSTANCE_STRIDE_BYTES
 
 interface InstancedTestState {
-  instancedDevice: GPUDevice | null;
   instancedEntityMap: Map<number, { templateIndex: number; byteOffset: number; originalColor: number[] }[]>;
   instancedTemplateCpu: {
     positions: Float32Array; normals: Float32Array; indices: Uint32Array;
-    instanceData: ArrayBuffer; boundingSpheres: Float32Array;
-    localMin: number[]; localMax: number[];
+    instanceData: ArrayBuffer; localMin: number[]; localMax: number[];
   }[];
   instancedTemplates: unknown[];
-  liveInstancedTemplates: unknown[];
   boundingBoxes: Map<number, { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }>;
 }
 
@@ -133,7 +130,6 @@ function injectInstanced(scene: Scene, expressId: number, t: [number, number, nu
     normals: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1]),
     indices: new Uint32Array([0, 1, 2]),
     instanceData,
-    boundingSpheres: new Float32Array([t[0] + 0.5, t[1] + 0.5, t[2], Math.SQRT1_2]),
     localMin: [0, 0, 0], localMax: [1, 1, 0],
   }];
   s.instancedTemplates = []; // no GPU buffer => writeBuffer path skipped
@@ -155,9 +151,6 @@ describe('Scene.translateInstancedEntity', () => {
     assert.strictEqual(dv.getFloat32(48, true), 0, 'x translation unchanged');
     assert.strictEqual(dv.getFloat32(52, true), 5, 'y translation += 5');
     assert.strictEqual(dv.getFloat32(56, true), 0, 'z translation unchanged');
-    const sphere = (scene as unknown as InstancedTestState).instancedTemplateCpu[0].boundingSpheres;
-    assert.deepStrictEqual(Array.from(sphere.subarray(0, 3)), [0.5, 5.5, 0]);
-    assert.ok(Math.abs(sphere[3] - Math.SQRT1_2) < 1e-6, 'sphere radius stays unchanged');
 
     // Cached world AABB shifted by the same delta (no recompute).
     const bbox = (scene as unknown as InstancedTestState).boundingBoxes.get(42)!;
@@ -168,30 +161,6 @@ describe('Scene.translateInstancedEntity', () => {
     const pieces = scene.getInstancedMeshDataPieces(42)!;
     assert.ok(pieces && pieces.length === 1);
     assert.strictEqual(pieces[0].positions[1], 5, 'first vertex y lifted by 5');
-  });
-
-  it('uploads the translated sphere center when GPU culling resources exist', () => {
-    const scene = new Scene();
-    injectInstanced(scene, 42, [0, 0, 0]);
-    const state = scene as unknown as InstancedTestState;
-    const instanceBuffer = {} as GPUBuffer;
-    const sphereBuffer = {} as GPUBuffer;
-    const writes: Array<{ buffer: GPUBuffer; offset: number; values: number[] }> = [];
-    state.instancedTemplates = [{ instanceBuffer, boundingSphereBuffer: sphereBuffer }];
-    state.instancedDevice = {
-      queue: {
-        writeBuffer: (buffer: GPUBuffer, offset: number, data: ArrayBuffer | ArrayBufferView) => {
-          const values = data instanceof Float32Array ? Array.from(data) : [];
-          writes.push({ buffer, offset, values });
-        },
-      },
-    } as unknown as GPUDevice;
-
-    assert.strictEqual(scene.translateInstancedEntity(42, [2, 3, 4]), true);
-    const sphereWrite = writes.find((write) => write.buffer === sphereBuffer);
-    assert.ok(sphereWrite, 'translated center is uploaded to the culling sphere buffer');
-    assert.strictEqual(sphereWrite!.offset, 0);
-    assert.deepStrictEqual(sphereWrite!.values, [2.5, 3.5, 4]);
   });
 
   it('the public translateMeshesForEntity moves an instanced-only entity', () => {
@@ -241,33 +210,5 @@ describe('Scene.translateInstancedEntity', () => {
     assert.ok(bounds, 'instanced bounds are not stranded to null');
     assert.strictEqual(bounds!.min.y, 5, 'instanced bounds reflect the lift');
     assert.strictEqual(bounds!.max.y, 6);
-  });
-});
-
-describe('Scene.getInstancedStats', () => {
-  it('reports expanded work and lazy culling memory separately', () => {
-    const scene = new Scene();
-    const state = scene as unknown as InstancedTestState;
-    state.instancedTemplates = [{
-      indexCount: 300,
-      instanceCount: 10,
-      instanceBuffer: { size: 880 },
-      boundingSpheres: new Float32Array(40),
-      culledInstanceBuffer: { size: 880 },
-      boundingSphereBuffer: { size: 160 },
-      indirectBuffer: { size: 20 },
-    }];
-    state.liveInstancedTemplates = state.instancedTemplates;
-
-    assert.deepStrictEqual(scene.getInstancedStats(), {
-      templateCount: 1,
-      occurrenceCount: 10,
-      templateTriangleCount: 100,
-      expandedTriangleCount: 1000,
-      sourceInstanceBytes: 880,
-      cpuBoundingSphereBytes: 160,
-      estimatedCullingGpuBytes: 1060,
-      allocatedCullingGpuBytes: 1060,
-    });
   });
 });

@@ -12,13 +12,8 @@ import {
   INSTANCE_STRIDE_BYTES,
   INSTANCE_FLAGS_OFFSET,
   INSTANCE_FLAG_SELECTED,
-  transformBoundingSphere,
 } from './instanced-render.js';
 import { OPAQUE_ALPHA_CUTOFF } from './overlay-routing.js';
-import {
-  extractWebGpuFrustumPlanes,
-  projectedDiameterScale,
-} from './instanced-gpu-culling.js';
 
 // --- frame helpers (independent re-derivation of the expected world coord) ---
 
@@ -170,84 +165,6 @@ describe('writeInstanceRecord — GPU buffer byte layout', () => {
   });
 });
 
-describe('GPU instance culling bounds', () => {
-  it('transforms the local center and encloses a non-uniformly scaled box', () => {
-    const matrix = new Float32Array([
-      2, 0, 0, 0,
-      0, 3, 0, 0,
-      0, 0, 4, 0,
-      10, 20, 30, 1,
-    ]);
-    const sphere = transformBoundingSphere([-1, -2, -3], [3, 2, 1], matrix);
-    assertClose([sphere[0], sphere[1], sphere[2]], [12, 20, 26], 'sphere center');
-    const expectedRadius = Math.sqrt(116);
-    assert.ok(
-      Math.abs(sphere[3] - expectedRadius) < 1e-6,
-      `radius got ${sphere[3]} want ${expectedRadius}`,
-    );
-  });
-
-  it('remains conservative under reflection and shear', () => {
-    const matrix = new Float32Array([
-      -2, 0.5, 0, 0,
-      1, 1, 0.25, 0,
-      0, -0.5, 3, 0,
-      4, 5, 6, 1,
-    ]);
-    const localMin: [number, number, number] = [-2, -1, -3];
-    const localMax: [number, number, number] = [2, 3, 1];
-    const sphere = transformBoundingSphere(localMin, localMax, matrix);
-    for (const x of [localMin[0], localMax[0]]) {
-      for (const y of [localMin[1], localMax[1]]) {
-        for (const z of [localMin[2], localMax[2]]) {
-          const point = applyColMajor(matrix, [x, y, z]);
-          const distance = Math.hypot(
-            point[0] - sphere[0], point[1] - sphere[1], point[2] - sphere[2],
-          );
-          assert.ok(distance <= sphere[3] + 1e-6, `corner distance ${distance} exceeds ${sphere[3]}`);
-        }
-      }
-    }
-  });
-
-  it('extracts the six WebGPU clip planes, including the zero-to-one near plane', () => {
-    const identity = new Float32Array([
-      1, 0, 0, 0,
-      0, 1, 0, 0,
-      0, 0, 1, 0,
-      0, 0, 0, 1,
-    ]);
-    const planes = extractWebGpuFrustumPlanes(identity);
-    assert.deepStrictEqual(Array.from(planes), [
-      1, 0, 0, 1,
-      -1, 0, 0, 1,
-      0, 1, 0, 1,
-      0, -1, 0, 1,
-      0, 0, 1, 0,
-      0, 0, -1, 1,
-    ]);
-  });
-
-  it('keeps projected-size culling invariant under camera rotation', () => {
-    const forwardView = new Float32Array([
-      1, 0, 0, 0,
-      0, 2, 0, 0,
-      0, 0, 1, 0,
-      0, 0, 0, 1,
-    ]);
-    // Same vertical projection scale after rotating the view basis so the
-    // formerly sampled [1][1] element is zero (top/bottom-view regression).
-    const rotatedView = new Float32Array([
-      1, 0, 0, 0,
-      0, 0, 1, 0,
-      0, -2, 0, 0,
-      0, 0, 0, 1,
-    ]);
-    assert.strictEqual(projectedDiameterScale(forwardView, 800), 1600);
-    assert.strictEqual(projectedDiameterScale(rotatedView, 800), 1600);
-  });
-});
-
 describe('prepareInstancedRender — grouping + buffer assembly', () => {
   it('groups instances by template, sizes buffers, composes matrices', () => {
     const origin0: [number, number, number] = [1, 2, 3];
@@ -274,7 +191,6 @@ describe('prepareInstancedRender — grouping + buffer assembly', () => {
     assert.deepStrictEqual(Array.from(t0.entityIds), [11, 33], 'template 0 entityIds in buffer order');
     assert.strictEqual(t1.instanceCount, 1, 'template 1 has 1 occurrence');
     assert.strictEqual(t0.instanceBuffer.byteLength, 2 * INSTANCE_STRIDE_BYTES);
-    assert.strictEqual(t0.boundingSpheres.length, 8, 'one vec4 sphere per occurrence');
     assert.strictEqual(t1.instanceBuffer.byteLength, 1 * INSTANCE_STRIDE_BYTES);
 
     // First occurrence of template 0: identity rel_k → instMat applied to its

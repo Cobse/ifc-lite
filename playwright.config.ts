@@ -179,28 +179,6 @@ export default defineConfig({
       },
     },
     {
-      name: 'instanced-culling-corpus',
-      testMatch: /instanced-culling-corpus\.spec\.ts/,
-      timeout: 900000,
-      use: {
-        ...devices['Desktop Chrome'],
-        baseURL: 'http://localhost:3000',
-        actionTimeout: 300000,
-        headless: true,
-        channel: 'chrome',
-        viewport: { width: 1280, height: 800 },
-        launchOptions: {
-          args: [
-            '--enable-gpu',
-            '--enable-webgpu',
-            '--enable-unsafe-webgpu',
-            '--use-angle=default',
-            '--ignore-gpu-blocklist',
-          ],
-        },
-      },
-    },
-    {
       name: 'viewer-benchmark-ci',
       testMatch: /viewer-benchmark\.spec\.ts/,
       timeout: 600000,

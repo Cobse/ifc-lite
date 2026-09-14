@@ -297,13 +297,6 @@ export class RenderPipeline {
         this.instancedPipeline = this.device.createRenderPipeline({
             ...pipelineDescriptor,
             vertex: instancedVertex,
-            fragment: {
-                ...pipelineDescriptor.fragment!,
-                constants: {
-                    ...pipelineDescriptor.fragment?.constants,
-                    INSTANCED_PASS: 1,
-                },
-            },
         } as GPURenderPipelineDescriptor);
         // Stash the instanced vertex stage so the transparent instanced pipeline
         // (built after transparentPipelineDescriptor below) reuses it verbatim.
@@ -423,14 +416,6 @@ export class RenderPipeline {
             this.device.createRenderPipeline({
                 ...transparentPipelineDescriptor,
                 vertex: instancedVertexStage,
-                fragment: {
-                    ...transparentPipelineDescriptor.fragment!,
-                    constants: {
-                        ...transparentPipelineDescriptor.fragment?.constants,
-                        INSTANCED_PASS: 1,
-                        TRANSPARENT_INSTANCED_PASS: 1,
-                    },
-                },
             } as GPURenderPipelineDescriptor);
 
         // Create overlay pipeline for lens color overrides
@@ -658,6 +643,13 @@ export class RenderPipeline {
     }
 
     /**
+     * Write a raw 56-float (224-byte) uniform block into the SHARED uniform
+     * buffer, whose bind group is `getBindGroup()`. Used by the GPU-instancing
+     * pass, which reuses the frame's viewProj + section + flags from the
+     * renderer's prebuilt template (model + baseColor are unused — vs_instanced
+     * takes the transform + colour per-occurrence from the instance buffer).
+     */
+    /**
      * Create-and-VALIDATE the quantized pipeline variants. Uses
      * createRenderPipelineAsync so WebGPU's asynchronous validation completes
      * before anything is cached — a sync createRenderPipeline can hand back a
@@ -688,15 +680,20 @@ export class RenderPipeline {
         return this.quantizedPipelines[kind] ?? null;
     }
 
-    /**
-     * Write a raw 56-float (224-byte) uniform block into the SHARED uniform
-     * buffer, whose bind group is `getBindGroup()`. Used by the GPU-instancing
-     * pass, which reuses the frame's viewProj + section + flags from the
-     * renderer's prebuilt template (model + baseColor are unused — vs_instanced
-     * takes the transform + colour per-occurrence from the instance buffer).
-     */
-    writeRawUniforms(data: Float32Array): void {
+    writeRawUniforms(data: Float32Array, extraFlagsX = 0): void {
         this.device.queue.writeBuffer(this.uniformBuffer, 0, data);
+        // OR extra bits into flags.x (u32 at byte 176) WITHOUT mutating the caller's
+        // shared template buffer. Used to mark the instanced passes: bit 2 = instanced
+        // pass, bit 3 = transparent instanced sub-pass (the shader routes per-instance
+        // opacity off these).
+        if (extraFlagsX !== 0) {
+            const baseFlagsX = new Uint32Array(data.buffer, data.byteOffset + 176, 1)[0];
+            this.device.queue.writeBuffer(
+                this.uniformBuffer,
+                176,
+                new Uint32Array([baseFlagsX | extraFlagsX]),
+            );
+        }
     }
 
     /**

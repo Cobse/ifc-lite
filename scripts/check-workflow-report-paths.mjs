@@ -29,6 +29,95 @@ const needs = (job, id) => {
   return job.needs === id || (Array.isArray(job.needs) && job.needs.includes(id));
 };
 
+const POSITIVE_INTEGER = /^[1-9][0-9]*$/;
+
+/** Split on `operator` where it sits at paren depth 0 and outside a quoted
+ *  string. Splitting by regex instead would cut docker.yml's `||` out of its own
+ *  parenthesised condition, and would cut a quoted `'||'` operand in half. */
+function splitTopLevel(body, operator) {
+  const parts = [];
+  let depth = 0;
+  let quote = null;
+  let start = 0;
+  for (let i = 0; i < body.length; i += 1) {
+    const char = body[i];
+    if (quote !== null) {
+      if (char === quote) quote = null;
+    } else if (char === "'" || char === '"') {
+      quote = char;
+    } else if (char === '(') {
+      depth += 1;
+    } else if (char === ')') {
+      depth -= 1;
+    } else if (depth === 0 && body.startsWith(operator, i)) {
+      parts.push(body.slice(start, i));
+      i += operator.length - 1;
+      start = i + 1;
+    }
+  }
+  parts.push(body.slice(start));
+  return parts;
+}
+
+/** A branch is a value position, so it must be a bare positive integer. Wrapping
+ *  parens are stripped first -- `(180)` is the same value as `180` -- which is
+ *  safe to do bluntly because what survives still has to match POSITIVE_INTEGER,
+ *  so `f(1)` or `(x && 180 || 120)` fall through to a rejection anyway. */
+const positiveIntegerBranch = (token) => POSITIVE_INTEGER.test(token.replace(/^[\s(]+|[\s)]+$/g, ''));
+
+/**
+ * `timeout-minutes` may be a GitHub expression rather than a literal: docker.yml
+ * picks 180 for a release build and 120 otherwise (#4809). The audit cannot
+ * evaluate an expression, so it accepts one only in the two shapes where EVERY
+ * value the expression can produce is visible without evaluating anything:
+ *
+ *   ${{ 120 }}                          a literal wearing an expression
+ *   ${{ <condition> && 180 || 120 }}    GitHub's ternary idiom
+ *
+ * `&&` and `||` in GitHub expressions return an OPERAND, not a boolean, so the
+ * value is always one of the operands. In `C1 && .. && Cn || F` exactly two of
+ * them can survive: the `&&` chain yields Cn when every conjunct is truthy, and
+ * otherwise yields its first falsy conjunct, which `|| F` then replaces. So Cn
+ * and F are the value positions and both must be a bare positive integer, while
+ * C1..Cn-1 are never read -- that is what keeps a comparison against a numeral
+ * (`inputs.tag == 'v1.0' && 180 || 120`) from being mistaken for a timeout of 0.
+ *
+ * A CHAIN (`a && 60 || b && 120 || 180`) is rejected even though every branch in
+ * it happens to be positive. Reading it correctly means evaluating precedence,
+ * and a rule that checks only the first and last branch would let the middle one
+ * through: `a && -30 || b && 120 || 180` yields -30 when `a` holds, because -30
+ * is truthy. Nothing in this repo writes a chain.
+ *
+ * Everything else is rejected, including an expression that merely CONTAINS a
+ * positive number (`${{ x && 180 || vars.FALLBACK }}`). From here, unbounded and
+ * "bounded by a value this audit cannot see" are indistinguishable, and a miss is
+ * silent while a false positive is visible.
+ */
+const boundedTimeout = (value) => {
+  if (typeof value === 'number') return Number.isInteger(value) && value > 0;
+  if (typeof value !== 'string') return false;
+  const body = /^\s*\$\{\{([\s\S]*)\}\}\s*$/.exec(value)?.[1];
+  // A body that reopens a delimiter is two expressions spliced together
+  // (`${{ 5 }} ${{ x && 10 || 20 }}`), not one this audit can reason about.
+  if (body === undefined || body.includes('{{') || body.includes('}}')) return false;
+  const alternatives = splitTopLevel(body, '||');
+  if (alternatives.length === 1) return positiveIntegerBranch(body);
+  if (alternatives.length !== 2) return false;
+  const conjuncts = splitTopLevel(alternatives[0], '&&');
+  return conjuncts.length >= 2
+    && conjuncts.slice(0, -1).every((conjunct) => conjunct.trim() !== '')
+    && positiveIntegerBranch(conjuncts.at(-1))
+    && positiveIntegerBranch(alternatives[1]);
+};
+
+/** Only primitives are stringified: a YAML anchor can make the value a
+ *  self-referential node, and `JSON.stringify` throws on one, which would crash
+ *  the audit instead of reporting the job. */
+const describeValue = (value) => {
+  if (value === null || ['string', 'number', 'boolean'].includes(typeof value)) return JSON.stringify(value);
+  return Array.isArray(value) ? 'a list' : 'a mapping';
+};
+
 const displayPath = (root, path) => relative(root, path).replaceAll('\\', '/');
 const permitsFailure = (value) => value !== undefined && value !== false;
 const configuredShell = (owner) => isRecord(owner?.defaults) && isRecord(owner.defaults.run) ? owner.defaults.run.shell : undefined;
@@ -82,8 +171,11 @@ export function auditRoot(root) {
     for (const [id, job] of Object.entries(jobs)) {
       const callsReusableWorkflow = isRecord(job) && typeof job.uses === 'string';
       if (!callsReusableWorkflow && (!isRecord(job) || typeof job['runs-on'] !== 'string')) failures.push(`${displayPath(root, path)}: job ${id} has no runs-on or reusable workflow`);
-      if (!callsReusableWorkflow && (!isRecord(job) || !Number.isInteger(job['timeout-minutes']) || job['timeout-minutes'] <= 0)) {
-        failures.push(`${displayPath(root, path)}: job ${id} has no timeout-minutes`);
+      if (!callsReusableWorkflow && (!isRecord(job) || !boundedTimeout(job['timeout-minutes']))) {
+        const value = isRecord(job) ? job['timeout-minutes'] : undefined;
+        failures.push(value === undefined
+          ? `${displayPath(root, path)}: job ${id} has no timeout-minutes`
+          : `${displayPath(root, path)}: job ${id} has a timeout-minutes this audit cannot prove bounded: ${describeValue(value)}`);
       }
     }
     for (const stepName of REQUIRED_STEPS.get(name) ?? []) {

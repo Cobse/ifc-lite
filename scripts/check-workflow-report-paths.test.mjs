@@ -40,6 +40,86 @@ test('#4144 history: an unbounded job and passWithNoTests both fail the audit', 
   ]);
 });
 
+// #4809 made docker.yml's timeout-minutes an expression (180 on a release, 120
+// otherwise). The audit read it as "no timeout-minutes" and went red on a job
+// that is bounded.
+//
+// `expr` builds the `${{ ... }}` wrapper from a template literal with an escaped
+// `$`: the same text in a regular string trips eslint(no-template-curly-in-string).
+const expr = (body) => `\${{ ${body} }}`;
+const jobWithTimeout = (timeout) => `jobs:\n  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: ${timeout}\n    steps: []\n`;
+const boundedMessage = (name, timeout) =>
+  `.github/workflows/${name}: job build has a timeout-minutes this audit cannot prove bounded: ${JSON.stringify(timeout)}`;
+
+test('#4809: an expression timeout-minutes is accepted when both value positions are positive integers', (context) => {
+  const accepted = {
+    // docker.yml's real shape: the condition carries its own `||` inside parens,
+    // so the split that finds the ternary has to respect paren depth.
+    'nested.yml': expr("(github.event_name == 'release' || inputs.release_tag != '') && 180 || 120"),
+    'simple.yml': expr("github.event_name == 'release' && 180 || 120"),
+    'bare.yml': expr('120'),
+    // A condition is not a value, so a numeral compared against inside one must
+    // not be read as the timeout. Scanning literals anywhere made `'v1.0'` look
+    // like a zero and failed a job bounded at 180/120.
+    'ver.yml': expr("inputs.tag == 'v1.0' && 180 || 120"),
+    'zeroish.yml': expr("inputs.mode == '0' && 60 || 90"),
+    // A quoted operator is an operand, not a split point.
+    'quoted.yml': expr("inputs.sep == '||' && 180 || 120"),
+    'parens.yml': expr('inputs.long && (180) || (120)'),
+    // A longer `&&` chain adds conditions, not value positions: it yields its
+    // last conjunct, or a falsy one the `||` then replaces, so 180/120 still.
+    'conjuncts.yml': expr('inputs.a && inputs.b && 180 || 120'),
+  };
+  const root = fixture(Object.fromEntries(
+    Object.entries(accepted).map(([name, timeout]) => [name, jobWithTimeout(timeout)]),
+  ));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.deepEqual(auditRoot(root), []);
+});
+
+test('#4809: an expression whose value is not provably a positive integer fails', (context) => {
+  const rejected = {
+    'zero.yml': expr("github.event_name == 'release' && 180 || 0"),
+    'opaque.yml': expr('vars.TIMEOUT'),
+    'fallback.yml': expr('inputs.long && 180 || vars.FALLBACK'),
+    'negative.yml': expr('inputs.short && -30 || 120'),
+    'halfternary.yml': expr('inputs.long && 180'),
+    // A chain's MIDDLE branch is a value too. `-30` is truthy, so this yields
+    // -30 when inputs.short holds, and a rule that checked only the first and
+    // last branch would call it bounded.
+    'chain.yml': expr('inputs.short && -30 || inputs.long && 120 || 180'),
+    'chainpositive.yml': expr('inputs.a && 60 || inputs.b && 120 || 180'),
+    // Bounded at 60/120, but only the documented two-branch idiom is accepted:
+    // reading a longer alternation means reasoning about which branches are
+    // reachable, and this audit does not evaluate expressions.
+    'chainliteral.yml': expr('inputs.a && 60 || 120 || 180'),
+    // Two spliced expressions. Without the anchor the body spans the `}} ${{`
+    // gap and parses as one ternary; `expr('vars.T') + ' minutes'` cannot show
+    // this, because it is rejected for its shape either way.
+    'spliced.yml': `${expr('5')} ${expr('inputs.x && 10 || 20')}`,
+    'trailing.yml': `${expr('120')} minutes`,
+    'prose.yml': `${expr('vars.T')} minutes`,
+  };
+  const root = fixture(Object.fromEntries(
+    Object.entries(rejected).map(([name, timeout]) => [name, jobWithTimeout(timeout)]),
+  ));
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  const expected = Object.entries(rejected).map(([name, timeout]) => boundedMessage(name, timeout));
+  assert.deepEqual([...auditRoot(root)].sort(), expected.sort());
+});
+
+// A YAML anchor can make the value a self-referential node. The audit must
+// report the job, not die stringifying it.
+test('#4809: a non-primitive timeout-minutes is reported rather than crashing the audit', (context) => {
+  const root = fixture({
+    'anchor.yml': 'jobs: &cyc\n  build:\n    runs-on: ubuntu-latest\n    timeout-minutes: *cyc\n    steps: []\n',
+  });
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.deepEqual(auditRoot(root), [
+    '.github/workflows/anchor.yml: job build has a timeout-minutes this audit cannot prove bounded: a mapping',
+  ]);
+});
+
 test('an artifact upload must actively fail on absence', (context) => {
   const root = fixture({
     'old.yml': 'jobs:\n  wheel:\n    runs-on: ubuntu-latest\n    timeout-minutes: 1\n    steps:\n      - uses: actions/upload-artifact@sha\n        with:\n          path: dist/*.whl\n',

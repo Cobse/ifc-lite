@@ -25,12 +25,6 @@ export const mainShaderSource = `
         }
         @binding(0) @group(0) var<uniform> uniforms: Uniforms;
 
-        // Pipeline constants keep opaque/transparent instance routing immutable
-        // per draw. Queue writes to one shared uniform buffer before submit cannot
-        // safely distinguish two sub-passes in the same command buffer.
-        override INSTANCED_PASS: u32 = 0u;
-        override TRANSPARENT_INSTANCED_PASS: u32 = 0u;
-
         // Global lighting environment — one buffer shared by every mesh in
         // the pass (bound once per frame at group(1)). Field packing must
         // match packEnvironmentUniforms() in environment.ts.
@@ -339,14 +333,14 @@ export const mainShaderSource = `
           if ((input.instSelected & 2u) != 0u) {
             discard;
           }
-          // Per-instance opacity routing (instanced pipelines only). The
+          // Per-instance opacity routing (instanced passes only — flags.x bit 2). The
           // opaque instanced pass draws fully-opaque (or selected) occurrences; the
-          // transparent instanced pipeline (alpha-blended) draws the rest. Discard
+          // transparent instanced sub-pass (bit 3, alpha-blended) draws the rest. Discard
           // the occurrences belonging to the OTHER pass so each is drawn exactly once.
           // Lens-ghost / x-ray / compare write a low per-instance alpha into input.color.a.
-          if (INSTANCED_PASS != 0u) {
+          if ((uniforms.flags.x & 4u) != 0u) {
             let occOpaque = input.color.a >= 0.99 || (input.instSelected & 1u) != 0u;
-            let transparentPass = TRANSPARENT_INSTANCED_PASS != 0u;
+            let transparentPass = (uniforms.flags.x & 8u) != 0u;
             if (transparentPass) {
               if (occOpaque) { discard; }
             } else {
