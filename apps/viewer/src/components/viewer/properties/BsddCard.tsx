@@ -519,13 +519,12 @@ export function BsddCard({
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="top" className="max-w-xs text-[10px]">
-                          {/* Tooltip surface is bg-primary, so secondary lines must
-                              derive from primary-foreground (opacity tiers) — hardcoded
-                              zinc/sky washed out on the blue/purple bg and inverted in
-                              dark mode where the foreground flips dark (issue #1218). */}
+                          {/* TooltipContent uses the neutral popover surface (#4767);
+                              secondary lines use the plain semantic muted token instead
+                              of hardcoded primary-foreground opacity tiers. */}
                           <p className="font-medium">{prop.name}</p>
-                          {prop.description && <p className="mt-0.5 text-primary-foreground/80">{prop.description}</p>}
-                          {prop.dataType && <p className="mt-0.5 text-primary-foreground/70">{bsddDataTypeLabel(prop.dataType)}</p>}
+                          {prop.description && <p className="mt-0.5 text-muted-foreground">{prop.description}</p>}
+                          {prop.dataType && <p className="mt-0.5 text-muted-foreground">{bsddDataTypeLabel(prop.dataType)}</p>}
                         </TooltipContent>
                       </Tooltip>
                       {/* Add button - always visible on right. The property is

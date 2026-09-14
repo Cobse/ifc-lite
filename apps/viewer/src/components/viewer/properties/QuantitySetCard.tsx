@@ -63,9 +63,10 @@ export function QuantitySetCard({ qset, projectUnits, unitDisplayOverrides }: Qu
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="top" className="text-[10px]">
-                      {/* bg-primary tooltip: derive from primary-foreground so it
-                          reads on the blue/purple surface and in dark mode (#1218) */}
-                      <span className="text-primary-foreground/80">{typeName}</span>
+                      {/* TooltipContent uses the neutral popover surface (#4767);
+                          secondary text uses its semantic muted token instead
+                          of a hardcoded primary-foreground opacity tier. */}
+                      <span className="text-muted-foreground">{typeName}</span>
                     </TooltipContent>
                   </Tooltip>
                 ) : (
