@@ -323,6 +323,25 @@ mod wall_profile_research {
 mod infra_rtc_detection {
     use super::*;
 
+    /// The offset the mesh pipelines actually subtract for a whole file.
+    ///
+    /// `detect_rtc_offset_for_file` is the live detector (it is what
+    /// `MeshFrame::for_overlay` runs); `RtcVerdict::offset` is the live reading
+    /// of its answer, zero for `Small`. These tests used to call
+    /// `detect_rtc_offset_from_first_element`, which was the same sampler
+    /// without the verdict or the placement-bounds fallback and had no
+    /// production caller left, so they were exercising a path no model took
+    /// (#4611).
+    fn detected_offset(
+        router: &GeometryRouter,
+        content: &str,
+        decoder: &mut EntityDecoder,
+    ) -> (f64, f64, f64) {
+        router
+            .detect_rtc_offset_for_file(content.as_bytes(), decoder)
+            .map_or((0.0, 0.0, 0.0), ifc_lite_core::RtcVerdict::offset)
+    }
+
     /// Minimal IFC fragment simulating an infrastructure model:
     /// - IfcLocalPlacement at (0, 0, 0)
     /// - IfcFacetedBrep vertices at large world coordinates
@@ -451,16 +470,16 @@ END-ISO-10303-21;
         let mut decoder = EntityDecoder::with_index(&content, entity_index);
         let router = GeometryRouter::with_units(&content, &mut decoder);
 
-        let offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
+        let verdict = router.detect_rtc_offset_for_file(content.as_bytes(), &mut decoder);
 
-        // Must detect the large coordinates (~280 000, ~6 214 000)
-        assert!(
-            offset.0.abs() > 10000.0 || offset.1.abs() > 10000.0,
-            "RTC offset should be large for infrastructure model, got ({:.1}, {:.1}, {:.1})",
-            offset.0,
-            offset.1,
-            offset.2
-        );
+        // Must detect the large coordinates (~280 000, ~6 214 000). Asserting on
+        // the VERDICT rather than on the offset's magnitude: `Large` is the
+        // pipeline's own answer to "does this need re-basing", and a `Small`
+        // verdict hands back (0,0,0), which an `abs() > 10000` test would read
+        // as a detector that merely sampled nothing.
+        let Some(ifc_lite_core::RtcVerdict::Large { anchor: offset }) = verdict else {
+            panic!("RTC detection should report Large for an infrastructure model, got {verdict:?}");
+        };
         // Offset should be near the geometry centroid
         assert!(
             (offset.0 - 280966.0).abs() < 100.0,
@@ -483,8 +502,7 @@ END-ISO-10303-21;
         let mut decoder = EntityDecoder::with_index(&content, entity_index);
         let mut router = GeometryRouter::with_units(&content, &mut decoder);
 
-        let offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
-        router.set_rtc_offset(offset);
+        router.set_rtc_offset(detected_offset(&router, &content, &mut decoder));
 
         // Process the element
         let entity = decoder.decode_by_id(42).unwrap();
@@ -509,8 +527,7 @@ END-ISO-10303-21;
         let mut decoder = EntityDecoder::with_index(&content, entity_index);
         let mut router = GeometryRouter::with_units(&content, &mut decoder);
 
-        let offset = router.detect_rtc_offset_from_first_element(&content, &mut decoder);
-        router.set_rtc_offset(offset);
+        router.set_rtc_offset(detected_offset(&router, &content, &mut decoder));
 
         let entity = decoder.decode_by_id(42).unwrap();
         let mesh = router.process_element(&entity, &mut decoder).unwrap();
@@ -537,13 +554,13 @@ END-ISO-10303-21;
         let entity_index_a = ifc_lite_core::build_entity_index(&content_a);
         let mut decoder_a = EntityDecoder::with_index(&content_a, entity_index_a);
         let router_a = GeometryRouter::with_units(&content_a, &mut decoder_a);
-        let offset_a = router_a.detect_rtc_offset_from_first_element(&content_a, &mut decoder_a);
+        let offset_a = detected_offset(&router_a, &content_a, &mut decoder_a);
 
         // Detect RTC for model B
         let entity_index_b = ifc_lite_core::build_entity_index(&content_b);
         let mut decoder_b = EntityDecoder::with_index(&content_b, entity_index_b);
         let router_b = GeometryRouter::with_units(&content_b, &mut decoder_b);
-        let offset_b = router_b.detect_rtc_offset_from_first_element(&content_b, &mut decoder_b);
+        let offset_b = detected_offset(&router_b, &content_b, &mut decoder_b);
 
         // Both should detect large offsets
         assert!(

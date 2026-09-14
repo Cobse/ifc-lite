@@ -371,21 +371,6 @@ impl GeometryRouter {
             .unwrap_or(false)
     }
 
-    /// Detect RTC offset by scanning the file for building elements. No
-    /// placement-bounds fallback: a whole-file consumer that must agree with
-    /// the meshes wants [`Self::detect_rtc_offset_for_file`] (#4665).
-    pub fn detect_rtc_offset_from_first_element<T>(
-        &self,
-        content: &T,
-        decoder: &mut EntityDecoder,
-    ) -> (f64, f64, f64)
-    where
-        T: AsRef<[u8]> + ?Sized,
-    {
-        let jobs = file_geometry_spans(content.as_ref());
-        self.sample_rtc_offset(jobs, decoder).unwrap_or((0.0, 0.0, 0.0))
-    }
-
     /// Detect RTC offset using pre-collected geometry jobs (avoids re-scanning the file).
     /// Returns `None` when no usable translation samples were found, allowing
     /// callers to distinguish "no shift needed" from "detection had no data".

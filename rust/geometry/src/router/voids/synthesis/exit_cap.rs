@@ -19,7 +19,7 @@
 
 use super::super::geom::{mesh_point, point_inside_mesh_agreed, project_aabb_in_frame};
 use super::super::{OpeningFrame, NORMALIZE_EPSILON};
-use crate::{Mesh, Point3, Vector3};
+use crate::{coord_is_large, Mesh, Point3, Vector3};
 
 /// A facet counts as parallel to a cap at |n·d| ≥ this. 0.985 ≈ 10°: absorbs
 /// the ~0.1° facet scatter and a tilted roof's wobble without admitting a
@@ -249,6 +249,17 @@ impl ExitCaps {
     }
 }
 
+/// True when any stored vertex coordinate of `host` is past the shared
+/// large-coordinate threshold, by the shared comparison. This site compared
+/// against the constant directly, and with `>=`, so exactly 10 000 m was
+/// far-field here and small in the RTC detector, the needs-shift verdict and
+/// the bounds fallback; `coord_is_large` is the one home its own doc names
+/// (#4611). `chunks(3)` pads a ragged tail rather than dropping it.
+pub(super) fn any_vertex_is_large(host: &Mesh) -> bool {
+    let at = |c: &[f32], i: usize| c.get(i).copied().unwrap_or(0.0) as f64;
+    host.positions.chunks(3).any(|c| coord_is_large((at(c, 0), at(c, 1), at(c, 2))))
+}
+
 /// Classify each cap of the cutter against the host.
 ///
 /// QUALIFICATION is the pre-#3219 test, unchanged: a cap qualifies when some
@@ -347,11 +358,7 @@ pub(super) fn detect(host: &Mesh, f: &CutterFrame, pad: f64) -> ExitCaps {
     let qualified = min_has_surface || max_has_surface;
     // `any`, not a max fold: the threshold is all that is asked, so the first
     // far vertex answers it.
-    let far_field = qualified
-        && host
-            .positions
-            .iter()
-            .any(|&v| (v as f64).abs() >= crate::LARGE_COORD_THRESHOLD_METERS);
+    let far_field = qualified && any_vertex_is_large(host);
     // `then`, not `filter`: projecting the host and discarding the result is
     // the whole cost of the call.
     let probe = (qualified && !far_field)

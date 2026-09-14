@@ -54,7 +54,7 @@ Shifted:   (234.567, -108.766, 0.0)  ← GPU-friendly!
 
 | Constant | Value | Purpose |
 |----------|-------|---------|
-| `LARGE_COORD_THRESHOLD` | 10,000m (10km) | Triggers RTC shift detection |
+| `LARGE_COORD_THRESHOLD_METERS` | 10,000m (10km) | Triggers RTC shift detection. Rust-side; ask `coord_is_large` rather than comparing against it, so the comparison (strictly greater, any axis, absolute value) stays in one place. One live exception, `ModelBounds::has_large_coordinates`, compares the six scaled bbox extents directly; it uses the same `>` so it agrees today, and routing it through the predicate is the obvious follow-up |
 | `NORMAL_COORD_THRESHOLD` | 10,000m | Max expected coordinate after RTC |
 | `MAX_REASONABLE_COORD` | 10,000,000m | Reject obviously corrupt values |
 
@@ -98,16 +98,35 @@ The `GeometryRouter` (`rust/geometry/src/router/`, RTC logic in `rtc_offset.rs`)
 
 ```rust
 impl GeometryRouter {
-    /// Detect RTC offset by sampling placement translations of
-    /// geometry-bearing elements (scan-based paths)
-    pub fn detect_rtc_offset_from_first_element<T>(
+    /// Sample the jobs the caller already collected, and fall back to the
+    /// placement-bounds scan when none of them yields a usable translation.
+    /// `None` = neither rung found a coordinate to judge, which is distinct
+    /// from "judged, and no shift needed" (`RtcVerdict::Small`).
+    /// `MeshFrame::select` in `ifc_lite_processing` decides what `None` means.
+    /// Used by the native pipeline and by the browser's `SmallFileSingle`
+    /// pre-pass; `StreamingPartial` needs an extra rung and is described below.
+    pub fn detect_rtc_offset_with_fallback(
         &self,
-        content: &T,
+        jobs: &[(u32, usize, usize, IfcType)],
         decoder: &mut EntityDecoder,
-    ) -> (f64, f64, f64);
+        content: &[u8],
+    ) -> Option<RtcVerdict>;
 
-    /// Same detection over pre-collected geometry jobs (avoids re-scanning);
-    /// None = no usable samples (distinct from "no shift needed")
+    /// The same ladder for a consumer that parses the file itself and has no
+    /// job list: the symbolic, grid and alignment overlays. Scans lazily and
+    /// stops at the sample cap.
+    pub fn detect_rtc_offset_for_file(
+        &self,
+        content: &[u8],
+        decoder: &mut EntityDecoder,
+    ) -> Option<RtcVerdict>;
+
+    /// The sampler alone, over pre-collected jobs, with no bounds fallback and
+    /// no verdict. Live: `resolve_partial_rtc` calls it TWICE, once against the
+    /// partial index and once against a freshly built full index, and neither
+    /// call can go through the entry points above because the retry has to
+    /// happen before any bounds fallback. Reach for it only when you need that
+    /// same "detect again, decide later" shape.
     pub fn detect_rtc_offset_from_jobs(
         &self,
         jobs: &[(u32, usize, usize, IfcType)],
@@ -122,6 +141,18 @@ impl GeometryRouter {
 }
 ```
 
+`RtcVerdict` (`ifc_lite_core::limits`) carries the decision and the anchor
+together, because the decision is not a property of the anchor: the
+placement-bounds scan decides on the bbox CORNERS and answers with the bbox
+CENTRE, which can be inside 10 km while the coordinates still need re-basing.
+`RtcVerdict::offset()` reads the translation to subtract - the anchor when
+`Large`, zero when `Small`.
+
+A scan-only detector without the verdict or the fallback
+(`detect_rtc_offset_from_first_element`) was removed in #4611: it collapsed "no
+sample" into `(0, 0, 0)`, and it had no production caller once the overlays
+moved onto `detect_rtc_offset_for_file`.
+
 ### RTC Detection Logic
 
 Detection is sample-based, not first-element-wins:
@@ -129,10 +160,23 @@ Detection is sample-based, not first-element-wins:
 1. Scan for entities whose class carries geometry (`has_geometry_by_name`, schema-driven).
 2. Sample each element's placement translation, up to 50 usable samples (elements that abstain, such as origin-placed axis-only representations, do not consume the budget).
 3. Take the per-axis **median** of the samples.
-4. If any median axis exceeds 10 km (`LARGE_COORD_THRESHOLD_METERS`), that centroid becomes the RTC offset; otherwise the offset is `(0, 0, 0)`.
+4. If any median axis exceeds 10 km (`coord_is_large`: strictly greater, any axis, absolute value), the verdict is `RtcVerdict::Large` anchored on that centroid; otherwise it is `RtcVerdict::Small` and the offset reads as `(0, 0, 0)`.
 5. Only when no element gives a usable sample, fall back to the placement-bounds scan (`ModelBounds::rtc_offset`). It decides on the bbox corners: if any corner is past 10 km the verdict is `RtcVerdict::Large` with the bbox centre as the anchor, even when that centre is itself inside 10 km. `MeshFrame::select` honours a `Large` verdict as given; it does not re-judge the anchor's magnitude.
 
 Using the median of many samples instead of the first element makes detection robust against a single outlier element parked at a survey point.
+
+**The streaming pre-pass has one extra rung.** `MetaMode::StreamingPartial` runs
+against a PARTIAL entity index, where the placement chain of a job may not be
+resolvable yet, so `resolve_partial_rtc` (`rust/processing/src/stream_meta.rs`)
+sits between steps 4 and 5: when the partial pass found no large offset AND
+either the `IfcSite` has not been scanned yet or the partial index resolved no
+usable sample at all, it builds a FULL index and detects again. Only if that
+also comes back empty does it drop to the bounds scan. A successful partial
+"no shift" that DID resolve samples is kept, not retried. Skipping the rung
+sends a model whose world offset lives in late spatial placements to the bounds
+scan, which answers a different question (bbox corners, not placements).
+`MetaMode::SmallFileSingle` has the whole file already and calls
+`detect_rtc_offset_with_fallback` directly.
 
 ### Consistent Per-Mesh Application
 
@@ -447,7 +491,8 @@ console.log('[RTC] Handler info:', {
 
 When adding a new geometry processing path:
 
-- [ ] Detect large coordinates using `detect_rtc_offset_from_first_element` or equivalent
+- [ ] Detect large coordinates using `detect_rtc_offset_with_fallback` (or `detect_rtc_offset_for_file` when you have no job list), and read the answer through `RtcVerdict` rather than re-judging the offset's magnitude. A path that starts on a PARTIAL entity index needs `resolve_partial_rtc`'s extra rung instead, or it drops to the bounds scan where a full-index re-detect would have found the offset
+- [ ] Hand the verdict to `MeshFrame::select` rather than choosing a frame yourself; that is the one place the site tier, the anchor and the wire tag are decided together
 - [ ] Apply RTC uniformly to entire mesh (not per-vertex decisions)
 - [ ] Use consistent thresholds (10km normal, 10M max)
 - [ ] Surface RTC offset to callers via callbacks/return values

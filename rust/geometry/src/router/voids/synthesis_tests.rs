@@ -819,3 +819,64 @@ DATA;
         );
     }
 }
+
+/// #4611: the exit-cap far-field suppression draws its 10 km line where
+/// `ifc_lite_core::limits::coord_is_large` draws it.
+///
+/// `LARGE_COORD_THRESHOLD_METERS`' own doc says to prefer `coord_is_large`
+/// "so the comparison (strictly greater, any axis, absolute value) also has
+/// one home". This site compared `>=` against the constant directly, so a host
+/// whose farthest vertex sits exactly at 10 000 m was far-field here and small
+/// everywhere else in the tree - the RTC detector, the needs-shift verdict, the
+/// bounds fallback. One coordinate, two answers.
+///
+/// The direction matters for what it costs: far-field SUPPRESSES the exit-cap
+/// veto, so the `>=` side withheld a clearance push on a host the rest of the
+/// codebase calls perfectly representable (f32 spacing at 10 km is about 1 mm,
+/// which is the precision this guard exists to protect and is nowhere near
+/// bitten yet).
+mod issue_4611_far_field_threshold {
+    use super::*;
+    use ifc_lite_core::limits::{coord_is_large, LARGE_COORD_THRESHOLD_METERS};
+
+    fn host_with_vertex(p: [f64; 3]) -> Mesh {
+        let mut m = Mesh::new();
+        m.add_vertex(Point3::new(p[0], p[1], p[2]), Vector3::new(0.0, 0.0, 1.0));
+        m.add_vertex(Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
+        m.add_vertex(Point3::new(1.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
+        m.add_triangle(0, 1, 2);
+        m
+    }
+
+    #[test]
+    fn a_vertex_exactly_at_the_threshold_is_not_far_field() {
+        let at = LARGE_COORD_THRESHOLD_METERS;
+        // The premise, so this test cannot pass by the shared predicate moving
+        // instead of this site: the rest of the tree calls this coordinate small.
+        assert!(!coord_is_large((at, 0.0, 0.0)), "premise: 10 km exactly is not large");
+        assert!(
+            !exit_cap::any_vertex_is_large(&host_with_vertex([at, 0.0, 0.0])),
+            "a host vertex at exactly {at} m must be judged the way coord_is_large judges it"
+        );
+    }
+
+    #[test]
+    fn a_vertex_past_the_threshold_is_far_field_on_any_axis_and_either_sign() {
+        let past = LARGE_COORD_THRESHOLD_METERS + 0.5;
+        for v in [[past, 0.0, 0.0], [0.0, -past, 0.0], [0.0, 0.0, past]] {
+            assert!(coord_is_large((v[0], v[1], v[2])), "premise: {v:?} is large");
+            assert!(
+                exit_cap::any_vertex_is_large(&host_with_vertex(v)),
+                "{v:?} must suppress the veto, as it does everywhere else"
+            );
+        }
+    }
+
+    #[test]
+    fn a_host_entirely_inside_the_threshold_is_not_far_field() {
+        let inside = LARGE_COORD_THRESHOLD_METERS * 0.5;
+        assert!(!exit_cap::any_vertex_is_large(&host_with_vertex([
+            inside, -inside, inside
+        ])));
+    }
+}
