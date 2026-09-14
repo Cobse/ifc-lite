@@ -21,10 +21,24 @@ use ring_ops::{ring_is_noise, weld_near_coincident_2d};
 ///
 /// The test is `min_edge < floor_pow2(max_edge) · 2⁻¹³` — POWER-OF-TWO and
 /// scale-relative, so it is bit-deterministic AND catches the needle (min 6.6 µm
-/// vs max ~5 m ⇒ threshold ~5·10⁻⁴) while never touching a real thin sliver
-/// (e.g. a 0.2 m × 2 m face, min 0.2 m ≫ 2·10⁻⁴). Dropping a needle cannot open a
-/// real gap — the hole/seam is already framed by the neighbouring non-degenerate
-/// triangles, exactly as Manifold (which welds the near-duplicate) produces.
+/// vs max ~5 m ⇒ threshold ~5·10⁻⁴) while never touching a real thin sliver at
+/// that scale (e.g. a 0.2 m × 2 m face, min 0.2 m ≫ 2·10⁻⁴). Dropping such a
+/// needle cannot open a gap: the hole/seam is already framed by the neighbouring
+/// non-degenerate triangles, exactly as Manifold (which welds the near-duplicate)
+/// produces.
+///
+/// The cost of scale-relativity, documented behaviour rather than a defect
+/// (#4698): a REAL face thinner than `floor_pow2(max_edge) / 8192` is dropped
+/// with the needles — 7.8 mm across a 64 m span, so a 64 m × 5 mm plate edge
+/// does not survive the needle filter, on any of the paths that call it, and its
+/// removal DOES leave a gap — the framing argument above covers a needle, not a
+/// face. No absolute floor is threaded here: this runs in the CALLER's unit
+/// (metres on the void path, millimetres on the file-unit boolean path, #2684),
+/// and the corpus needles it must keep dropping reach 1.7 mm (ISSUE_129
+/// #296868) and 0.054 file units (S_Office #92642) — within 3× of a plausible
+/// real thin face. Every absolute floor from 2⁻¹² to 2⁻²⁰ re-tore both hosts.
+/// #4744 did thread a metres-per-unit scale into the sibling RING gate; doing the
+/// same here would still need that call, since the `aabb_clip` site has no scale.
 pub(crate) fn tri_is_needle(v: &[Point3<f64>; 3]) -> bool {
     let d = |a: &Point3<f64>, b: &Point3<f64>| (a - b).norm();
     let (e0, e1, e2) = (d(&v[0], &v[1]), d(&v[1], &v[2]), d(&v[2], &v[0]));
@@ -42,7 +56,8 @@ pub(crate) fn tri_is_needle(v: &[Point3<f64>; 3]) -> bool {
 /// 2D-union round-trip (single-triangle buckets and the union-collapse fallback);
 /// the needle drop here is what removes the #1007 diagonal sliver, since each
 /// tilted opening face lands in its own single-triangle plane bucket and would
-/// otherwise pass the raw kernel needle through verbatim.
+/// otherwise pass the raw kernel needle through verbatim. See [`tri_is_needle`]
+/// for what else the rule drops at long spans.
 pub(super) fn emit_triangle(mesh: &mut Mesh, v: &[Point3<f64>; 3], normal: &Vector3<f64>) {
     if tri_is_needle(v) {
         return;
@@ -479,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn tri_is_needle_flags_hairline_slivers_not_real_thin_faces() {
+    fn tri_is_needle_flags_slivers_hairline_for_their_own_span() {
         // The #1007 needle: 6.6 µm base, ~5 m apex span → drop.
         let needle = [
             Point3::new(4.672253608703613, -1.0, 12.385885238647461),
@@ -494,6 +509,15 @@ mod tests {
             Point3::new(2.0, 0.2, 0.0),
         ];
         assert!(!tri_is_needle(&real_thin), "a real 0.2×2 m sliver was wrongly flagged");
+        // The documented cost of the scale-relative rule (#4698): the same
+        // 5 mm width IS a needle once the span is 64 m, so a long plate edge
+        // does not survive. Stated on `tri_is_needle`, pinned here.
+        let long_plate_edge = [
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(64.0, 0.0, 0.0),
+            Point3::new(64.0, 0.005, 0.0),
+        ];
+        assert!(tri_is_needle(&long_plate_edge), "a 64 m × 5 mm face is a needle by this rule");
         // A healthy near-equilateral triangle is kept.
         let healthy = [
             Point3::new(0.0, 0.0, 0.0),

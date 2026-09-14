@@ -109,7 +109,13 @@
 # weld; engagement gated to coordinates that need it). The derivation lives inline at the
 # anchor (Step 1.5); its regression tests moved to facet_weld_scoped_tests.rs
 # (ratchet-exempt), netting the module below the prior budget; budget refreshed downward.
-          907 rust/geometry/src/facet_weld.rs
+# +16: the cell-dedup contract for refine_high_aspect_slivers (#4698). Doc
+# prose only, no code: the pass's 100 um cell dedup also closes
+# near-duplicate cracks and drops collapsed triangles, which the census depends
+# on (552 of 2227 rebuilds over the local corpus), and that was recorded nowhere.
+# A caller reading "bisect high-aspect slivers" could not know it. The doc is +18 lines; the row moves 16 because #4745 freed
+# two in the same file; 907 -> 923.
+          923 rust/geometry/src/facet_weld.rs
 # +87: the #3341 far-endpoint soundness guarantee (`sound_far`) and the argument
 # it rests on, which has to be local because the comment it replaces asserted a
 # safety property that is FALSE for non-convex operands. All +75 is NEW code and

@@ -105,8 +105,8 @@ fn emit_region(
     for tri in indices.chunks_exact(3) {
         // Needle backstop: drop any residual sub-weld degenerate sliver
         // ([`tri_is_needle`], the same scale-relative power-of-two rule as the
-        // single-triangle path). Cannot open a real gap — the hole/seam is framed
-        // by its non-degenerate neighbours.
+        // single-triangle path; its doc carries the no-gap argument and the
+        // long-span faces the rule also drops).
         let v = [verts_3d[tri[0]], verts_3d[tri[1]], verts_3d[tri[2]]];
         if tri_is_needle(&v) {
             continue;

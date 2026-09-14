@@ -520,7 +520,23 @@ fn aspect(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
 /// fanned to two new rim vertices a few cm apart) that lands ALONE in its plane
 /// bucket and bypasses the coplanar CDT. Bisecting its long edge breaks the
 /// sliver without touching the opening hole (the hole boundary is framed by its
-/// non-degenerate neighbours) or the cut volume.
+/// non-degenerate neighbours) or the volume of what it bisects. The PASS is not
+/// volume-exact: see the cell dedup below, which also drops collapsed triangles.
+///
+/// ## The 100 µm cell dedup is whole-mesh (#4698)
+///
+/// The pass deduplicates vertices by [`POSITION_DEDUP_GRID`] cell — every vertex
+/// in a 100 µm cell takes the FIRST raw position seen in it, itself unsnapped;
+/// only the bisection midpoints go on the kernel grid ([`SNAP_GRID`], 1/65536 of
+/// a unit) — and rebuilds EVERY triangle from those, so it closes
+/// near-duplicate cracks and drops a triangle two of whose corners land in one
+/// cell. Both are intended: measured over 117 local fixtures at f4e69c67d (before
+/// #4745 changed what the weld upstream writes back, so read them as the order of
+/// magnitude, not today's exact counts), 552 of 2227 rebuilds moved 48085
+/// vertices and dropped 4097 triangles; #4640 recorded that writing back only the
+/// bisected vertices moved `various/rvt01.ifc` #13797 from 88 to 92 open edges. The rebuild also de-shares vertices and re-derives flat per-face
+/// normals. A caller that needs the input's sub-100 µm vertex spread, its shared
+/// vertices or its authored normals must not run this pass.
 ///
 /// ## Determinism (native == wasm)
 ///
@@ -535,8 +551,10 @@ pub fn refine_high_aspect_slivers(mesh: &Mesh) -> Mesh {
 }
 
 /// Region-scoped [`refine_high_aspect_slivers`]: only triangles whose AABB
-/// intersects one of `boxes` are sliver candidates; everything outside is left
-/// exactly as authored.
+/// intersects one of `boxes`, grown by the canonicalization slack below, are
+/// sliver CANDIDATES.
+/// The rebuild is still whole-mesh, so once any sliver fires, the cell dedup
+/// documented on [`refine_high_aspect_slivers`] applies to the rest of the host.
 ///
 /// Motivation (Holter-class steel models): the sliver pass exists to repair
 /// high-aspect corner slivers a CUT emits at an opening rim (#1007). Scanning
