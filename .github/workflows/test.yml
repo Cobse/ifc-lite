@@ -2301,8 +2301,9 @@ jobs:
           shared-key: main
           save-if: ${{ github.ref == 'refs/heads/main' || github.event_name == 'merge_group' }}
 
-      # No `pnpm install`: the gate imports only node builtins and
-      # scripts/lib/crates-io.mjs, which does the same.
+      # No `pnpm install`: the gate imports only node builtins,
+      # scripts/lib/crates-io.mjs and scripts/lib/cargo-semver-checks.mjs, and
+      # both of those import only node builtins too.
       - name: Check crate semver against crates.io
         run: node scripts/check-rust-semver.mjs
 
