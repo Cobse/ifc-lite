@@ -84,7 +84,7 @@ import {
   matchAttributeRule,
   defaultStoreyName,
   storeyMatchesRefs,
-  materialNamesOf,
+  materialNamesOf, materialMatchCandidates,
   matchClassificationRule,
   elevationOf,
   type AttrRows,
@@ -399,7 +399,7 @@ function evaluateOneEntity(
       // whose second IfcRelAssociatesMaterial carries the queried name.
       const seen = new Set<string>();
       for (const info of extractAllMaterialsOnDemand(ctx.store, expressId)) {
-        for (const n of materialNamesOf(info)) seen.add(n);
+        for (const n of materialMatchCandidates(info)) seen.add(n);
       }
       matCache = [...seen];
     }

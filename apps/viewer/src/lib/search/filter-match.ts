@@ -18,6 +18,7 @@ import {
   type MaterialInfo,
   type ClassificationInfo,
 } from '@ifc-lite/parser';
+import { flattenMaterials } from '@ifc-lite/ids';
 
 import {
   type PropertyRule,
@@ -270,6 +271,19 @@ export function unionByStorey(store: IfcDataStore, rule: StoreyRule, modelId: st
  *  rather than the layer-set / Revit family+type name that masked them. (#1462) */
 export function materialNamesOf(info: MaterialInfo | null): string[] {
   return lensMaterialNames(info);
+}
+
+/** `materialNamesOf` plus every material Category (`material=` matches
+ *  Name OR Category, #4094) — categories come from `flattenMaterials`
+ *  (`@ifc-lite/ids`'s material-facet flattener), reused rather than a
+ *  second layer/profile/constituent walk; only its `.category` field is
+ *  used, since its `.name` field also surfaces a layer's own label, which
+ *  `materialNamesOf` deliberately excludes (#1462). */
+export function materialMatchCandidates(info: MaterialInfo | null): string[] {
+  const categories = flattenMaterials(info)
+    .map((m) => m.category)
+    .filter((c): c is string => !!c);
+  return [...new Set([...materialNamesOf(info), ...categories])];
 }
 
 /** Match a classification rule against an element's classification refs.

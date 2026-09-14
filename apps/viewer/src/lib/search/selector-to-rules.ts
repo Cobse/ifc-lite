@@ -345,10 +345,9 @@ function adaptMaterial(op: SelectorOp, value: SelectorValue, text: string): Filt
   if (!stringOp) return unsupportedOp(text, op, value);
   const invalid = regexProblem(value);
   if (invalid) return `${quote(text)}: ${invalid}`;
-  // Matched against each material NAME the element exposes. IfcOpenShell also
-  // accepts a material Category here; ifc-lite does not read Category yet
-  // (#4094), so a Category-only match still finds nothing — stated in the docs
-  // rather than silently approximated.
+  // `filter-evaluate.ts` unions every material Name and Category into one
+  // candidate set, matching IfcOpenShell's `material=` without changing this
+  // adapter's rule shape (#4094).
   return Rule.material(stringOp, literalOf(value), regexValueKind(value));
 }
 

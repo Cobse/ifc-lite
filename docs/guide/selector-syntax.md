@@ -65,7 +65,7 @@ exists only as part of `*=`. Use a regular expression for wildcards.
 | `Pset.Prop = NULL` / `!= NULL` | ✅ | becomes "is not set" / "is set" |
 | `/Pset_.*Common/.Prop` regex set or property name | ✅ | one rule reaches several sets |
 | `Qto_….Quantity > 10` | ⚠️ | only a `Qto_` set, and only a numeric comparison — see below |
-| `material=` | ⚠️ | matches material **names**; Category is not read yet |
+| `material=` | ✅ | matches a material **Name or Category** |
 | `classification=`, `= NULL`, `!= NULL` | ✅ | matches the code or the name |
 | `location="Level 3"` | ✅ | reaches one level through a containing space — see below |
 | GlobalId terms, `! <GlobalId>` | ✅ | several terms union (add) or subtract, mirroring class terms |

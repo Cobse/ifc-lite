@@ -1242,3 +1242,87 @@ describe('evaluateFilterRules — attribute rule against a REAL parse (#4094)', 
     assert.deepStrictEqual(out, []);
   });
 });
+
+/**
+ * `material=` reads IfcMaterial.Category as well as Name (#4094): IfcOpenShell's
+ * grammar has no separate `material.category=` facet — a bare `material=`
+ * term is meant to match either surface, and the adapter's comment used to say
+ * ifc-lite did not read Category yet. Three walls so a wrong implementation
+ * (matching Category unconditionally, or only when Name is absent) returns
+ * the wrong SET, not just an empty one:
+ *  - Wall-A: material Name "Fired Clay Brick", Category "Masonry" — matches
+ *    a `material=Masonry` filter ONLY through Category.
+ *  - Wall-B: material Name "Structural Steel", no Category — still matches
+ *    by Name, proving the widening is additive, not a Name→Category swap.
+ *  - Wall-C: material Name "Timber Cladding", Category "Wood" — must NOT
+ *    match `material=Masonry` through either surface, so a fixture that
+ *    could pass by matching everything with a Category is ruled out.
+ */
+const MATERIAL_IFC = `ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION((''),'2;1');
+FILE_NAME('t','',(''),(''),'','','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1= IFCPROJECT('0Proj000000000000000002',$,'Proj',$,$,$,$,(#20),#30);
+#20= IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-5,#21,$);
+#21= IFCAXIS2PLACEMENT3D(#22,$,$);
+#22= IFCCARTESIANPOINT((0.,0.,0.));
+#30= IFCUNITASSIGNMENT((#31));
+#31= IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#40= IFCLOCALPLACEMENT($,#21);
+#50= IFCWALL('0WallByCateg000000001',$,'Wall-A',$,$,#40,$,$,$);
+#51= IFCWALL('0WallByName0000000001',$,'Wall-B',$,$,#40,$,$,$);
+#52= IFCWALL('0WallNoMatch000000001',$,'Wall-C',$,$,#40,$,$,$);
+#60= IFCMATERIAL('Fired Clay Brick',$,'Masonry');
+#61= IFCMATERIAL('Structural Steel',$,$);
+#62= IFCMATERIAL('Timber Cladding',$,'Wood');
+#70= IFCRELASSOCIATESMATERIAL('0Rel00000000000000001',$,$,$,(#50),#60);
+#71= IFCRELASSOCIATESMATERIAL('0Rel00000000000000002',$,$,$,(#51),#61);
+#72= IFCRELASSOCIATESMATERIAL('0Rel00000000000000003',$,$,$,(#52),#62);
+ENDSEC;
+END-ISO-10303-21;
+`;
+
+const WALL_BY_CATEGORY = 50;
+const WALL_BY_NAME = 51;
+const WALL_NO_MATCH = 52;
+
+async function parseMaterialStore(): Promise<IfcDataStore> {
+  const bytes = new TextEncoder().encode(MATERIAL_IFC);
+  return new IfcParser().parseColumnar(
+    bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+  );
+}
+
+describe('evaluateFilterRules — material rule matches Category as well as Name (#4094)', () => {
+  it('the fixture really holds three walls with three distinct materials', async () => {
+    const store = await parseMaterialStore();
+    const ids = evaluateFilterRules('m1', store, [Rule.ifcType(['IfcWall'])], 'AND')
+      .map((e) => e.expressId).sort((a, b) => a - b);
+    assert.deepStrictEqual(ids, [WALL_BY_CATEGORY, WALL_BY_NAME, WALL_NO_MATCH]);
+  });
+
+  it('material=Masonry matches Wall-A through Category alone, not Wall-C\'s unrelated Category', async () => {
+    const store = await parseMaterialStore();
+    const out = evaluateFilterRules('m1', store, [Rule.material('eq', 'Masonry')], 'AND');
+    assert.deepStrictEqual(out.map((e) => e.expressId), [WALL_BY_CATEGORY]);
+  });
+
+  it('material name matching still works — the widening is additive', async () => {
+    const store = await parseMaterialStore();
+    const out = evaluateFilterRules('m1', store, [Rule.material('contains', 'Steel')], 'AND');
+    assert.deepStrictEqual(out.map((e) => e.expressId), [WALL_BY_NAME]);
+  });
+
+  it('zero-match is a real restrictive answer, not "no filter applied" (#4659)', async () => {
+    const store = await parseMaterialStore();
+    const noFilter = evaluateFilterRules('m1', store, [Rule.ifcType(['IfcWall'])], 'AND');
+    assert.strictEqual(noFilter.length, 3);
+    const zeroMatch = evaluateFilterRules(
+      'm1', store, [Rule.ifcType(['IfcWall']), Rule.material('eq', 'Concrete')], 'AND',
+    );
+    assert.deepStrictEqual(zeroMatch, []);
+  });
+});
