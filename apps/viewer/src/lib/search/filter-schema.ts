@@ -24,7 +24,7 @@ import {
   extractMaterialsOnDemand,
   type IfcDataStore,
 } from '@ifc-lite/parser';
-import { stringifyValue, materialNamesOf } from './filter-match.js';
+import { stringifyValue, materialMatchCandidates } from './filter-match.js';
 import { resolveEntityPredefinedType } from '../entity-predefined-type.js';
 
 export interface FilterSchema {
@@ -277,8 +277,12 @@ export function discoverFilterValues(store: IfcDataStore): FilterValueSchema {
   const predefinedTypes = new Set<string>();
   const propertyValues = new Map<string, Set<string>>();
 
+  // Same candidate set the `material=` selector matcher uses
+  // (`materialMatchCandidates`, filter-match.ts / filter-evaluate.ts) — Name
+  // AND Category — so a value this dropdown offers is always one the matcher
+  // actually matches, and vice versa (#4780/#4094).
   for (const id of cappedKeys(store.onDemandMaterialMap, store, VALUE_SAMPLE_CAP)) {
-    for (const name of materialNamesOf(extractMaterialsOnDemand(store, id))) {
+    for (const name of materialMatchCandidates(extractMaterialsOnDemand(store, id))) {
       materials.add(name);
     }
   }
