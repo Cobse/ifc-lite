@@ -105,7 +105,7 @@ export class ChunkErrorBoundary extends Component<
           {chunk ? `${this.props.label} could not be loaded` : `${this.props.label} stopped working`}
         </span>
         <span
-          className={night ? 'max-w-[280px] text-[11px]' : 'max-w-[280px] text-[11px] text-muted-foreground/70'}
+          className={night ? 'max-w-[280px] text-[11px]' : 'max-w-[280px] text-[11px] text-muted-foreground'}
           style={night ? { color: NIGHT_TONE.dim } : undefined}
         >
           {chunk

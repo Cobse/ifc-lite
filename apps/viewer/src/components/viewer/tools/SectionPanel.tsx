@@ -218,7 +218,7 @@ export function SectionOverlay() {
                   {sectionPickMode ? 'Click a face to cut…' : isCustom ? 'Custom (pick again)' : 'Pick face'}
                 </span>
               </Button>
-              <div className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground/70 mb-1">or pick an axis</div>
+              <div className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground mb-1">or pick an axis</div>
               <div className="flex gap-1">
                 {(['down', 'front', 'side'] as const).map((axis) => (
                   <Button

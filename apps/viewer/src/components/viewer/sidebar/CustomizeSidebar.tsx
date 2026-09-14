@@ -176,7 +176,7 @@ export function CustomizeSidebar({ onClose }: { onClose: () => void }) {
         {/* Hidden: removed from the rail; the only control is Show (restore). */}
         {hiddenList.length > 0 && (
           <>
-            <div className="mt-1 px-3 pt-2 pb-1 border-t border-border/60 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            <div className="mt-1 px-3 pt-2 pb-1 border-t border-border/60 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Hidden
             </div>
             {hiddenList.map((id) => {

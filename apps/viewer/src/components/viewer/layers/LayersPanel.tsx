@@ -275,7 +275,7 @@ export function LayersPanel(_props: LayersPanelProps) {
               }}
             />
           </div>
-          <p className="max-w-[30ch] pt-1 text-[10px] text-muted-foreground/70">
+          <p className="max-w-[30ch] pt-1 text-[10px] text-muted-foreground">
             You can also drop several .ifcx files anywhere in the viewer.
           </p>
           {/* Local candidates from earlier sessions stay actionable even

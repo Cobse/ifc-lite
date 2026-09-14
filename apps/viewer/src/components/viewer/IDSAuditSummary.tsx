@@ -345,7 +345,7 @@ function IssueRow({ issue, index }: IssueRowProps): React.ReactElement {
             <div className="ml-1 mt-1.5 space-y-1 border-l border-border/60 pl-2">
               {issue.path && (
                 <div className="flex gap-2 font-mono text-[11px]">
-                  <span className="text-muted-foreground/70">path</span>
+                  <span className="text-muted-foreground">path</span>
                   <span className="break-all text-muted-foreground">
                     {issue.path}
                   </span>
@@ -353,7 +353,7 @@ function IssueRow({ issue, index }: IssueRowProps): React.ReactElement {
               )}
               {issue.facetType && (
                 <div className="flex gap-2 font-mono text-[11px]">
-                  <span className="text-muted-foreground/70">facet</span>
+                  <span className="text-muted-foreground">facet</span>
                   <span className="text-muted-foreground">
                     {issue.facetType}
                   </span>
@@ -363,7 +363,7 @@ function IssueRow({ issue, index }: IssueRowProps): React.ReactElement {
                 <div className="flex flex-col gap-0.5 font-mono text-[11px]">
                   {Object.entries(issue.detail).map(([k, v]) => (
                     <div key={k} className="flex gap-2">
-                      <span className="text-muted-foreground/70">{k}</span>
+                      <span className="text-muted-foreground">{k}</span>
                       <span className="break-all text-muted-foreground">
                         {String(v)}
                       </span>

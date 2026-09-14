@@ -173,7 +173,7 @@ export function RibbonGroup({ label, children, className }: {
       <div className="flex min-h-0 flex-1 items-stretch justify-center gap-0.5 pt-1">
         {children}
       </div>
-      <div className="pb-1 pt-0.5 text-center text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground/70">
+      <div className="pb-1 pt-0.5 text-center text-[9px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
         {label}
       </div>
     </div>

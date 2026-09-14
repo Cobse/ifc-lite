@@ -32,7 +32,7 @@ export function ChangeDetailView({ row, detail }: { row: CompareRow; detail: Cha
         {detail.data.length > 0 ? (
           <div className="space-y-1">
             <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-              Data <span className="text-muted-foreground/70">({detail.data.length})</span>
+              Data <span className="text-muted-foreground">({detail.data.length})</span>
             </div>
             <div className="space-y-1">
               {detail.data.map((d, i) => <FieldDeltaRow key={i} delta={d} />)}
@@ -61,7 +61,7 @@ function GeometryDetail({ summary }: { summary: GeometrySummary }) {
       {moved && (
         <div className="text-muted-foreground tabular-nums">
           {fmt(summary.movedDistance)} m
-          <span className="text-muted-foreground/70">
+          <span className="text-muted-foreground">
             {' '}(Δx {fmt(summary.delta.x)}, Δy {fmt(summary.delta.y)}, Δz {fmt(summary.delta.z)})
           </span>
         </div>
@@ -69,13 +69,13 @@ function GeometryDetail({ summary }: { summary: GeometrySummary }) {
       {summary.reshaped && (
         <div className="text-muted-foreground tabular-nums">
           size{' '}
-          <span className="text-muted-foreground/70">
+          <span className="text-muted-foreground">
             (Δx {signed(summary.sizeDelta.x)}, Δy {signed(summary.sizeDelta.y)}, Δz {signed(summary.sizeDelta.z)}) m
           </span>
         </div>
       )}
       {!moved && !summary.reshaped && (
-        <div className="text-muted-foreground/70 text-[11px]">
+        <div className="text-muted-foreground text-[11px]">
           Shape hash differs but the element’s position and size are unchanged.
         </div>
       )}
@@ -98,7 +98,7 @@ function FieldDeltaRow({ delta }: { delta: FieldDelta }) {
       </div>
       <div className="flex items-center gap-1.5 text-[11px] tabular-nums mt-0.5 min-w-0">
         <span className="text-muted-foreground line-through truncate max-w-[45%]">{delta.before ?? '—'}</span>
-        <span className="text-muted-foreground/60 shrink-0">→</span>
+        <span className="text-muted-foreground shrink-0">→</span>
         <span className="truncate max-w-[45%]">{delta.after ?? '—'}</span>
       </div>
     </div>

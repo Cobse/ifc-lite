@@ -40,7 +40,7 @@ import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { measureTextContrastOnSurface, closeContrastBrowser, type Theme } from './render-harness';
-import { extractClassNameAfter } from './extract-classname';
+import { extractClassNameAfter, extractFirstStringLiteralAfter } from './extract-classname';
 import { WCAG_AA_NORMAL_TEXT } from './wcag';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -54,12 +54,39 @@ const MEASURE_PANEL = join(VIEWER_DIR, 'tools/MeasurePanel.tsx');
 const MEASURE_QUANTITIES = join(VIEWER_DIR, 'tools/MeasureQuantities.tsx');
 const MEASURE_POINT_READOUT = join(VIEWER_DIR, 'tools/MeasurePointReadout.tsx');
 
+// #4792's follow-up survey pass (the eleven files it named but did not
+// individually verify): each of these is real, always-visible, always-enabled
+// text — not an icon, not `aria-hidden`, not disabled-control styling —
+// confirmed by reading the surrounding JSX before adding it here.
+const CHUNK_ERROR_BOUNDARY = join(__dirname, '../../components/ChunkErrorBoundary.tsx');
+const IDS_AUDIT_SUMMARY = join(VIEWER_DIR, 'IDSAuditSummary.tsx');
+const ENTITY_CONTEXT_MENU = join(VIEWER_DIR, 'EntityContextMenu.tsx');
+const ROOM_PANEL = join(VIEWER_DIR, 'RoomPanel.tsx');
+const CUSTOMIZE_SIDEBAR = join(VIEWER_DIR, 'sidebar/CustomizeSidebar.tsx');
+const SECTION_PANEL = join(VIEWER_DIR, 'tools/SectionPanel.tsx');
+const RIBBON_PRIMITIVES = join(VIEWER_DIR, 'ribbon/primitives.tsx');
+const CHANGE_DETAIL_VIEW = join(VIEWER_DIR, 'compare/ChangeDetailView.tsx');
+const COMPARE_RESULTS_LIST = join(VIEWER_DIR, 'compare/CompareResultsList.tsx');
+const LAYERS_PANEL = join(VIEWER_DIR, 'layers/LayersPanel.tsx');
+
 /** `PropertiesPanel`'s panel background — a literal `bg-white dark:bg-black`,
  *  not the `bg-background`/`bg-card` semantic tokens the rest of the viewer
  *  uses (see the panel's outer `<div>`, e.g. around its `ScrollArea`). No
  *  `.colorful`-specific override exists, so colorful renders the same
  *  `bg-white` as light. */
 const PROPERTIES_PANEL_SURFACE = 'bg-white dark:bg-black';
+
+/** `RibbonToolbar`'s outer wrapper (`apps/viewer/src/components/viewer/ribbon/RibbonToolbar.tsx`,
+ *  the always-present ancestor of every `RibbonGroup`) — a literal
+ *  `border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-black`,
+ *  not the `bg-background` semantic token. This matters in two themes:
+ *  `.dark .bg-background` resolves to `var(--tokyo-night)` (`#16161e`), not
+ *  the real surface's literal `#000`; and `.colorful` has a selector keyed
+ *  specifically on `.border-b.bg-white` (`apps/viewer/src/index.css`) that
+ *  tints it violet-glass, which the generic `.bg-background` rule (resolving
+ *  to `var(--cf-glass)`) does not match. `border-b` is included here so the
+ *  colorful selector actually applies. */
+const RIBBON_TOOLBAR_SURFACE = 'border-b bg-white dark:bg-black';
 
 const THEMES: Theme[] = ['light', 'dark', 'colorful'];
 
@@ -68,7 +95,13 @@ after(async () => {
 });
 
 describe('panel secondary text meets WCAG AA on its real surface (#4792)', () => {
-  const fixedCases: Array<{ name: string; file: string; anchor: string; surface: string }> = [
+  const fixedCases: Array<{
+    name: string;
+    file: string;
+    anchor: string;
+    surface: string;
+    extractor?: (file: string, anchor: string) => string;
+  }> = [
     {
       name: 'ChatPanel "Streaming..." status',
       file: CHAT_PANEL,
@@ -139,6 +172,12 @@ describe('panel secondary text meets WCAG AA on its real surface (#4792)', () =>
       name: 'MeasurePanel projected-CRS name',
       file: MEASURE_PANEL,
       anchor: 'reground">m</span>\n            </div>\n          </div>\n          <div ',
+      // MeasurePanel's real panel surface is `bg-background/95 backdrop-blur-sm`,
+      // floating translucent over the live 3D viewport — deliberately
+      // measured here against the opaque `bg-background` as the nearest
+      // reasonable proxy, since the true composited backdrop behind the
+      // blur is scene-dependent (whatever geometry/background is under the
+      // panel at the time) and not a fixed value this harness can render.
       surface: 'bg-background',
     },
     {
@@ -171,12 +210,116 @@ describe('panel secondary text meets WCAG AA on its real surface (#4792)', () =>
       anchor: "ly the picked file's own.\n        </div>\n      )}\n\n      {enh && anchor && (\n        <div ",
       surface: 'bg-background',
     },
+    // #4792 follow-up (files the original PR named but did not verify):
+    {
+      name: 'ChunkErrorBoundary panel-tone error detail',
+      file: CHUNK_ERROR_BOUNDARY,
+      anchor: "className={night ? 'max-w-[280px] text-[11px]' : ",
+      surface: 'bg-background',
+      extractor: extractFirstStringLiteralAfter,
+    },
+    {
+      name: 'IDSAuditSummary "path" label',
+      file: IDS_AUDIT_SUMMARY,
+      anchor: '{issue.path && (\n                <div className="flex gap-2 font-mono text-[11px]">\n                  <span ',
+      surface: 'bg-card',
+    },
+    {
+      name: 'IDSAuditSummary "facet" label',
+      file: IDS_AUDIT_SUMMARY,
+      anchor: '{issue.facetType && (\n                <div className="flex gap-2 font-mono text-[11px]">\n                  <span ',
+      surface: 'bg-card',
+    },
+    {
+      name: 'IDSAuditSummary detail key label',
+      file: IDS_AUDIT_SUMMARY,
+      anchor: '<div key={k} className="flex gap-2">\n                      <span ',
+      surface: 'bg-card',
+    },
+    {
+      name: 'EntityContextMenu "⌘D" duplicate shortcut',
+      file: ENTITY_CONTEXT_MENU,
+      anchor: '<span>Duplicate</span>\n        <span ',
+      surface: 'bg-popover',
+    },
+    {
+      name: 'EntityContextMenu row shortcut hint',
+      file: ENTITY_CONTEXT_MENU,
+      anchor: '{shortcut && (\n        <span ',
+      surface: 'bg-popover',
+    },
+    {
+      name: 'RoomPanel "Got an invite?" hint',
+      file: ROOM_PANEL,
+      anchor: 'Create a room\n        </Button>\n        <p ',
+      surface: 'bg-background',
+    },
+    {
+      name: 'CustomizeSidebar "Hidden" section header',
+      file: CUSTOMIZE_SIDEBAR,
+      anchor: '{hiddenList.length > 0 && (\n          <>\n            <div ',
+      surface: 'bg-popover',
+    },
+    {
+      name: 'SectionPanel "or pick an axis" label',
+      file: SECTION_PANEL,
+      anchor: "{sectionPickMode ? 'Click a face to cut…' : isCustom ? 'Custom (pick again)' : 'Pick face'}\n                </span>\n              </Button>\n              <div ",
+      surface: 'bg-background',
+    },
+    {
+      name: 'ribbon/primitives RibbonGroup label',
+      file: RIBBON_PRIMITIVES,
+      anchor: "aria-label={label} className={cn('flex h-full shrink-0 flex-col px-1.5', className)}>\n      <div className=\"flex min-h-0 flex-1 items-stretch justify-center gap-0.5 pt-1\">\n        {children}\n      </div>\n      <div ",
+      surface: RIBBON_TOOLBAR_SURFACE,
+    },
+    {
+      name: 'compare/ChangeDetailView data-count parenthetical',
+      file: CHANGE_DETAIL_VIEW,
+      anchor: 'Data <span ',
+      surface: 'bg-background',
+    },
+    {
+      name: 'compare/ChangeDetailView moved-delta detail',
+      file: CHANGE_DETAIL_VIEW,
+      anchor: "{fmt(summary.movedDistance)} m\n          <span ",
+      surface: 'bg-background',
+    },
+    {
+      name: 'compare/ChangeDetailView reshaped-delta detail',
+      file: CHANGE_DETAIL_VIEW,
+      anchor: "size{' '}\n          <span ",
+      surface: 'bg-background',
+    },
+    {
+      name: 'compare/ChangeDetailView "shape hash differs" notice',
+      file: CHANGE_DETAIL_VIEW,
+      anchor: '{!moved && !summary.reshaped && (\n        <div ',
+      surface: 'bg-background',
+    },
+    {
+      name: 'compare/ChangeDetailView before/after arrow',
+      file: CHANGE_DETAIL_VIEW,
+      anchor: "<span className=\"text-muted-foreground line-through truncate max-w-[45%]\">{delta.before ?? '—'}</span>\n        <span ",
+      surface: 'bg-background',
+    },
+    {
+      name: 'compare/CompareResultsList CountBadge hint',
+      file: COMPARE_RESULTS_LIST,
+      anchor: '<span className="text-[10px] text-muted-foreground">{label}</span>\n      {hint && <span ',
+      surface: 'bg-background',
+    },
+    {
+      name: 'LayersPanel "drop .ifcx files anywhere" hint',
+      file: LAYERS_PANEL,
+      anchor: '/>\n          </div>\n          <p ',
+      surface: 'bg-background',
+    },
   ];
 
-  for (const { name, file, anchor, surface } of fixedCases) {
+  for (const { name, file, anchor, surface, extractor } of fixedCases) {
     for (const theme of THEMES) {
       it(`${name} clears AA (${WCAG_AA_NORMAL_TEXT}:1) in ${theme} theme`, async () => {
-        const className = extractClassNameAfter(file, anchor);
+        const className = (extractor ?? extractClassNameAfter)(file, anchor);
         const ratio = await measureTextContrastOnSurface(theme, surface, className);
         assert.ok(
           ratio >= WCAG_AA_NORMAL_TEXT,
@@ -199,6 +342,8 @@ describe('non-vacuousness proof: reintroducing the old opacity tiers reddens in 
     { name: 'ClashPanel mode label (pre-#4792, /60)', surface: 'bg-background', className: 'normal-case tracking-normal text-muted-foreground/60' },
     { name: 'TourStepCard / HoverTooltip / MeasurePanel (pre-#4792, /80)', surface: 'bg-popover', className: 'text-[11px] text-muted-foreground/80' },
     { name: 'MeasureQuantities / MeasurePointReadout (pre-#4792, /70)', surface: 'bg-background', className: 'font-mono text-[9px] leading-tight text-muted-foreground/70' },
+    { name: 'ChunkErrorBoundary / IDSAuditSummary / EntityContextMenu / RoomPanel / CustomizeSidebar / SectionPanel / ribbon-primitives / compare-panels / LayersPanel (pre-follow-up, /70)', surface: 'bg-background', className: 'text-[10px] text-muted-foreground/70' },
+    { name: 'compare/ChangeDetailView before/after arrow (pre-follow-up, /60)', surface: 'bg-background', className: 'text-muted-foreground/60 shrink-0' },
   ];
 
   for (const { name, surface, className } of regressedCases) {

@@ -277,7 +277,7 @@ export function RoomPanel({ onClose }: RoomPanelProps) {
           <Share2 className="size-3.5" aria-hidden />
           Create a room
         </Button>
-        <p className="max-w-[30ch] text-[10px] text-muted-foreground/70">
+        <p className="max-w-[30ch] text-[10px] text-muted-foreground">
           Got an invite? Just open the link - it lands you in the room.
         </p>
       </div>

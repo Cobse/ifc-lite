@@ -56,7 +56,7 @@ export function CountBadge({
         {value.toLocaleString()}
       </span>
       <span className="text-[10px] text-muted-foreground">{label}</span>
-      {hint && <span className="text-[9px] text-muted-foreground/70">{hint}</span>}
+      {hint && <span className="text-[9px] text-muted-foreground">{hint}</span>}
     </div>
   );
 }
