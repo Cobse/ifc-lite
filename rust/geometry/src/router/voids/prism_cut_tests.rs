@@ -948,15 +948,21 @@ fn basis_from_depth_matches_opening_frame_seed_convention() {
 // pipeline, so they pin the ULP-scale tolerance itself rather than whatever
 // incidental scatter a corpus fixture happens to produce.
 
-/// Bare mesh with only `positions` populated — `dedup_cut_vertices` never
-/// reads `indices`/`normals`, so a topologically-meaningless point soup is a
-/// faithful, minimal input.
+/// Bare mesh used for host-only magnitude/pinning inputs. Cut fixtures must
+/// carry indices because `dedup_cut_vertices` intentionally ignores orphaned
+/// cut vertices after hygiene removes their triangles (#4754).
 fn points_mesh(points: &[[f32; 3]]) -> Mesh {
     let mut m = Mesh::new();
     for p in points {
         m.positions.extend_from_slice(p);
     }
     m
+}
+
+fn referenced_triangle(points: [[f32; 3]; 3]) -> Mesh {
+    let mut mesh = points_mesh(&points);
+    mesh.indices.extend_from_slice(&[0, 1, 2]);
+    mesh
 }
 
 /// `dental_clinic #217` reconstructed directly: the analytic cut emitted the
@@ -968,7 +974,11 @@ fn points_mesh(points: &[[f32; 3]]) -> Mesh {
 #[test]
 fn dental_clinic_217_seam_vertices_2_pow_neg19_apart_merge() {
     let host = points_mesh(&[[-20.29, 5.0, 0.0]]); // sets the coordinate-magnitude scale only
-    let cut = points_mesh(&[[-20.289_999_008, 0.0, 0.0], [-20.290_000_916, 0.0, 0.0]]);
+    let cut = referenced_triangle([
+        [-20.289_999_008, 0.0, 0.0],
+        [-20.290_000_916, 0.0, 0.0],
+        [-20.29, 1.0, 0.0],
+    ]);
     let sep = (cut.positions[0] - cut.positions[3]).abs() as f64;
     assert!(
         (sep - 2f64.powi(-19)).abs() < 1e-12,
@@ -993,7 +1003,11 @@ fn vertices_just_past_4ulp_tolerance_do_not_merge() {
     let host = points_mesh(&[[mag, 5.0, 0.0]]); // sets the same magnitude scale, far enough not to pin
     let tol = (mag as f64) * (4.0 / 8_388_608.0); // mirrors dedup_cut_vertices' own formula
     let sep = tol * 1.2; // comfortably past the boundary, not just past float noise
-    let cut = points_mesh(&[[mag, 0.0, 0.0], [(mag as f64 + sep) as f32, 0.0, 0.0]]);
+    let cut = referenced_triangle([
+        [mag, 0.0, 0.0],
+        [(mag as f64 + sep) as f32, 0.0, 0.0],
+        [mag, 1.0, 0.0],
+    ]);
     let actual_sep = (cut.positions[3] - cut.positions[0]).abs() as f64;
     assert!(
         actual_sep > tol,
@@ -1005,6 +1019,26 @@ fn vertices_just_past_4ulp_tolerance_do_not_merge() {
         out.positions[0], out.positions[3],
         "vertices separated past the 4-ulp tolerance must NOT merge (this is the \
          76->90 corpus-defect regression the tight tolerance guards against)"
+    );
+}
+
+/// A discarded cut vertex can be arbitrarily far from the surviving mesh.
+/// It must not enlarge the magnitude-derived tolerance enough to collapse
+/// distinct referenced geometry (#4754).
+#[test]
+fn unreferenced_far_cut_vertex_cannot_inflate_weld_tolerance_4754() {
+    let mut cut = points_mesh(&[
+        [100_000_000.0, 0.0, 0.0],
+        [1.0, 0.0, 0.0],
+        [1.001, 0.0, 0.0],
+        [1.0, 1.0, 0.0],
+    ]);
+    cut.indices.extend_from_slice(&[1, 2, 3]);
+
+    let out = dedup_cut_vertices(&cut, &Mesh::new());
+    assert_ne!(
+        out.positions[3], out.positions[6],
+        "an unreferenced distant vertex must not inflate tolerance and merge surviving vertices"
     );
 }
 

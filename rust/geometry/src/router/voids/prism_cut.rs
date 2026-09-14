@@ -72,12 +72,14 @@ use rustc_hash::FxHashMap;
 /// kernel for every host). Default ON; read once.
 pub(crate) mod closure_checks;
 mod vertex_dedup;
+mod finish;
 mod planar_correction;
 #[cfg(test)]
 #[path = "prism_cut_tests.rs"]
 mod tests;
 use closure_checks::{closed_or_hairline, directed_closed};
 pub(crate) use vertex_dedup::dedup_cut_vertices;
+pub(in crate::router::voids) use finish::finish_cut;
 pub(super) use planar_correction::correct_planar_overlap;
 
 pub(super) fn enabled() -> bool {
@@ -3041,38 +3043,14 @@ impl GeometryRouter {
                 }
             }
         }
-        // Two host faces sharing an edge compute the same new crossing point
-        // through different arithmetic. Unify them at ulp scale BEFORE the
-        // closure and volume audits: this is the mesh the caller emits or
-        // passes into the residual exact cut, and a post-audit weld can move
-        // millimetres at baked georeferenced coordinates (#4627 review).
-        out = dedup_cut_vertices(&out, mesh);
-
-        // Never emit a cut that is not a consistently-wound closed surface. The
-        // analytic CONSTRUCTION itself must be closed (the DIRECTED audit also
-        // catches doubled coincident faces and flipped caps the undirected
-        // 2-manifold check cannot see); if it is not, the prism decomposition was
-        // wrong and the WHOLE host (full opening set) goes back to the exact
-        // kernel.
-        if !directed_closed(&out) && !closed_or_hairline(&out) {
+        // The finalizer cleans before the ulp weld so discarded slivers cannot
+        // choose a surviving seam coordinate, then audits the exact mesh it
+        // returns. A closed pre-clean result remains the compatibility fallback.
+        let Some(finished) = finish_cut(out, mesh) else {
             defer(9);
             return None;
-        }
-        // Apply the standard `clean_degenerate` hygiene (every void path, the
-        // exact kernel included, drops sub-grid slivers), then RE-AUDIT: the
-        // EMITTED mesh must be the audited one (#1806 review), because cleaning
-        // can drop a thin-but-counted triangle that was load-bearing for closure
-        // and crack the surface. When hygiene opens such a crack, keep the
-        // already-closed pre-clean construction rather than emitting the cracked
-        // mesh — its un-cleaned slivers are the same hairlines every other path
-        // (the exact kernel included, #1167) already carries, so this stays
-        // correct without paying the exact-kernel tax for a host the analytic
-        // path cut cleanly.
-        let mut cleaned = out.clone();
-        cleaned.clean_degenerate();
-        if directed_closed(&cleaned) || closed_or_hairline(&cleaned) {
-            out = cleaned;
-        }
+        };
+        out = finished;
 
         // Residual openings in their original classification order.
         residual_idx.sort_unstable();

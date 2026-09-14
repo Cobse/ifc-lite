@@ -33,9 +33,25 @@ pub(crate) fn dedup_cut_vertices(cut: &Mesh, host: &Mesh) -> Mesh {
     if cn == 0 {
         return cut.clone();
     }
+    // Hygiene removes triangles from the index buffer but intentionally leaves
+    // the vertex arrays sparse. An orphaned sliver vertex must not seed the
+    // weld pool or inflate its magnitude-derived tolerance (#4754).
+    let mut referenced = vec![false; cn];
+    for &index in &cut.indices {
+        if let Some(slot) = referenced.get_mut(index as usize) {
+            *slot = true;
+        }
+    }
     let mut mag = 1.0f32;
-    for &c in host.positions.iter().chain(cut.positions.iter()) {
+    for &c in &host.positions {
         mag = mag.max(c.abs());
+    }
+    for (i, point) in cut.positions.chunks_exact(3).enumerate() {
+        if referenced[i] {
+            for &c in point {
+                mag = mag.max(c.abs());
+            }
+        }
     }
     let tol = (mag as f64) * (4.0 / 8_388_608.0);
     let tol2 = tol * tol;
@@ -67,6 +83,9 @@ pub(crate) fn dedup_cut_vertices(cut: &Mesh, host: &Mesh) -> Mesh {
 
     let mut out = cut.clone();
     for i in 0..cn {
+        if !referenced[i] {
+            continue;
+        }
         let p = [
             out.positions[i * 3] as f64,
             out.positions[i * 3 + 1] as f64,
