@@ -22,8 +22,10 @@ export function CountBadgeTooltip({
   return (
     <>
       <p className="text-xs">{headline}</p>
+      {/* TooltipContent uses the neutral popover surface; secondary copy uses
+          its semantic muted token instead of a hardcoded zinc shade. */}
       {rest.map((line) => (
-        <p key={line} className="text-[10px] text-zinc-400 dark:text-zinc-500">{line}</p>
+        <p key={line} className="text-[10px] text-muted-foreground">{line}</p>
       ))}
     </>
   );

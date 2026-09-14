@@ -1,0 +1,60 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
+
+/**
+ * Pins the rendered count tooltip to the app's accessible semantic tokens.
+ *
+ * The hover card over a storey's object-count badge renders inside
+ * `TooltipContent` used to pair the accent-blue `bg-primary` with
+ * `text-primary-foreground`. That measured only 2.52:1 in light mode even at
+ * full opacity, so no local secondary-text tweak could meet WCAG AA. The
+ * shared primitive now uses the same neutral `bg-popover` /
+ * `text-popover-foreground` surface as the other floating UI (19.9:1 light,
+ * 8.52:1 dark), and the secondary lines use `text-muted-foreground`.
+ *
+ * This test asserts the class NAMES so a future edit can't silently
+ * reintroduce a hardcoded neutral: reverting the fix (className reverted to
+ * `text-zinc-400 dark:text-zinc-500`) turns this red.
+ */
+
+import '@/test/setup-dom.js';
+import { describe, it, afterEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { render, cleanup } from '@/test/render.js';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.js';
+import { CountBadgeTooltip } from './CountBadgeTooltip.js';
+
+afterEach(cleanup);
+
+describe('CountBadgeTooltip contrast', () => {
+  it('renders the headline at text-xs', () => {
+    const container = render(<CountBadgeTooltip elementCount={5} lines={['5 objects', '3 Walls', '2 Doors']} />);
+    const headline = container.querySelector('p');
+    assert.equal(headline?.textContent, '5 objects');
+    assert.equal(headline?.className, 'text-xs');
+  });
+
+  it('renders on the popover surface with semantic muted secondary text', () => {
+    render(
+      <Tooltip defaultOpen>
+        <TooltipTrigger>5</TooltipTrigger>
+        <TooltipContent>
+          <CountBadgeTooltip elementCount={5} lines={['5 objects', '3 Walls', '2 Doors']} />
+        </TooltipContent>
+      </Tooltip>,
+    );
+
+    const tooltip = document.body.querySelector<HTMLElement>('[role="tooltip"]');
+    assert.ok(tooltip);
+    assert.ok(tooltip.classList.contains('bg-popover'));
+    assert.ok(tooltip.classList.contains('text-popover-foreground'));
+    assert.ok(!tooltip.classList.contains('bg-primary'));
+
+    const secondaryLines = Array.from(tooltip.querySelectorAll('p')).slice(1);
+    assert.equal(secondaryLines.length, 2);
+    for (const line of secondaryLines) {
+      assert.equal(line.className, 'text-[10px] text-muted-foreground');
+    }
+  });
+});
