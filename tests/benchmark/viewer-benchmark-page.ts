@@ -99,7 +99,7 @@ export class ViewerBenchmarkPage {
     });
   }
 
-  async setup() {
+  async setup(url = this.origin) {
     // Capture all console logs
     this.page.on('console', (msg: ConsoleMessage) => {
       const text = msg.text();
@@ -253,7 +253,7 @@ export class ViewerBenchmarkPage {
     }
 
     // Navigate to viewer app
-    await this.page.goto(this.origin);
+    await this.page.goto(url);
     
     // Wait for app to be ready (file input exists but is hidden, so check for existence)
     await this.page.waitForSelector('input[type="file"]', { state: 'attached', timeout: 30000 });

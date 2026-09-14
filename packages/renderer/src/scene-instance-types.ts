@@ -12,6 +12,14 @@ export interface InstancedTemplateGPU {
   indexCount: number;
   instanceBuffer: GPUBuffer;
   instanceCount: number;
+  /** World-space center.xyz + conservative radius per occurrence. */
+  boundingSpheres: Float32Array;
+  /** Lazily allocated only after GPU culling is explicitly enabled. */
+  culledInstanceBuffer?: GPUBuffer;
+  /** Lazily allocated only after GPU culling is explicitly enabled. */
+  boundingSphereBuffer?: GPUBuffer;
+  /** Lazily allocated only after GPU culling is explicitly enabled. */
+  indirectBuffer?: GPUBuffer;
   /** Union of the occurrences' world AABBs (null when no occurrence has a
    *  finite box — such templates are never culled). Same tuple layout as
    *  BatchedMesh.bounds so the render loop's frustum test is shared. */
@@ -53,6 +61,8 @@ export interface InstancedTemplateCpu {
   normals: Float32Array;
   indices: Uint32Array;
   instanceData: ArrayBuffer; // packed 88-byte instance records (mat4 at +0, col-major)
+  /** World-space center.xyz + conservative radius per occurrence. */
+  boundingSpheres: Float32Array;
   localMin: [number, number, number];
   localMax: [number, number, number];
 }

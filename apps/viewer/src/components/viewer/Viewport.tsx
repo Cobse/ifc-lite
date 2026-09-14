@@ -50,6 +50,10 @@ import { installViewportDebugHooks, clearViewportDebugHooks } from '@/lib/viewpo
 import { expandToGeometryBearingIds } from '../../utils/aggregation.js';
 import { hasNoRenderableTarget } from '@/lib/presentation/resolvePresentationIds';
 import { toGlobalIdFromModels } from '@/store/globalId';
+import {
+  clearInstancedCullingCorpusBridge,
+  installInstancedCullingCorpusBridge,
+} from '../../lib/testing/instanced-culling-corpus-bridge.js';
 
 import { useMouseControls, type MouseState } from './useMouseControls.js';
 import { RectSelectionOverlay, type RectSelectionRect } from './RectSelectionOverlay.js';
@@ -836,6 +840,7 @@ export function Viewport({
     // Register refs for BCF hook access (snapshot capture, camera control)
     setGlobalCanvasRef(canvasRef);
     setGlobalRendererRef(rendererRef);
+    installInstancedCullingCorpusBridge(renderer);
 
     renderer.init().then(() => {
       if (aborted) return;
@@ -1389,6 +1394,7 @@ export function Viewport({
       // Clear BCF global refs to prevent memory leaks
       clearGlobalRefs();
       clearViewportDebugHooks();
+      clearInstancedCullingCorpusBridge(renderer);
     };
     // Note: selectedEntityId is intentionally NOT in dependencies
     // The click handler captures setSelectedEntityId via closure

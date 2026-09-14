@@ -24,6 +24,7 @@ import { projectToCssScreen } from '../../utils/projectScreen.js';
 import { getContributionCullConfig } from '../../utils/renderCullConfig.js';
 import { getLodScreenPx } from '../../utils/lodConfig.js';
 import { runGpuUpload } from './gpu-upload-guard';
+import { getCorpusCullingOptions } from '../../lib/testing/instanced-culling-corpus-bridge.js';
 
 /** Sun cast-shadow render options, driven by the Sun & Sky panel (#2670). */
 export interface SunShadowSettings {
@@ -295,6 +296,7 @@ export function useAnimationLoop(params: UseAnimationLoopParams): void {
               distance: sectionPlaneRef.current.custom?.distance,
             } : undefined,
             terrainClipY: terrainClipYRef.current ?? undefined,
+            instancedGpuCulling: getCorpusCullingOptions(),
           });
         } catch (err) {
           if (!renderErrorLogged) {

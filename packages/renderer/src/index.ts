@@ -135,6 +135,7 @@ import { RenderPipeline } from './pipeline.js';
 import { Camera } from './camera.js';
 import { Scene, type InstancedTemplateGPU } from './scene.js';
 import type { SceneContents } from './scene-contents.js';
+import { InstancedGpuCuller } from './instanced-gpu-culling.js';
 import { Picker } from './picker.js';
 import { reportableItemId } from './pick-resolve.js';
 import { MathUtils, viewBasis } from './math.js';
@@ -263,6 +264,9 @@ export class Renderer {
     private pipeline: RenderPipeline | null = null;
     private camera: Camera;
     private scene: Scene;
+    private instancedGpuCuller: InstancedGpuCuller | null = null;
+    private instancedGpuCullerPromise: Promise<void> | null = null;
+    private instancedGpuCullerUnavailable = false;
     private picker: Picker | null = null;
     private canvas: HTMLCanvasElement;
     /**
@@ -646,6 +650,7 @@ export class Renderer {
         }
 
         this.pipeline = new RenderPipeline(this.device, width, height);
+        this.instancedGpuCullerUnavailable = false;
         this.picker = new Picker(this.device, width, height);
         this.overlays.init(
             this.device.getDevice(),
@@ -2084,6 +2089,26 @@ export class Renderer {
 
             // Now record draw commands
             const encoder = device.createCommandEncoder();
+            const instancedTemplates = this.scene.getInstancedTemplates();
+            if (options.instancedGpuCulling?.enabled === true) {
+                this.requestInstancedGpuCuller();
+            }
+            let useInstancedGpuCulling =
+                options.instancedGpuCulling?.enabled === true &&
+                this.instancedGpuCuller !== null &&
+                instancedTemplates.length > 0 &&
+                this.instancedGpuCuller.canEncode(instancedTemplates);
+            if (useInstancedGpuCulling) {
+                useInstancedGpuCulling = this.instancedGpuCuller!.encode(
+                    encoder,
+                    instancedTemplates,
+                    viewProj,
+                    width,
+                    height,
+                    options.instancedGpuCulling?.minProjectedDiameter ?? 0.75,
+                    this.camera.getProjectionMode() === 'orthographic',
+                );
+            }
 
             // Sun shadow-map pass (#2670, Phase 2). Off unless the caller opts
             // in; when off the hot path pays only this check and (once) an
@@ -2652,7 +2677,6 @@ export class Renderer {
                 // path is unchanged). The per-instance matrix already folds the
                 // IFC Z-up→WebGL Y-up swap, so the uniform's model is unused here;
                 // we reuse the frame's viewProj + section + flags from `tpl`.
-                const instancedTemplates = this.scene.getInstancedTemplates();
                 // Cull templates ONCE per frame; the transparent instanced
                 // sub-pass below reuses this list. Frustum: the union of the
                 // occurrences' world AABBs off-screen ⇒ every occurrence is.
@@ -2690,23 +2714,35 @@ export class Renderer {
                     visibleInstanced = kept;
                 }
                 if (visibleInstanced.length > 0) {
-                    // Opaque instanced pass. flags.x bit 2 marks "instanced pass" so the
-                    // shader routes per-instance opacity: opaque (or selected) occurrences
+                    // Opaque instanced pipeline routes per-instance opacity: opaque (or selected) occurrences
                     // draw here; translucent ones (lens/x-ray/compare overrides) are
                     // discarded and drawn in the transparent sub-pass below.
-                    this.pipeline.writeRawUniforms(tpl, 0x4);
-                    pass.setPipeline(this.pipeline.getInstancedPipeline());
-                    pass.setBindGroup(0, this.pipeline.getBindGroup());
-                    pass.setBindGroup(1, this.pipeline.getEnvironmentBindGroup());
-                    for (const it of visibleInstanced) {
-                        pass.setVertexBuffer(0, it.vertexBuffer);
-                        pass.setVertexBuffer(1, it.instanceBuffer);
-                        pass.setIndexBuffer(it.indexBuffer, 'uint32');
-                        pass.drawIndexed(it.indexCount, it.instanceCount);
-                        frameDrawCalls++;
-                        frameInstancedDrawn++;
+                    this.pipeline.writeRawUniforms(tpl);
+                    if (useInstancedGpuCulling) {
+                        this.instancedGpuCuller!.executeOpaque(
+                            pass,
+                            visibleInstanced,
+                            this.pipeline.getInstancedPipeline(),
+                            this.pipeline.getBindGroup(),
+                            this.pipeline.getEnvironmentBindGroup(),
+                        );
+                        frameDrawCalls += visibleInstanced.length;
+                        frameInstancedDrawn += visibleInstanced.length;
+                    } else {
+                        pass.setPipeline(this.pipeline.getInstancedPipeline());
+                        pass.setBindGroup(0, this.pipeline.getBindGroup());
+                        pass.setBindGroup(1, this.pipeline.getEnvironmentBindGroup());
+                        for (const it of visibleInstanced) {
+                            pass.setVertexBuffer(0, it.vertexBuffer);
+                            pass.setVertexBuffer(1, it.instanceBuffer);
+                            pass.setIndexBuffer(it.indexBuffer, 'uint32');
+                            pass.drawIndexed(it.indexCount, it.instanceCount);
+                            frameDrawCalls++;
+                            frameInstancedDrawn++;
+                        }
                     }
                     pass.setPipeline(this.pipeline.getPipeline());
+                    pass.setBindGroup(1, this.pipeline.getEnvironmentBindGroup());
                     // The TRANSPARENT instanced sub-pass is drawn later, alongside the
                     // flat transparent batches, so it blends after ALL opaque geometry
                     // (incl. the textured sub-pass below) has written depth.
@@ -2907,18 +2943,20 @@ export class Renderer {
                 // Transparent instanced sub-pass — drawn here (after ALL opaque incl. the
                 // textured sub-pass) so ghosted/x-rayed instanced occurrences blend over
                 // a complete depth buffer. Only runs when an override actually made some
-                // occurrence translucent (otherwise zero cost). flags.x bit 3 flips the
-                // shader's opacity routing so only translucent occurrences draw here.
+                // occurrence translucent (otherwise zero cost). Pipeline constants route
+                // only translucent occurrences here and avoid shared-uniform ordering hazards.
                 const instancedTransparentPipeline = this.pipeline.getInstancedTransparentPipeline();
                 if (
                     visibleInstanced.length > 0 &&
                     this.scene.hasTransparentInstances() &&
                     instancedTransparentPipeline !== null
                 ) {
-                    this.pipeline.writeRawUniforms(tpl, 0x4 | 0x8);
+                    this.pipeline.writeRawUniforms(tpl);
                     pass.setPipeline(instancedTransparentPipeline);
                     pass.setBindGroup(0, this.pipeline.getBindGroup());
                     pass.setBindGroup(1, this.pipeline.getEnvironmentBindGroup());
+                    // Preserve source occurrence order for alpha blending. Atomic compute
+                    // compaction is intentionally used only by the opaque pass.
                     for (const it of visibleInstanced) {
                         pass.setVertexBuffer(0, it.vertexBuffer);
                         pass.setVertexBuffer(1, it.instanceBuffer);
@@ -3662,6 +3700,10 @@ export class Renderer {
 
         // Scene mesh GPU buffers
         this.scene.clear();
+        this.instancedGpuCuller?.destroy();
+        this.instancedGpuCuller = null;
+        // A pending lazy creation observes this flag and destroys its result.
+        this.instancedGpuCullerUnavailable = true;
         // Re-arm the section-bounds diagnostic log for the next model.
         this._loggedSectionBounds = false;
 
@@ -3711,6 +3753,36 @@ export class Renderer {
         // lost-handler special-cases reason 'destroyed' so this is not reported
         // as a fault. render() early-returns while the device is uninitialised.
         this.device.destroy();
+    }
+
+    private requestInstancedGpuCuller(): void {
+        if (
+            this.instancedGpuCuller ||
+            this.instancedGpuCullerPromise ||
+            this.instancedGpuCullerUnavailable ||
+            !this.pipeline
+        ) return;
+        const pending = InstancedGpuCuller.create(
+            this.device.getDevice(),
+            this.device.getFormat(),
+            this.pipeline.getDepthFormat(),
+            this.pipeline.getSampleCount(),
+        ).then((culler) => {
+            if (this.instancedGpuCullerUnavailable) {
+                culler.destroy();
+            } else {
+                this.instancedGpuCuller = culler;
+                this.requestRender();
+            }
+        }).catch((error: unknown) => {
+            this.instancedGpuCullerUnavailable = true;
+            console.warn('[Renderer] IFNS GPU culling unavailable; using direct instancing:', error);
+        }).finally(() => {
+            if (this.instancedGpuCullerPromise === pending) {
+                this.instancedGpuCullerPromise = null;
+            }
+        });
+        this.instancedGpuCullerPromise = pending;
     }
 
     /**

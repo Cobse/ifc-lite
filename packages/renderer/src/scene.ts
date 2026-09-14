@@ -125,6 +125,18 @@ export interface TexturedMesh {
 export type { InstancedTemplateGPU } from './scene-instance-types.js';
 const EMPTY_INSTANCED_TEMPLATES: readonly InstancedTemplateGPU[] = [];
 
+/** Aggregate IFNS workload and memory data used by renderer diagnostics. */
+export interface InstancedSceneStats {
+  templateCount: number;
+  occurrenceCount: number;
+  templateTriangleCount: number;
+  expandedTriangleCount: number;
+  sourceInstanceBytes: number;
+  cpuBoundingSphereBytes: number;
+  estimatedCullingGpuBytes: number;
+  allocatedCullingGpuBytes: number;
+}
+
 /**
  * Pure helper: compute the exclusive end index of the next flushPending()
  * append chunk, starting at `readIndex` and bounded by BOTH mesh count
@@ -1617,11 +1629,24 @@ export class Scene {
       dv.setFloat32(b + 48, tx, true);
       dv.setFloat32(b + 52, ty, true);
       dv.setFloat32(b + 56, tz, true);
+      const sphereOffset = (b / INSTANCE_STRIDE_BYTES) * 4;
+      cpu.boundingSpheres[sphereOffset] += dx;
+      cpu.boundingSpheres[sphereOffset + 1] += dy;
+      cpu.boundingSpheres[sphereOffset + 2] += dz;
       // Push only the 12 translation bytes to the GPU buffer (in place). Guarded
       // on the cached device so CPU-only tests still exercise the matrix math.
       if (device) {
         const gpu = this.instancedTemplates[occ.templateIndex]?.instanceBuffer;
         if (gpu) device.queue.writeBuffer(gpu, b + 48, new Float32Array([tx, ty, tz]));
+        const template = this.instancedTemplates[occ.templateIndex];
+        const sphereGpu = template?.boundingSphereBuffer;
+        if (sphereGpu) {
+          device.queue.writeBuffer(
+            sphereGpu,
+            sphereOffset * 4,
+            cpu.boundingSpheres.subarray(sphereOffset, sphereOffset + 3),
+          );
+        }
       }
       moved = true;
     }
@@ -2972,6 +2997,9 @@ export class Scene {
       t.vertexBuffer.destroy();
       t.indexBuffer.destroy();
       t.instanceBuffer.destroy();
+      t.culledInstanceBuffer?.destroy();
+      t.boundingSphereBuffer?.destroy();
+      t.indirectBuffer?.destroy();
       this.instancedTemplates[i] = undefined;
       this.instancedTemplateCpu[i] = undefined;
       freed.add(i);
@@ -3052,6 +3080,41 @@ export class Scene {
     }
   }
 
+  /** Describe the uploaded IFNS workload without reading data back from the GPU. */
+  getInstancedStats(): InstancedSceneStats {
+    let occurrenceCount = 0;
+    let templateTriangleCount = 0;
+    let expandedTriangleCount = 0;
+    let sourceInstanceBytes = 0;
+    let cpuBoundingSphereBytes = 0;
+    let estimatedCullingGpuBytes = 0;
+    let allocatedCullingGpuBytes = 0;
+    for (const template of this.liveInstancedTemplates) {
+      const triangles = template.indexCount / 3;
+      occurrenceCount += template.instanceCount;
+      templateTriangleCount += triangles;
+      expandedTriangleCount += triangles * template.instanceCount;
+      sourceInstanceBytes += template.instanceBuffer.size;
+      cpuBoundingSphereBytes += template.boundingSpheres.byteLength;
+      estimatedCullingGpuBytes += template.instanceBuffer.size
+        + template.boundingSpheres.byteLength
+        + 20;
+      allocatedCullingGpuBytes += template.culledInstanceBuffer?.size ?? 0;
+      allocatedCullingGpuBytes += template.boundingSphereBuffer?.size ?? 0;
+      allocatedCullingGpuBytes += template.indirectBuffer?.size ?? 0;
+    }
+    return {
+      templateCount: this.liveInstancedTemplates.length,
+      occurrenceCount,
+      templateTriangleCount,
+      expandedTriangleCount,
+      sourceInstanceBytes,
+      cpuBoundingSphereBytes,
+      estimatedCullingGpuBytes,
+      allocatedCullingGpuBytes,
+    };
+  }
+
   /**
    * Decode a per-batch IFNS instancing shard (`processGeometryBatchInstanced`)
    * and upload its templates for GPU-instanced drawing. Each unique geometry
@@ -3125,7 +3188,7 @@ export class Scene {
       const instSize = t.instanceCount * INSTANCE_STRIDE_BYTES;
       const instanceBuffer = device.createBuffer({
         size: instSize,
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         mappedAtCreation: true,
       });
       new Uint8Array(instanceBuffer.getMappedRange()).set(
@@ -3141,6 +3204,7 @@ export class Scene {
         indexBuffer,
         indexCount: t.indices.length,
         instanceBuffer,
+        boundingSpheres: t.boundingSpheres,
         instanceCount: t.instanceCount,
         bounds: null,
         maxOccRadius: 0,
@@ -3166,6 +3230,7 @@ export class Scene {
         normals: t.normals,
         indices: t.indices,
         instanceData: t.instanceBuffer,
+        boundingSpheres: t.boundingSpheres,
         localMin: [lmnx, lmny, lmnz],
         localMax: [lmxx, lmxy, lmxz],
       };
@@ -3758,6 +3823,9 @@ export class Scene {
       it.vertexBuffer.destroy();
       it.indexBuffer.destroy();
       it.instanceBuffer.destroy();
+      it.culledInstanceBuffer?.destroy();
+      it.boundingSphereBuffer?.destroy();
+      it.indirectBuffer?.destroy();
     }
     this.instancedTemplates = [];
     this.liveInstancedTemplates = [];
