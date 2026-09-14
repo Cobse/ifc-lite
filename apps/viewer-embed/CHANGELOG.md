@@ -1,5 +1,20 @@
 # @ifc-lite/viewer-embed
 
+## 1.15.5
+
+### Patch Changes
+
+- Updated dependencies [[`0635737`](https://github.com/LTplus-AG/ifc-lite/commit/06357376a7badddf9359e0663999964948504e6e), [`e8e319f`](https://github.com/LTplus-AG/ifc-lite/commit/e8e319ff76e4dac5e0d0de3cc0a00b4d9f3c8e76), [`7b34e97`](https://github.com/LTplus-AG/ifc-lite/commit/7b34e97f2abdc49be3eef78031d52d1107622544), [`5bd1d89`](https://github.com/LTplus-AG/ifc-lite/commit/5bd1d8905e461815e8749b4c893e67b11a746e53), [`6fa3d14`](https://github.com/LTplus-AG/ifc-lite/commit/6fa3d1425a822c5dcc3f0e811b809791eea163da), [`b1f9519`](https://github.com/LTplus-AG/ifc-lite/commit/b1f95194150893d56b6955273cd540fccf2b16be), [`be17583`](https://github.com/LTplus-AG/ifc-lite/commit/be175830fb938af4dde6c1f6990b1faa194c8771), [`f55d749`](https://github.com/LTplus-AG/ifc-lite/commit/f55d7492893406a59d86a6cba4b41a80aa2589d9), [`7b34e97`](https://github.com/LTplus-AG/ifc-lite/commit/7b34e97f2abdc49be3eef78031d52d1107622544), [`d342909`](https://github.com/LTplus-AG/ifc-lite/commit/d3429093f06cb8f5405ac9792ec2aadbcf69f140), [`7b34e97`](https://github.com/LTplus-AG/ifc-lite/commit/7b34e97f2abdc49be3eef78031d52d1107622544), [`36fa88e`](https://github.com/LTplus-AG/ifc-lite/commit/36fa88e8862416ac6a9f493135c6fdfca793d0eb)]:
+  - @ifc-lite/wasm@9.0.1
+  - @ifc-lite/export@4.3.3
+  - @ifc-lite/mcp@0.16.0
+  - @ifc-lite/server-client@3.0.0
+  - @ifc-lite/query@2.4.0
+  - @ifc-lite/geometry@7.0.1
+  - @ifc-lite/sdk@6.0.0
+  - @ifc-lite/ids@1.17.0
+  - @ifc-lite/sandbox@2.3.1
+
 ## 1.15.4
 
 ### Patch Changes

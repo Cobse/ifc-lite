@@ -1,5 +1,33 @@
 # @ifc-lite/cli
 
+## 0.32.0
+
+### Minor Changes
+
+- [#4774](https://github.com/LTplus-AG/ifc-lite/pull/4774) [`7b34e97`](https://github.com/LTplus-AG/ifc-lite/commit/7b34e97f2abdc49be3eef78031d52d1107622544) Thanks [@BIMvoice](https://github.com/BIMvoice)! - `ifc-lite query --select "<selector text>"`: filter entities with an IfcOpenShell-style selector, e.g. `--select "IfcWall, Pset_WallCommon.FireRating=2HR"`. Selector classes union with `--type`; selector property comparisons and `--where` narrow the result together. Reuses the SDK's `QueryBuilder.select()` (`@ifc-lite/query`'s shared translator), so it cannot read selector text differently than the MCP `query_entities` tool's `selector` param. A selector construct outside the supported lossless subset (see the SDK/query changeset) exits 1 naming it, rather than running an empty or partial query.
+  
+  Also fixes a pre-existing gap in `bim.query().where(...)`/`descriptor.filters` matching: a `Qto_` filter (e.g. `Qto_WallBaseQuantities.NetVolume>1`) previously matched zero entities even when the quantity was present, because the query backend only checked property sets, never quantity sets. It now falls back to quantity sets when no property set matches, mirroring `--where`'s own existing fallback.
+
+### Patch Changes
+
+- [#4776](https://github.com/LTplus-AG/ifc-lite/pull/4776) [`b1f9519`](https://github.com/LTplus-AG/ifc-lite/commit/b1f95194150893d56b6955273cd540fccf2b16be) Thanks [@BIMvoice](https://github.com/BIMvoice)! - Deduplicate `matchesPropertyFilter`: the CLI and MCP query backends each carried their own copy of this `entities()`/`query_entities` filter predicate (`packages/cli/src/property-filter-match.ts`, `packages/mcp/src/property-filter-match.ts`) — functional twins differing only in comments, with nothing enforcing they stayed identical. One of the comments claimed a "can't drift" guarantee the code never actually enforced. Both packages already depend on `@ifc-lite/query` for the helpers this function is built from, so there is now exactly one implementation, exported from `@ifc-lite/query`, that both `HeadlessBackend` (CLI) and the MCP backend import. No behavior change.
+
+- [#4748](https://github.com/LTplus-AG/ifc-lite/pull/4748) [`36fa88e`](https://github.com/LTplus-AG/ifc-lite/commit/36fa88e8862416ac6a9f493135c6fdfca793d0eb) Thanks [@louistrue](https://github.com/louistrue)! - `bim.export.ifc()` no longer exports the whole model when an isolation filter matched nothing. The ref list carried two meanings on one argument: a non-empty array isolated to those entities, and an empty array meant "no filter, export everything". A caller whose filter matched zero entities passed the empty array and got every entity back, reported as success. That is the same null-vs-empty collapse [#4364](https://github.com/LTplus-AG/ifc-lite/issues/4364)/[#4386](https://github.com/LTplus-AG/ifc-lite/issues/4386) removed from the GLB and OBJ bindings and [#4659](https://github.com/LTplus-AG/ifc-lite/issues/4659) from the JSON-LD and STEP ones, and it is why every in-repo caller had to carry its own zero-match guard to stay safe. The viewer's MCP playground `export_ifc` had none, so `global_ids` that matched nothing staged the entire model as a download and described it as the requested subset.
+  
+  `refs` is now optional: omit it (or pass `undefined`/`null`) for "no isolation filter", and pass an array for an active one. An active filter that matched nothing is refused with an error instead of widened back to a whole-model export. The check lives in `ExportNamespace.ifc`, the one point every surface (CLI, MCP, playground, sandboxed scripts, viewer) reaches a STEP export through, and the absence travels down with the call: a backend now receives `undefined` for "no filter" and never an empty array. The viewer's export adapter, which needs a model id and so refuses an empty ref list, uses that to export the active model whole; the sandbox bridge keeps an omitted `entities` argument omitted rather than turning it into `[]` (`bim.export.csv()` still answers an empty list, unchanged).
+  
+  **Migration:** replace `bim.export.ifc([], options)` with `bim.export.ifc(undefined, options)` (or `bim.export.ifc()`), which is the same whole-model export. A call site that builds `refs` from a query keeps passing the array and now gets an error rather than the whole model when the query matched nothing. A custom `BimBackend` sees `undefined` where it used to see `[]` for an unfiltered export.
+- Updated dependencies [[`0635737`](https://github.com/LTplus-AG/ifc-lite/commit/06357376a7badddf9359e0663999964948504e6e), [`e8e319f`](https://github.com/LTplus-AG/ifc-lite/commit/e8e319ff76e4dac5e0d0de3cc0a00b4d9f3c8e76), [`7b34e97`](https://github.com/LTplus-AG/ifc-lite/commit/7b34e97f2abdc49be3eef78031d52d1107622544), [`6fa3d14`](https://github.com/LTplus-AG/ifc-lite/commit/6fa3d1425a822c5dcc3f0e811b809791eea163da), [`b1f9519`](https://github.com/LTplus-AG/ifc-lite/commit/b1f95194150893d56b6955273cd540fccf2b16be), [`be17583`](https://github.com/LTplus-AG/ifc-lite/commit/be175830fb938af4dde6c1f6990b1faa194c8771), [`f55d749`](https://github.com/LTplus-AG/ifc-lite/commit/f55d7492893406a59d86a6cba4b41a80aa2589d9), [`7b34e97`](https://github.com/LTplus-AG/ifc-lite/commit/7b34e97f2abdc49be3eef78031d52d1107622544), [`d342909`](https://github.com/LTplus-AG/ifc-lite/commit/d3429093f06cb8f5405ac9792ec2aadbcf69f140), [`7b34e97`](https://github.com/LTplus-AG/ifc-lite/commit/7b34e97f2abdc49be3eef78031d52d1107622544), [`36fa88e`](https://github.com/LTplus-AG/ifc-lite/commit/36fa88e8862416ac6a9f493135c6fdfca793d0eb)]:
+  - @ifc-lite/wasm@9.0.1
+  - @ifc-lite/export@4.3.3
+  - @ifc-lite/mcp@0.16.0
+  - @ifc-lite/query@2.4.0
+  - @ifc-lite/geometry@7.0.1
+  - @ifc-lite/sdk@6.0.0
+  - @ifc-lite/ids@1.17.0
+  - @ifc-lite/sandbox@2.3.1
+  - @ifc-lite/viewer-core@0.2.19
+
 ## 0.31.0
 
 ### Minor Changes

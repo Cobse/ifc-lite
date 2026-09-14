@@ -1,5 +1,18 @@
 # @ifc-lite/query
 
+## 2.4.0
+
+### Minor Changes
+
+- [#4776](https://github.com/LTplus-AG/ifc-lite/pull/4776) [`b1f9519`](https://github.com/LTplus-AG/ifc-lite/commit/b1f95194150893d56b6955273cd540fccf2b16be) Thanks [@BIMvoice](https://github.com/BIMvoice)! - Deduplicate `matchesPropertyFilter`: the CLI and MCP query backends each carried their own copy of this `entities()`/`query_entities` filter predicate (`packages/cli/src/property-filter-match.ts`, `packages/mcp/src/property-filter-match.ts`) — functional twins differing only in comments, with nothing enforcing they stayed identical. One of the comments claimed a "can't drift" guarantee the code never actually enforced. Both packages already depend on `@ifc-lite/query` for the helpers this function is built from, so there is now exactly one implementation, exported from `@ifc-lite/query`, that both `HeadlessBackend` (CLI) and the MCP backend import. No behavior change.
+
+- [#4774](https://github.com/LTplus-AG/ifc-lite/pull/4774) [`7b34e97`](https://github.com/LTplus-AG/ifc-lite/commit/7b34e97f2abdc49be3eef78031d52d1107622544) Thanks [@BIMvoice](https://github.com/BIMvoice)! - Added `selectorToQueryDescriptor` and `SelectorUnsupportedError`, translating IfcOpenShell-style selector text (already parsed by `parseSelector`) to the `{ types, filters }` shape `bim.query()` executes. Class terms remain normalized base names so each backend expands them against each executing model's own IFC schema, including mixed-schema federations. Only the lossless subset (class terms, exact-name `Pset_`/`Qto_` comparisons across the `=`/`!=`/`>`/`>=`/`<`/`<=`/`*=` operators, a `/regex/` value on `=`, and `Prop!=NULL` for existence) translates; every other construct (regex pset/property names, `!*=`, a regex value on any operator but `=`, `Prop=NULL`, entity-attribute terms, `!` class negation, `+` group unions, `parent=`, `query:`, `material=`/`classification=`/`location=`) throws `SelectorUnsupportedError` naming it, rather than silently running an empty or partial query. This is the shared translator behind `@ifc-lite/sdk`'s `QueryBuilder.select()`.
+
+### Patch Changes
+
+- Updated dependencies [[`f55d749`](https://github.com/LTplus-AG/ifc-lite/commit/f55d7492893406a59d86a6cba4b41a80aa2589d9)]:
+  - @ifc-lite/geometry@7.0.1
+
 ## 2.3.4
 
 ### Patch Changes

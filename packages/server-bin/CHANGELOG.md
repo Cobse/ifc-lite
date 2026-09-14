@@ -1,5 +1,17 @@
 # @ifc-lite/server-bin
 
+## 1.18.1
+
+### Patch Changes
+
+- [#4773](https://github.com/LTplus-AG/ifc-lite/pull/4773) [`8ee7fd3`](https://github.com/LTplus-AG/ifc-lite/commit/8ee7fd375da0ab9ae9f8853a431ff68f55b4f5da) Thanks [@BIMvoice](https://github.com/BIMvoice)! - Fixed the parse server silently dropping an `IfcRelDefinesByProperties` relationship whose `RelatingPropertyDefinition` is a grouped `IfcPropertySetDefinitionSet` (schema-legal, written in STEP as `([#20](https://github.com/LTplus-AG/ifc-lite/issues/20),[#21](https://github.com/LTplus-AG/ifc-lite/issues/21))` rather than a single `#id`) — every related object lost every property/quantity set in that group. The generated relationship-slot table (`scripts/generate-server-relationship-slots.mjs`) now also derives a `relating_is_list` flag from the same schema source the in-browser/WASM columnar parser resolves against, so the extractor reads the grouped form instead of unconditionally treating "relating" as a single reference.
+
+- [#4763](https://github.com/LTplus-AG/ifc-lite/pull/4763) [`dd92639`](https://github.com/LTplus-AG/ifc-lite/commit/dd92639e1f0cfc30279dc919005b3e7dcedf69e8) Thanks [@BIMvoice](https://github.com/BIMvoice)! - The parse server's relationship extraction now covers every schema-derived concrete `IfcRelationship` subtype (54 of 55, `IFCRELASSOCIATES` excluded as a non-instantiable abstract supertype) instead of a hand-written 13-entry list with a `(4,5)` default fallback that silently dropped every other type and mis-read the `IfcRelAssigns` family's attribute order. The attribute positions are generated (`scripts/generate-server-relationship-slots.mjs`) from the same schema-derived source `@ifc-lite/parser`'s in-browser/WASM columnar parser resolves relationship slots against.
+
+- [#4749](https://github.com/LTplus-AG/ifc-lite/pull/4749) [`481bb8d`](https://github.com/LTplus-AG/ifc-lite/commit/481bb8d0298bd5744c2c39ddd5696c59ba71c560) Thanks [@louistrue](https://github.com/louistrue)! - The server's 2D symbol stream now comes back in the same frame as the meshes beside it. For a model whose `IfcSite` placement is translated, the parse re-expresses its meshes in the site's own frame (`mesh_coordinate_space: site_local`: the site translation subtracted, the site rotation removed), but the symbolic extractor resolved a frame of its own that has no site tier, so grid axes, annotation curves and text sat the whole site translation away from the geometry they annotate, rotated by the site's yaw. Every parse route now hands the extractor the frame its own meshes were baked in. Two cache namespaces retire the entries written in the old frame, so each affected file is parsed once more on its next request instead of being replayed: the symbolic sidecar moves to `-symbolic-v4`, and the stored `POST /api/v1/parse` response to `-json-v5`. The JSON one is needed on its own because that entry is the whole response with the symbols inside it, and it is returned before any extraction runs.
+  
+  The browser path is unchanged: `parseSymbolicRepresentations` in the wasm bindings still resolves the overlay frame, which is the frame the browser's own meshes are in.
+
 ## 1.18.0
 
 ### Minor Changes

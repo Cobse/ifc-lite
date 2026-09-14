@@ -1,5 +1,13 @@
 # @ifc-lite/geometry
 
+## 7.0.1
+
+### Patch Changes
+
+- [#4753](https://github.com/LTplus-AG/ifc-lite/pull/4753) [`f55d749`](https://github.com/LTplus-AG/ifc-lite/commit/f55d7492893406a59d86a6cba4b41a80aa2589d9) Thanks [@louistrue](https://github.com/louistrue)! - `CoordinateHandler` now decides at the exported `NORMAL_COORD_THRESHOLD_M` instead of a private copy of its value, and the federation RTC override (a caller-supplied shared offset wins over the model's own detected offset, and forces the shift) is resolved by one function for all three WASM mesh paths. No behaviour change: every copy held the same rule, which is what made the drift invisible. The viewer's map-absolute detection radius now imports that same constant instead of repeating its value; the radius is unchanged at 10 km.
+- Updated dependencies [[`0635737`](https://github.com/LTplus-AG/ifc-lite/commit/06357376a7badddf9359e0663999964948504e6e), [`e8e319f`](https://github.com/LTplus-AG/ifc-lite/commit/e8e319ff76e4dac5e0d0de3cc0a00b4d9f3c8e76), [`6fa3d14`](https://github.com/LTplus-AG/ifc-lite/commit/6fa3d1425a822c5dcc3f0e811b809791eea163da), [`be17583`](https://github.com/LTplus-AG/ifc-lite/commit/be175830fb938af4dde6c1f6990b1faa194c8771)]:
+  - @ifc-lite/wasm@9.0.1
+
 ## 7.0.0
 
 ### Major Changes
