@@ -208,7 +208,7 @@ export interface IDSBCFExportOptions {
 
 const DEFAULT_AUTHOR = 'ids-validator@ifc-lite';
 const DEFAULT_MAX_TOPICS = 1000;
-const DEFAULT_FAILURE_COLOR = 'FFFF3333'; // Semi-opaque red
+const DEFAULT_FAILURE_COLOR = 'FFFF3333'; // Opaque red
 const DEFAULT_FAILURE_TOPIC_TYPE = 'Error';
 const DEFAULT_PASS_TOPIC_TYPE = 'Info';
 /**
