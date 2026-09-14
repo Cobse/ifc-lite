@@ -1569,3 +1569,16 @@ composition incompatibility before doing either expensive route, while keeping
 the public and pure-2D union operation correct; #4617 owns removing that
 temporary boundary once mixed routing can preserve both union semantics and
 final topology.
+
+## Comment-free STEP point-list scan (#4735)
+
+The record scanner now proves once that a point-list tail contains no STEP
+comments before entering its per-item delimiter loop; commented records retain
+the original comment-aware path. Source-matched interleaved native probes and
+fresh Chromium worker-pool loads of AC20-FZK-Haus retained identical ordered
+geometry fingerprints or mesh counts. Their base/branch phase differences all
+stayed within run-to-run noise, so the verdict is no material full-load
+regression and no demonstrated end-to-end speedup. The useful lesson is that a
+tighter inner loop is not itself a user-visible performance claim: retain the
+single outer proof, but judge it through the full parser and browser worker
+pool, where geometry and startup dominate this small fixture.
