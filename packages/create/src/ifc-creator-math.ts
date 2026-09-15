@@ -95,3 +95,47 @@ export function vecCross(a: Point3D, b: Point3D): Point3D {
     a[0] * b[1] - a[1] * b[0],
   ];
 }
+
+// ============================================================================
+// STEP attribute helpers (optional strings / enums / booleans / reals)
+// ============================================================================
+// Live here rather than in `ifc-creator.ts` so the entity-emitting modules
+// split out of it (`ifc-creator-calendar.ts`) can share one copy instead of
+// each carrying its own `$`-vs-value convention.
+
+/** Emit an optional STEP string: `'value'` when present, `$` otherwise. */
+export function optStr(v: string | undefined | null): string {
+  return v === undefined || v === null || v === '' ? '$' : `'${esc(v)}'`;
+}
+
+/** Emit an optional STEP enum: `.VALUE.` when present, `$` otherwise. */
+export function optEnum(v: string | undefined | null): string {
+  return v === undefined || v === null || v === '' ? '$' : `.${v}.`;
+}
+
+/** Emit an optional STEP boolean: `.T.`/`.F.`/`$`. */
+export function optBool(v: boolean | undefined | null): string {
+  return v === undefined || v === null ? '$' : v ? '.T.' : '.F.';
+}
+
+/** Emit an optional STEP real number; `$` when absent. */
+export function optReal(v: number | undefined | null): string {
+  return v === undefined || v === null || !Number.isFinite(v) ? '$' : num(v);
+}
+
+/** Emit an optional STEP integer; `$` when absent. */
+export function optInt(v: number | undefined | null): string {
+  return v === undefined || v === null || !Number.isFinite(v) ? '$' : String(Math.trunc(v));
+}
+
+/** Emit a STEP entity-reference list `(#1,#2)`, or `$` when empty. */
+export function refList(ids: number[]): string {
+  return ids.length === 0 ? '$' : `(${ids.map(i => `#${i}`).join(',')})`;
+}
+
+/** Emit a STEP integer list `(1,2)`, or `$` when absent/empty. */
+export function intList(values: number[] | undefined): string {
+  return values === undefined || values.length === 0
+    ? '$'
+    : `(${values.map(v => String(Math.trunc(v))).join(',')})`;
+}

@@ -73,6 +73,33 @@ function makeExtraction(): ScheduleExtraction {
       finishTime: '2024-05-10T17:00:00',
       predefinedType: 'PLANNED',
       taskGlobalIds: ['task-wall-a', 'task-wall-b'],
+      calendarGlobalIds: ['cal-round'],
+    }],
+    workCalendars: [{
+      expressId: 0,
+      globalId: 'cal-round',
+      name: 'Two-shift calendar',
+      identification: 'CAL-RT',
+      predefinedType: 'SECONDSHIFT',
+      workingTimes: [{
+        name: 'Weekdays',
+        start: '2024-05-01',
+        finish: '2024-12-31',
+        recurrencePattern: {
+          recurrenceType: 'WEEKLY',
+          dayComponent: [],
+          weekdayComponent: [1, 2, 3, 4, 5],
+          monthComponent: [],
+          interval: 1,
+          occurrences: 30,
+          timePeriods: [{ start: '07:00:00', end: '16:00:00' }],
+        },
+      }],
+      exceptionTimes: [{
+        name: 'Shutdown',
+        start: '2024-08-01',
+        finish: '2024-08-14',
+      }],
     }],
     tasks: [
       {
@@ -85,6 +112,7 @@ function makeExtraction(): ScheduleExtraction {
         productExpressIds: [11],
         productGlobalIds: ['wall-A'],
         controllingScheduleGlobalIds: ['ws-round'],
+        calendarGlobalIds: ['cal-round'],
         taskTime: {
           scheduleStart: '2024-05-01T08:00:00',
           scheduleFinish: '2024-05-05T17:00:00',
@@ -181,6 +209,40 @@ describe('schedule roundtrip — serializer ↔ parser', () => {
     expect(taskA.taskTime?.scheduleStart).toBe('2024-05-01T08:00:00');
     expect(taskA.taskTime?.scheduleFinish).toBe('2024-05-05T17:00:00');
     expect(taskA.taskTime?.scheduleDuration).toBe('P5D');
+
+    // IfcWorkCalendar and its nested IfcWorkTime / IfcRecurrencePattern /
+    // IfcTimePeriod survive the trip through real STEP bytes (#4830).
+    expect(parsed.workCalendars).toHaveLength(1);
+    const cal = parsed.workCalendars![0];
+    expect(cal.globalId).toBe('cal-round');
+    expect(cal.name).toBe('Two-shift calendar');
+    expect(cal.identification).toBe('CAL-RT');
+    expect(cal.predefinedType).toBe('SECONDSHIFT');
+    expect(cal.workingTimes).toHaveLength(1);
+    expect(cal.exceptionTimes).toHaveLength(1);
+    expect(cal.workingTimes[0].name).toBe('Weekdays');
+    expect(cal.workingTimes[0].start).toBe('2024-05-01');
+    expect(cal.workingTimes[0].finish).toBe('2024-12-31');
+    const pattern = cal.workingTimes[0].recurrencePattern!;
+    expect(pattern.recurrenceType).toBe('WEEKLY');
+    expect(pattern.weekdayComponent).toEqual([1, 2, 3, 4, 5]);
+    expect(pattern.dayComponent).toEqual([]);
+    expect(pattern.interval).toBe(1);
+    expect(pattern.occurrences).toBe(30);
+    expect(pattern.timePeriods).toEqual([{ start: '07:00:00', end: '16:00:00' }]);
+    // The exception time carries no recurrence — `$` must read back absent,
+    // not as an empty pattern object.
+    expect(cal.exceptionTimes[0].recurrencePattern).toBeUndefined();
+    expect(cal.exceptionTimes[0].name).toBe('Shutdown');
+
+    // The calendar assignment re-parses onto BOTH the task and the schedule,
+    // and does not disturb the schedule-control edge on the same task.
+    expect(taskA.calendarGlobalIds).toEqual(['cal-round']);
+    expect(taskA.controllingScheduleGlobalIds).toEqual(['ws-round']);
+    expect(parsed.workSchedules[0].calendarGlobalIds).toEqual(['cal-round']);
+    // Task B was never assigned a calendar — it must stay clean.
+    const taskB = parsed.tasks.find(t => t.name === 'Install Wall B')!;
+    expect(taskB.calendarGlobalIds ?? []).toEqual([]);
   });
 
   it('handles mixed-case entity type names in the source STEP', async () => {
@@ -346,8 +408,13 @@ describe('schedule roundtrip — serializer ↔ parser', () => {
     expect(result.lines.some(l => l.includes('=IFCWORKPLAN('))).toBe(true);
     // No IfcRelAssignsToControl referencing the plan — it has no
     // taskGlobalIds, so the serializer must not invent a relation for it.
+    // Identify the plan by its own express id rather than counting every
+    // control relation in the file: the fixture's calendar assignment is a
+    // second, unrelated IfcRelAssignsToControl (#4830).
+    const planId = result.lines.find(l => l.includes('=IFCWORKPLAN('))!.match(/^#(\d+)=/)![1];
     const controlRels = result.lines.filter(l => l.includes('=IFCRELASSIGNSTOCONTROL('));
-    expect(controlRels).toHaveLength(1); // only the schedule's own task assignment
+    expect(controlRels.some(l => l.endsWith(`,#${planId});`))).toBe(false);
+    expect(result.stats.assignsToControl).toBe(1); // only the schedule's own task assignment
 
     const final = splice(buildBaseStep(), result.lines);
     const store = await parseStep(final);
@@ -454,6 +521,7 @@ describe('schedule roundtrip — IfcWorkPlan nests IfcWorkSchedule (IfcRelNests)
       hasSchedule: true,
       tasks: [],
       sequences: [],
+      workCalendars: [],
       workSchedules: [
         {
           expressId: 0,

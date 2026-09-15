@@ -66,7 +66,7 @@ END-ISO-10303-21;
 
 function makeGeneratedSchedule(): ScheduleExtraction {
   return {
-    hasSchedule: true,
+    hasSchedule: true, workCalendars: [],
     workSchedules: [{
       expressId: 0, globalId: 'sched-gid', kind: 'WorkSchedule',
       name: 'Generated', startTime: '2024-05-01T08:00:00',
@@ -97,7 +97,7 @@ test('injectScheduleIntoStep is a no-op when scheduleData is null', () => {
 
 test('injectScheduleIntoStep is a no-op when every task has a positive expressId (parsed schedule already in STEP)', () => {
   const parsed: ScheduleExtraction = {
-    hasSchedule: true, workSchedules: [], sequences: [],
+    hasSchedule: true, workCalendars: [], workSchedules: [], sequences: [],
     tasks: [{
       expressId: 999, globalId: 'task-x', name: 'Already in file',
       isMilestone: false, childGlobalIds: [],
@@ -133,7 +133,7 @@ test('injectScheduleIntoStep splices generated schedule entities before the DATA
 
 test('injectScheduleIntoStep partitions mixed schedules — only generated tasks are emitted', () => {
   const mixed: ScheduleExtraction = {
-    hasSchedule: true,
+    hasSchedule: true, workCalendars: [],
     workSchedules: [{
       expressId: 0, globalId: 'gen-sched', kind: 'WorkSchedule',
       name: 'Gen', startTime: '2024-05-01T08:00:00',
@@ -236,7 +236,7 @@ test('injectScheduleIntoStep rewrite mode strips the original schedule block', (
 
 test('injectScheduleIntoStep rewrite mode replaces the original schedule with the edited one', () => {
   const edited: ScheduleExtraction = {
-    hasSchedule: true,
+    hasSchedule: true, workCalendars: [],
     workSchedules: [{
       expressId: 20, globalId: 'orig-sched-gid', kind: 'WorkSchedule',
       name: 'Renamed schedule',
@@ -315,7 +315,7 @@ test('injectScheduleIntoStep without scheduleIsEdited preserves append-only lega
   // Mixed schedule (one parsed, one generated) without the edit flag →
   // only the generated tail is emitted, original parsed task stays intact.
   const mixed: ScheduleExtraction = {
-    hasSchedule: true,
+    hasSchedule: true, workCalendars: [],
     workSchedules: [],
     tasks: [
       {
@@ -468,6 +468,25 @@ test("stripScheduleEntities respects ';' inside string literals", () => {
   assert.ok(!out.includes("'ws'"), 'workschedule stripped despite semicolons in string');
   assert.ok(out.includes("'w;all'"), 'wall with semicolon in name preserved');
   assert.ok(out.includes('A;B;C'), 'wall attribute with semicolons preserved');
+});
+
+test('stripScheduleEntities preserves non-schedule children in mixed IfcRelNests', () => {
+  const mixedNest = SAMPLE_STEP.replace(
+    'ENDSEC;\nEND-ISO-10303-21;',
+    [
+      "#20=IFCWORKSCHEDULE('ws',#10,'WS',$,$,$,$,$,$,$,$,$,$,.PLANNED.);",
+      "#21=IFCTASK('task',#10,'Task',$,$,$,$,$,$,.F.,$,$,.CONSTRUCTION.);",
+      "#30=IFCRELNESTS('mixed',#10,$,$,#11,(#21,#12));",
+      "#31=IFCRELNESTS('schedule-parent',#10,$,$,#20,(#11,#12));",
+      'ENDSEC;',
+      'END-ISO-10303-21;',
+    ].join('\n'),
+  );
+  const out = injectScheduleIntoStep(mixedNest, null, STUB_STORE, { scheduleIsEdited: true });
+
+  assert.ok(out.includes("#30=IFCRELNESTS('mixed',#10,$,$,#11,(#12));"));
+  assert.ok(!out.includes("'schedule-parent'"));
+  assert.ok(out.includes("#12=IFCWALL('wall-B-gid'"));
 });
 
 // ─── createExportAdapter().csv() — CWE-1236 formula-injection defense ──

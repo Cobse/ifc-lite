@@ -22,6 +22,7 @@
 import { EntityExtractor } from './entity-extractor.js';
 import type { IfcDataStore } from './columnar-parser.js';
 import { parseIso8601Duration } from './iso8601-duration.js';
+import type { WorkCalendarInfo } from './schedule-calendar-types.js';
 
 /** IFC4 STEP attribute indices for IfcTask. */
 export const TASK_ATTR = {
@@ -179,6 +180,20 @@ export interface ScheduleTaskInfo {
   productGlobalIds: string[];
   /** WorkSchedule globalIds that control this task via IfcRelAssignsToControl. */
   controllingScheduleGlobalIds: string[];
+  /**
+   * WorkCalendar globalIds assigned to this task via IfcRelAssignsToControl
+   * (RelatingControl an IfcWorkCalendar rather than an IfcWorkSchedule/
+   * IfcWorkPlan). Array, not a single id, for the same reason as
+   * `controllingScheduleGlobalIds` above — the schema places no cardinality
+   * limit on IfcRelAssignsToControl per object, so a source file can assign
+   * more than one calendar (e.g. a base calendar plus a site-specific
+   * exception calendar) via separate relations. Optional: absent and `[]`
+   * are equivalent everywhere this is read, matching
+   * `childScheduleGlobalIds`'s convention below — the extractor always
+   * populates it, but SDK-side producers that never touch calendars aren't
+   * forced to.
+   */
+  calendarGlobalIds?: string[];
 }
 
 export interface ScheduleSequenceInfo {
@@ -227,12 +242,28 @@ export interface WorkScheduleInfo {
    * both mean "no nested schedules to write or report".
    */
   childScheduleGlobalIds?: string[];
+  /**
+   * WorkCalendar globalIds assigned to this schedule/plan via
+   * IfcRelAssignsToControl (RelatingControl an IfcWorkCalendar). Same
+   * optional-array convention as `ScheduleTaskInfo.calendarGlobalIds` and
+   * `childScheduleGlobalIds` above.
+   */
+  calendarGlobalIds?: string[];
 }
+
+// TimePeriodInfo / RecurrencePatternInfo / WorkTimeInfo / WorkCalendarInfo —
+// and their STEP attribute-index consts and single-entity extractors — live
+// in `schedule-calendar-types.ts`, a sibling split of this same concern
+// (single-entity attribute decoding) kept in its own file purely to keep
+// this one under the ~400-line module-size guideline; imported below for
+// `ScheduleExtraction.workCalendars`.
 
 export interface ScheduleExtraction {
   workSchedules: WorkScheduleInfo[];
   tasks: ScheduleTaskInfo[];
   sequences: ScheduleSequenceInfo[];
+  /** IfcWorkCalendar entities found in the model, with their working/exception times. Optional for pre-calendar callers. */
+  workCalendars?: WorkCalendarInfo[];
   /** True if we encountered any scheduling entity (useful for empty-state UI). */
   hasSchedule: boolean;
 }

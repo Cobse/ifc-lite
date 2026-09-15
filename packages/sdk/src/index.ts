@@ -158,6 +158,10 @@ export type {
   ScheduleTaskTimeData,
   ScheduleSequenceData,
   WorkScheduleData,
+  WorkCalendarData,
+  WorkTimeData,
+  RecurrencePatternData,
+  TimePeriodData,
   ScheduleSequenceType,
   ScheduleTaskDurationType,
 

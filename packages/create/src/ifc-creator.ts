@@ -30,38 +30,17 @@ import type {
   PropertySetDef, PropertyDef, QuantitySetDef, QuantityDef,
   MaterialDef, MaterialLayerDef,
   WorkScheduleParams, WorkPlanParams, TaskParams, SequenceParams,
+  WorkCalendarParams,
   CreatedEntity, CreateResult,
 } from './types.js';
 
 import {
   esc, stepLine, num, vecLen, vecNorm, vecCross,
+  optStr, optEnum,
   NON_ELEMENT_TYPES, assertPositiveFinite, assertFinitePoint3,
 } from './ifc-creator-math.js';
+import { emitWorkCalendar, emitTaskTime } from './ifc-creator-scheduling.js';
 import { generateIfcGuid, isValidIfcGuid } from '@ifc-lite/encoding';
-
-// ============================================================================
-// STEP attribute helpers (scheduling — optional strings / enums / numbers)
-// ============================================================================
-
-/** Emit an optional STEP string: `'value'` when present, `$` otherwise. */
-function optStr(v: string | undefined | null): string {
-  return v === undefined || v === null || v === '' ? '$' : `'${esc(v)}'`;
-}
-
-/** Emit an optional STEP enum: `.VALUE.` when present, `$` otherwise. */
-function optEnum(v: string | undefined | null): string {
-  return v === undefined || v === null || v === '' ? '$' : `.${v}.`;
-}
-
-/** Emit an optional STEP boolean: `.T.`/`.F.`/`$`. */
-function optBool(v: boolean | undefined | null): string {
-  return v === undefined || v === null ? '$' : v ? '.T.' : '.F.';
-}
-
-/** Emit an optional STEP real number; `$` when absent. */
-function optReal(v: number | undefined | null): string {
-  return v === undefined || v === null || !Number.isFinite(v) ? '$' : num(v);
-}
 
 // ============================================================================
 // IfcCreator
@@ -1667,7 +1646,7 @@ export class IfcCreator {
   }
 
   // ============================================================================
-  // Public API — Scheduling / 4D  (IfcWorkSchedule, IfcTask, IfcRelSequence)
+  // Public API — Scheduling / 4D  (IfcWorkSchedule, IfcTask, IfcRelSequence, IfcWorkCalendar)
   // ============================================================================
 
   /**
@@ -1685,6 +1664,34 @@ export class IfcCreator {
   addIfcWorkPlan(params: WorkPlanParams): number {
     return this.buildWorkControl('IFCWORKPLAN', params);
   }
+
+  /**
+   * Create an IfcWorkCalendar — the working / non-working time calendar an
+   * IfcTask or IfcWorkSchedule can be assigned to. `WorkingTimes` /
+   * `ExceptionTimes` entries become nested IfcWorkTime entities (with their
+   * IfcRecurrencePattern / IfcTimePeriod when the entry carries a
+   * recurrence), the same way `addIfcTask` emits its IfcTaskTime. Assign it
+   * with `assignCalendarToTasks`. Returns the calendar expressId.
+   */
+  addIfcWorkCalendar(params: WorkCalendarParams): number {
+    if (this.schema === 'IFC2X3') {
+      throw new Error('addIfcWorkCalendar is not supported for IFC2X3');
+    }
+    const id = emitWorkCalendar(params, this.newGlobalId(), `#${this.ownerHistoryId}`, this.emitEntity);
+    this.entities.push({ expressId: id, type: 'IfcWorkCalendar', Name: params.Name });
+    return id;
+  }
+
+  /**
+   * Allocate an express id, write its STEP line, and hand the id back — the
+   * one hook `ifc-creator-scheduling.ts`'s emitters need from the creator.
+   * An arrow property so it can be passed by reference without binding.
+   */
+  private emitEntity = (type: string, attrs: string): number => {
+    const entityId = this.id();
+    this.line(entityId, type, attrs);
+    return entityId;
+  };
 
   /**
    * Create an IfcTask. If any Schedule/Actual/Early/Late time field, IsCritical,
@@ -1711,7 +1718,7 @@ export class IfcCreator {
       params.DurationType !== undefined ||
       params.Completion !== undefined;
 
-    const taskTimeId = hasTaskTime ? this.addIfcTaskTime(params) : 0;
+    const taskTimeId = hasTaskTime ? emitTaskTime(params, this.emitEntity) : 0;
     const taskId = this.id();
     const globalId = this.newGlobalId();
     const name = params.Name;
@@ -1731,44 +1738,6 @@ export class IfcCreator {
 
     this.entities.push({ expressId: taskId, type: 'IfcTask', Name: name });
     return taskId;
-  }
-
-  /**
-   * Build an IfcTaskTime from the task params (internal helper — prefer
-   * setting the time fields on the task itself via `addIfcTask`).
-   */
-  private addIfcTaskTime(params: TaskParams): number {
-    const ttId = this.id();
-    // [0] Name, [1] DataOrigin, [2] UserDefinedDataOrigin,
-    // [3] DurationType, [4] ScheduleDuration, [5] ScheduleStart, [6] ScheduleFinish,
-    // [7..10] Early/Late Start/Finish, [11] FreeFloat, [12] TotalFloat,
-    // [13] IsCritical, [14] StatusTime,
-    // [15] ActualDuration, [16] ActualStart, [17] ActualFinish,
-    // [18] RemainingTime, [19] Completion
-    const attrs: string[] = [
-      '$',                                      // Name
-      '$',                                      // DataOrigin
-      '$',                                      // UserDefinedDataOrigin
-      optEnum(params.DurationType),             // DurationType
-      optStr(params.ScheduleDuration),          // ScheduleDuration
-      optStr(params.ScheduleStart),             // ScheduleStart
-      optStr(params.ScheduleFinish),            // ScheduleFinish
-      optStr(params.EarlyStart),                // EarlyStart
-      optStr(params.EarlyFinish),               // EarlyFinish
-      optStr(params.LateStart),                 // LateStart
-      optStr(params.LateFinish),                // LateFinish
-      optStr(params.FreeFloat),                 // FreeFloat
-      optStr(params.TotalFloat),                // TotalFloat
-      optBool(params.IsCritical),               // IsCritical
-      optStr(params.StatusTime),                // StatusTime
-      optStr(params.ActualDuration),            // ActualDuration
-      optStr(params.ActualStart),               // ActualStart
-      optStr(params.ActualFinish),              // ActualFinish
-      optStr(params.RemainingTime),             // RemainingTime
-      optReal(params.Completion),               // Completion
-    ];
-    this.line(ttId, 'IFCTASKTIME', attrs.join(','));
-    return ttId;
   }
 
   /**
@@ -1830,6 +1799,16 @@ export class IfcCreator {
    */
   assignSchedulesToWorkPlan(planId: number, scheduleIds: number[]): number {
     return this.addIfcRelAssignsToControl(planId, scheduleIds);
+  }
+
+  /**
+   * Ergonomic alias — assign an IfcWorkCalendar to tasks (or work
+   * schedules; same relation either way). Delegates to
+   * {@link addIfcRelAssignsToControl}, which accepts a calendar because
+   * IfcWorkCalendar is an IfcControl.
+   */
+  assignCalendarToTasks(calendarId: number, taskIds: number[]): number {
+    return this.addIfcRelAssignsToControl(calendarId, taskIds);
   }
 
   /**

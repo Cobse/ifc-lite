@@ -372,7 +372,7 @@ export function generateScheduleFromSpatialHierarchy(
     extraction: {
       workSchedules: [workSchedule],
       tasks,
-      sequences,
+      sequences, workCalendars: [],
       hasSchedule: true,
     },
     groupCount: containers.length,
@@ -637,7 +637,7 @@ function emptyPreview(options: GenerateScheduleOptions): GeneratePreview {
     extraction: {
       workSchedules: [],
       tasks: [],
-      sequences: [],
+      sequences: [], workCalendars: [],
       hasSchedule: false,
     },
     groupCount: 0,

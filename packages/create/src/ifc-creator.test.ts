@@ -4,6 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { generateIfcGuid, isValidIfcGuid, ifcGuidToUuid, uuidToIfcGuid } from '@ifc-lite/encoding';
+import { IfcParser, extractScheduleOnDemand } from '@ifc-lite/parser';
 import { IfcCreator } from './ifc-creator.js';
 
 describe('IfcCreator', () => {
@@ -662,6 +663,136 @@ describe('IfcCreator — scheduling / 4D', () => {
     const t = c.addIfcTask({ Name: 'T' });
     expect(() => c.assignProductsToTask(t, [])).toThrow(/empty/);
     expect(() => c.nestTasks(t, [])).toThrow(/empty/);
+  });
+});
+
+describe('IfcCreator — IfcWorkCalendar (#4830)', () => {
+  /** Parse emitted STEP with the real parser, not a hand-rolled scanner. */
+  async function extractSchedule(content: string) {
+    const bytes = new TextEncoder().encode(content);
+    const store = await new IfcParser().parseColumnar(bytes.buffer as ArrayBuffer);
+    return extractScheduleOnDemand(store);
+  }
+
+  it('emits IFCWORKCALENDAR with its IfcWorkTime / IfcRecurrencePattern / IfcTimePeriod', () => {
+    const c = new IfcCreator();
+    const calId = c.addIfcWorkCalendar({
+      Name: 'Site calendar',
+      Description: 'Five-day week',
+      Identification: 'CAL-1',
+      PredefinedType: 'FIRSTSHIFT',
+      WorkingTimes: [{
+        Name: 'Weekdays',
+        Start: '2024-05-01',
+        Finish: '2024-12-31',
+        RecurrencePattern: {
+          RecurrenceType: 'WEEKLY',
+          WeekdayComponent: [1, 2, 3, 4, 5],
+          Interval: 1,
+          Occurrences: 30,
+          TimePeriods: [{ StartTime: '07:00:00', EndTime: '16:00:00' }],
+        },
+      }],
+      ExceptionTimes: [{ Name: 'Shutdown', Start: '2024-08-01', Finish: '2024-08-14' }],
+    });
+    const result = c.toIfc();
+    expect(calId).toBeGreaterThan(0);
+    expect(result.content).toContain('IFCWORKCALENDAR');
+    expect(result.content).toContain("'Site calendar'");
+    expect(result.content).toContain('.FIRSTSHIFT.');
+    expect(result.content).toContain('.WEEKLY.');
+    expect(result.content).toContain('(1,2,3,4,5)');
+    expect(result.content).toContain("IFCTIMEPERIOD('07:00:00','16:00:00')");
+    // One IfcWorkTime per entry in each list.
+    expect((result.content.match(/=IFCWORKTIME\(/g) ?? []).length).toBe(2);
+    // The exception time carries no recurrence — only one pattern is emitted.
+    expect((result.content.match(/=IFCRECURRENCEPATTERN\(/g) ?? []).length).toBe(1);
+    // The calendar is reported in the created-entity list like other entities.
+    expect(result.entities.some(e => e.type === 'IfcWorkCalendar' && e.Name === 'Site calendar')).toBe(true);
+  });
+
+  it('emits no IfcWorkTime entities for a calendar with no times', () => {
+    const c = new IfcCreator();
+    c.addIfcWorkCalendar({ Name: 'Bare', PredefinedType: 'NOTDEFINED' });
+    const result = c.toIfc();
+    expect(result.content).toContain('IFCWORKCALENDAR');
+    expect(result.content).not.toContain('IFCWORKTIME');
+    expect(result.content).not.toContain('IFCRECURRENCEPATTERN');
+  });
+
+  it('rejects IfcWorkCalendar before allocating nested entities in IFC2X3', () => {
+    const c = new IfcCreator({ Schema: 'IFC2X3' });
+    expect(() => c.addIfcWorkCalendar({
+      Name: 'Unsupported',
+      WorkingTimes: [{ RecurrencePattern: { RecurrenceType: 'DAILY', Interval: 1 } }],
+    })).toThrow(/not supported for IFC2X3/);
+    expect(c.toIfc().content).not.toContain('IFCWORK');
+  });
+
+  it.each([
+    ['fractional day', { RecurrenceType: 'MONTHLY_BY_DAY_OF_MONTH' as const, DayComponent: [1.5] }],
+    ['out-of-range weekday', { RecurrenceType: 'WEEKLY' as const, WeekdayComponent: [8] }],
+    ['out-of-range month', { RecurrenceType: 'YEARLY_BY_DAY_OF_MONTH' as const, DayComponent: [1], MonthComponent: [13] }],
+    ['non-finite occurrence', { RecurrenceType: 'DAILY' as const, Occurrences: Number.POSITIVE_INFINITY }],
+    ['non-positive interval', { RecurrenceType: 'DAILY' as const, Interval: 0 }],
+    ['invalid component combination', { RecurrenceType: 'DAILY' as const, WeekdayComponent: [1] }],
+  ])('rejects invalid recurrence input: %s', (_label, recurrencePattern) => {
+    const c = new IfcCreator();
+    expect(() => c.addIfcWorkCalendar({
+      Name: 'Invalid',
+      WorkingTimes: [{ RecurrencePattern: recurrencePattern }],
+    })).toThrow(/IfcRecurrencePattern/);
+  });
+
+  it('round-trips through the parser: the extractor reads back what we wrote', async () => {
+    const c = new IfcCreator();
+    const calId = c.addIfcWorkCalendar({
+      Name: 'Site calendar',
+      Identification: 'CAL-1',
+      PredefinedType: 'SECONDSHIFT',
+      WorkingTimes: [{
+        Name: 'Weekdays',
+        Start: '2024-05-01',
+        Finish: '2024-12-31',
+        RecurrencePattern: {
+          RecurrenceType: 'WEEKLY',
+          WeekdayComponent: [1, 2, 3, 4, 5],
+          Interval: 2,
+          TimePeriods: [{ StartTime: '07:00:00', EndTime: '16:00:00' }],
+        },
+      }],
+    });
+    const scheduleId = c.addIfcWorkSchedule({ Name: 'Main', StartTime: '2024-05-01T08:00:00' });
+    const taskId = c.addIfcTask({ Name: 'Install walls', ScheduleStart: '2024-05-06T08:00:00' });
+    c.assignTasksToWorkSchedule(scheduleId, [taskId]);
+    c.assignCalendarToTasks(calId, [taskId]);
+
+    const parsed = await extractSchedule(c.toIfc().content);
+
+    expect(parsed.workCalendars).toHaveLength(1);
+    const cal = parsed.workCalendars![0];
+    expect(cal.name).toBe('Site calendar');
+    expect(cal.identification).toBe('CAL-1');
+    expect(cal.predefinedType).toBe('SECONDSHIFT');
+    expect(cal.workingTimes).toHaveLength(1);
+    expect(cal.workingTimes[0].start).toBe('2024-05-01');
+    const pattern = cal.workingTimes[0].recurrencePattern!;
+    expect(pattern.recurrenceType).toBe('WEEKLY');
+    expect(pattern.weekdayComponent).toEqual([1, 2, 3, 4, 5]);
+    expect(pattern.interval).toBe(2);
+    expect(pattern.timePeriods).toEqual([{ start: '07:00:00', end: '16:00:00' }]);
+
+    // The two assignments live on independent fields — neither clobbers the other.
+    const task = parsed.tasks[0];
+    expect(task.name).toBe('Install walls');
+    expect(task.calendarGlobalIds).toEqual([cal.globalId]);
+    expect(task.controllingScheduleGlobalIds).toEqual([parsed.workSchedules[0].globalId]);
+  });
+
+  it('assignCalendarToTasks rejects an empty id list like its sibling helpers', () => {
+    const c = new IfcCreator();
+    const calId = c.addIfcWorkCalendar({ Name: 'Cal' });
+    expect(() => c.assignCalendarToTasks(calId, [])).toThrow(/empty/);
   });
 });
 

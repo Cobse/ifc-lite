@@ -19,6 +19,7 @@ const EMPTY_EXTRACTION: ScheduleExtractionData = {
   workSchedules: [],
   tasks: [],
   sequences: [],
+  workCalendars: [],
   hasSchedule: false,
 };
 

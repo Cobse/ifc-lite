@@ -23,7 +23,7 @@ import { GanttTaskTree } from './GanttTaskTree';
 import { GanttTimeline } from './GanttTimeline';
 import { GanttEmptyState } from './GanttEmptyState';
 import { GenerateScheduleDialog } from './GenerateScheduleDialog';
-import { flattenTaskTree } from './schedule-utils';
+import { flattenTaskTree, shouldApplyExtractedSchedule } from './schedule-utils';
 import { canGenerateScheduleFrom, resolveActiveDataStore } from './generate-schedule';
 import { useConstructionSequence } from './useConstructionSequence';
 import { useScheduleFileImport } from './useScheduleFileImport';
@@ -103,7 +103,7 @@ export function GanttPanel({ onClose }: GanttPanelProps) {
       const s = useViewerStore.getState();
       const hasPendingSchedule = !!s.scheduleData && s.scheduleData.tasks.length > 0
         && (s.scheduleIsEdited || s.scheduleData.tasks.some(t => !t.expressId || t.expressId <= 0));
-      if (extraction.hasSchedule) {
+      if (shouldApplyExtractedSchedule(extraction, hasPendingSchedule)) {
         // New extraction wins — this is the "fresh file with a real
         // schedule" case. Any generated tail in memory is replaced;
         // that's intentional because we can't reconcile it with a
@@ -139,6 +139,16 @@ export function GanttPanel({ onClose }: GanttPanelProps) {
     () => flattenTaskTree(scheduleData, expandedTaskGlobalIds, activeWorkScheduleId || undefined),
     [scheduleData, expandedTaskGlobalIds, activeWorkScheduleId],
   );
+
+  // Calendar globalId -> name, for the per-row calendar badge. Only
+  // calendars with a name make it in; an unnamed one has nothing to show.
+  const calendarNamesByGlobalId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const cal of scheduleData?.workCalendars ?? []) {
+      if (cal.name) map.set(cal.globalId, cal.name);
+    }
+    return map;
+  }, [scheduleData]);
 
   // Shared scroll position between task list and timeline (so rows line up).
   const [scrollTop, setScrollTop] = useState(0);
@@ -309,6 +319,7 @@ export function GanttPanel({ onClose }: GanttPanelProps) {
                 if (newIdx >= 0) store.moveTask(sourceGid, newIdx);
               }}
               onHover={setHoveredTaskGlobalId}
+              calendarNamesByGlobalId={calendarNamesByGlobalId}
               scrollTop={scrollTop}
               onScroll={setScrollTop}
             />

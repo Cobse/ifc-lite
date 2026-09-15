@@ -190,25 +190,37 @@ export type {
   BuildingParams,
   StoreyParams,
 
-  // Scheduling / 4D (IfcWorkSchedule, IfcTask, IfcRelSequence)
+  // Scheduling / 4D (IfcWorkSchedule, IfcTask, IfcRelSequence, IfcWorkCalendar)
   // Canonical IFC-prefixed names are preferred; legacy short names are kept
   // as aliases for existing callers.
   IfcWorkScheduleParams,
   IfcWorkPlanParams,
   IfcTaskParams,
   IfcRelSequenceParams,
+  IfcWorkCalendarParams,
+  IfcWorkTimeParams,
+  IfcRecurrencePatternParams,
+  IfcTimePeriodParams,
   IfcWorkScheduleType,
   IfcTaskPredefinedType,
   IfcTaskDurationType,
   IfcRelSequenceType,
+  IfcWorkCalendarType,
+  IfcRecurrenceType,
   WorkScheduleParams,
   WorkPlanParams,
   TaskParams,
   SequenceParams,
+  WorkCalendarParams,
+  WorkTimeParams,
+  RecurrencePatternParams,
+  TimePeriodParams,
   WorkScheduleType,
   TaskPredefinedType,
   TaskDurationType,
   SequenceType,
+  WorkCalendarType,
+  RecurrenceType,
 
   // Results
   CreatedEntity,

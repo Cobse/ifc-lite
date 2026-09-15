@@ -515,8 +515,8 @@ export const createScheduleSlice: StateCreator<
         );
 
     const next: ScheduleExtraction = keptTasks.length === 0
-      ? { hasSchedule: false, workSchedules: [], tasks: [], sequences: [] }
-      : { hasSchedule: true, workSchedules: keptSchedules, tasks: keptTasks, sequences: keptSequences };
+      ? { hasSchedule: false, workSchedules: [], tasks: [], sequences: [], workCalendars: [] }
+      : { hasSchedule: true, workSchedules: keptSchedules, tasks: keptTasks, sequences: keptSequences, workCalendars: current.workCalendars ?? [] };
 
     const nextRange = computeScheduleRange(keptTasks.length === 0 ? null : next);
     const sourceModelId = get().scheduleSourceModelId;
@@ -805,7 +805,7 @@ export const createScheduleSlice: StateCreator<
     pushScheduleSnapshot(get, set, `Add task: ${name}`);
     const next = current
       ? cloneExtraction(current)
-      : { hasSchedule: true, workSchedules: [], sequences: [], tasks: [] } as ScheduleExtraction;
+      : { hasSchedule: true, workSchedules: [], sequences: [], tasks: [], workCalendars: [] } as ScheduleExtraction;
 
     // Derive default start: after the predecessor's finish when we have
     // one, otherwise the schedule range start, otherwise today at 08:00.

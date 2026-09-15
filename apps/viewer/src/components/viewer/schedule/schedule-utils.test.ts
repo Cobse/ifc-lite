@@ -11,7 +11,7 @@ import {
   StepTokenizer,
   ColumnarParser,
 } from '@ifc-lite/parser';
-import { flattenTaskTree, buildWorkPlanInfo } from './schedule-utils.js';
+import { flattenTaskTree, buildWorkPlanInfo, shouldApplyExtractedSchedule } from './schedule-utils.js';
 
 function task(
   globalId: string,
@@ -28,6 +28,37 @@ function task(
     controllingScheduleGlobalIds,
   } as unknown as ScheduleTaskInfo;
 }
+
+describe('shouldApplyExtractedSchedule', () => {
+  const extraction = (overrides: Partial<ScheduleExtraction>): ScheduleExtraction => ({
+    hasSchedule: true,
+    workSchedules: [],
+    tasks: [],
+    sequences: [],
+    workCalendars: [],
+    ...overrides,
+  });
+
+  it('preserves pending task data across a calendar-only store refresh', () => {
+    assert.equal(shouldApplyExtractedSchedule(extraction({
+      workCalendars: [{
+        expressId: 64,
+        globalId: 'calendar',
+        name: 'Calendar',
+        workingTimes: [],
+        exceptionTimes: [],
+      }],
+    }), true), false);
+  });
+
+  it('loads a calendar-only extraction when there is no pending schedule', () => {
+    assert.equal(shouldApplyExtractedSchedule(extraction({}), false), true);
+  });
+
+  it('lets extracted task data replace a pending schedule', () => {
+    assert.equal(shouldApplyExtractedSchedule(extraction({ tasks: [task('1', undefined, [])] }), true), true);
+  });
+});
 
 describe('flattenTaskTree', () => {
   it('flattens an ordinary parent/child chain in depth-first order', () => {

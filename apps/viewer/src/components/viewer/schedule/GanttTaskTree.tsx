@@ -8,7 +8,7 @@
  */
 
 import { memo, useCallback, useLayoutEffect, useRef, useState } from 'react';
-import { ChevronRight, ChevronDown, Diamond, CircleDot, Flag, GripVertical } from 'lucide-react';
+import { ChevronRight, ChevronDown, Diamond, CircleDot, Flag, GripVertical, CalendarDays } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { FlattenedTask } from './schedule-utils';
 import { formatDurationShort } from './schedule-utils';
@@ -32,6 +32,13 @@ interface GanttTaskTreeProps {
   /** User finished a drag — move the source row to the index of the target row. */
   onReorder?: (sourceGlobalId: string, targetIndex: number) => void;
   onHover: (globalId: string | null) => void;
+  /**
+   * IfcWorkCalendar globalId -> display name, for the read-only calendar
+   * badge on a task row. Read-only on purpose: ifc-lite round-trips
+   * calendars but deliberately does not yet use them to compute
+   * working-day-aware dates — see `formatDurationShort`'s call site below.
+   */
+  calendarNamesByGlobalId?: ReadonlyMap<string, string>;
   scrollTop: number;
   onScroll: (scrollTop: number) => void;
 }
@@ -45,6 +52,7 @@ export const GanttTaskTree = memo(function GanttTaskTree({
   onBackgroundClick,
   onReorder,
   onHover,
+  calendarNamesByGlobalId,
   scrollTop,
   onScroll,
 }: GanttTaskTreeProps) {
@@ -116,6 +124,12 @@ export const GanttTaskTree = memo(function GanttTaskTree({
               const isSelected = selectedGlobalIds.has(task.globalId);
               const isHovered = hoveredGlobalId === task.globalId;
               const label = task.name || task.identification || task.globalId.slice(0, 8);
+              // First assigned calendar that actually resolves to a named
+              // IfcWorkCalendar in this extraction. A task may carry more
+              // than one; the badge is an at-a-glance marker, not a list.
+              const calendarName = task.calendarGlobalIds
+                ?.map(gid => calendarNamesByGlobalId?.get(gid))
+                .find((name): name is string => !!name);
               const showDropAbove = onReorder && dropIndex === rowIdx;
               return (
                 <tr
@@ -231,12 +245,31 @@ export const GanttTaskTree = memo(function GanttTaskTree({
                       >
                         {label}
                       </span>
+
+                      {calendarName && (
+                        <span
+                          className="inline-flex items-center shrink-0"
+                          title={`Work calendar: ${calendarName}`}
+                          aria-label={`Work calendar: ${calendarName}`}
+                          role="img"
+                          data-testid="gantt-task-calendar-badge"
+                        >
+                          <CalendarDays className="w-3 h-3 text-muted-foreground" aria-hidden />
+                        </span>
+                      )}
                     </span>
                   </td>
                   <td
                     role="gridcell"
                     className="px-2 text-muted-foreground font-mono text-right whitespace-nowrap"
                   >
+                    {/*
+                      Duration is shown exactly as IfcTaskTime states it. An
+                      assigned IfcWorkCalendar is NOT applied here: deriving
+                      working-day-aware dates from IfcRecurrencePattern is
+                      deliberately out of scope (#4830) — calendars currently
+                      round-trip and surface, nothing more.
+                    */}
                     {formatDurationShort(task.taskTime?.scheduleDuration)}
                   </td>
                 </tr>

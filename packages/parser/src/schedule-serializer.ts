@@ -16,8 +16,10 @@
  *   • a reference to the supplied `ownerHistoryId` for IfcRoot ownership
  *     (pass `undefined` to emit `$`),
  *   • IFC4-correct attribute counts and ordering — IfcWorkSchedule,
- *     IfcTask + IfcTaskTime, IfcRelSequence + IfcLagTime, and the
- *     IfcRelAssignsToControl / IfcRelAssignsToProcess / IfcRelNests edges.
+ *     IfcTask + IfcTaskTime, IfcWorkCalendar + IfcWorkTime +
+ *     IfcRecurrencePattern + IfcTimePeriod, IfcRelSequence + IfcLagTime,
+ *     and the IfcRelAssignsToControl / IfcRelAssignsToProcess /
+ *     IfcRelNests edges.
  *
  * The function is pure — it doesn't mutate the input and never touches the
  * STEP source buffer. Re-running it with the same inputs produces the same
@@ -26,7 +28,9 @@
  *
  * The low-level STEP string encoding and the per-entity line builders
  * (`buildWorkControl`, `buildTaskTime`, `buildTask`, …) live in
- * `schedule-serializer-builders.ts` — this file owns only the orchestration:
+ * `schedule-serializer-builders.ts`, with the calendar-side builders
+ * (`buildWorkCalendar`, `buildWorkTime`) in
+ * `schedule-serializer-calendar-builders.ts` — this file owns only the orchestration:
  * which entities and relationships to emit, in what order, and how their
  * express IDs cross-reference each other.
  */
@@ -47,6 +51,7 @@ import {
   buildTask,
   resolveProductIds,
 } from './schedule-serializer-builders.js';
+import { buildWorkCalendar } from './schedule-serializer-calendar-builders.js';
 
 export interface SerializeScheduleOptions {
   /** First free express ID for the synthesized entities. */
@@ -79,6 +84,20 @@ export interface SerializeScheduleResult {
     assignsToControl: number;
     assignsToProcess: number;
     relNests: number;
+    /** IfcWorkCalendar entities emitted. */
+    workCalendars: number;
+    /** IfcWorkTime entities emitted across every calendar's working + exception lists. */
+    workTimes: number;
+    /** IfcRecurrencePattern entities emitted (one per IfcWorkTime that carried a pattern). */
+    recurrencePatterns: number;
+    /** IfcTimePeriod entities emitted from those patterns' TimePeriods lists. */
+    timePeriods: number;
+    /**
+     * IfcRelAssignsToControl edges whose RelatingControl is a calendar.
+     * Counted separately from `assignsToControl` (schedule -> tasks) so a
+     * caller can tell the two relationship kinds apart in a preview.
+     */
+    calendarAssignments: number;
   };
 }
 
@@ -102,12 +121,19 @@ export function serializeScheduleToStep(
     assignsToControl: 0,
     assignsToProcess: 0,
     relNests: 0,
+    workCalendars: 0,
+    workTimes: 0,
+    recurrencePatterns: 0,
+    timePeriods: 0,
+    calendarAssignments: 0,
   };
 
   /** ScheduleTaskInfo.globalId → fresh express ID we just allocated. */
   const taskExpressIdByGlobalId = new Map<string, number>();
   /** WorkScheduleInfo.globalId → fresh express ID we just allocated. */
   const scheduleExpressIdByGlobalId = new Map<string, number>();
+  /** WorkCalendarInfo.globalId → fresh express ID we just allocated. */
+  const calendarExpressIdByGlobalId = new Map<string, number>();
 
   // ── 1. Work schedules / work plans ────────────────────────────────
   for (const ws of data.workSchedules) {
@@ -115,6 +141,22 @@ export function serializeScheduleToStep(
     scheduleExpressIdByGlobalId.set(ws.globalId, id);
     lines.push(buildWorkControl(id, ws, owner));
     stats.workSchedules += 1;
+  }
+
+  // ── 1b. Work calendars (+ their IfcWorkTime / IfcRecurrencePattern /
+  //        IfcTimePeriod entities) ────────────────────────────────────
+  // Emitted before the tasks that reference them only for readability; the
+  // IfcRelAssignsToControl edges in section 3b below are what actually bind
+  // them, and STEP permits forward references either way.
+  for (const cal of data.workCalendars ?? []) {
+    const built = buildWorkCalendar(nextId, cal, owner);
+    lines.push(...built.lines);
+    nextId = built.nextId;
+    calendarExpressIdByGlobalId.set(cal.globalId, built.calendarId);
+    stats.workCalendars += 1;
+    stats.workTimes += built.workTimes;
+    stats.recurrencePatterns += built.recurrencePatterns;
+    stats.timePeriods += built.timePeriods;
   }
 
   // ── 2. Task times + tasks ─────────────────────────────────────────
@@ -147,6 +189,36 @@ export function serializeScheduleToStep(
       `#${relId}=IFCRELASSIGNSTOCONTROL('${relGid}',${owner},$,$,${refList(taskIds)},$,#${controlId});`,
     );
     stats.assignsToControl += 1;
+  }
+
+  // ── 3b. Calendar → tasks / schedules (IfcRelAssignsToControl) ─────
+  // Mirrors section 3 above — same relation, RelatingControl an
+  // IfcWorkCalendar instead of an IfcWorkSchedule. One relation per
+  // calendar, its RelatedObjects the union of every task and schedule that
+  // named this calendar, which is what the extractor reads back: a task
+  // assigned to both a schedule and a calendar sees two separate relation
+  // instances and populates both fields.
+  for (const cal of data.workCalendars ?? []) {
+    const controlId = calendarExpressIdByGlobalId.get(cal.globalId);
+    if (controlId === undefined) continue;
+    const relatedIds: number[] = [];
+    for (const task of data.tasks) {
+      if (!task.calendarGlobalIds?.includes(cal.globalId)) continue;
+      const tid = taskExpressIdByGlobalId.get(task.globalId);
+      if (tid !== undefined) relatedIds.push(tid);
+    }
+    for (const ws of data.workSchedules) {
+      if (!ws.calendarGlobalIds?.includes(cal.globalId)) continue;
+      const sid = scheduleExpressIdByGlobalId.get(ws.globalId);
+      if (sid !== undefined) relatedIds.push(sid);
+    }
+    if (relatedIds.length === 0) continue;
+    const relId = nextId++;
+    const relGid = deterministicGlobalId(`rel-calendar|${cal.globalId}`);
+    lines.push(
+      `#${relId}=IFCRELASSIGNSTOCONTROL('${relGid}',${owner},$,$,${refList(relatedIds)},$,#${controlId});`,
+    );
+    stats.calendarAssignments += 1;
   }
 
   // ── 4. Task hierarchy (IfcRelNests) ──────────────────────────────

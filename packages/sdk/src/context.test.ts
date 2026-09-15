@@ -143,6 +143,7 @@ function createMockBackend() {
       workSchedules: [],
       tasks: [],
       sequences: [],
+      workCalendars: [],
       hasSchedule: false,
     })),
     tasks: vi.fn((_modelId?: string): ScheduleTaskData[] => []),

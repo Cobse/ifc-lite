@@ -29,6 +29,18 @@ export interface FlattenedTask {
  */
 const MAX_TASK_NEST_DEPTH = 64;
 
+/** Calendar-only refreshes must not replace an edited/generated task graph. */
+export function shouldApplyExtractedSchedule(
+  extraction: ScheduleExtraction,
+  hasPendingSchedule: boolean,
+): boolean {
+  if (!extraction.hasSchedule) return false;
+  const hasTaskData = extraction.tasks.length > 0
+    || extraction.workSchedules.length > 0
+    || extraction.sequences.length > 0;
+  return !hasPendingSchedule || hasTaskData;
+}
+
 /**
  * Flatten a task tree into the display order used by the Gantt list,
  * honoring the current expanded set. Tasks without parents are treated as

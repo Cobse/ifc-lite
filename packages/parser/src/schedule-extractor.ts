@@ -5,19 +5,22 @@
 /**
  * Schedule (4D) extractor — walks IfcTask, IfcTaskTime, IfcRelSequence,
  * IfcRelAssignsToProcess, IfcRelAssignsToControl, IfcRelNests, IfcWorkSchedule,
- * IfcWorkPlan, IfcLagTime entities in a parsed IfcDataStore and assembles a
- * normalized ScheduleExtraction that the viewer can drive a Gantt/4D
- * animation from.
+ * IfcWorkPlan, IfcWorkCalendar, IfcLagTime entities in a parsed IfcDataStore
+ * and assembles a normalized ScheduleExtraction that the viewer can drive a
+ * Gantt/4D animation from.
  *
  * Handles IFC4 / IFC4X3. IFC2X3 has a different IfcTask layout (no TaskTime
- * attribute, ScheduleStart/ScheduleFinish/TaskOwner instead) and is supported
- * with best-effort degradation.
+ * attribute, ScheduleStart/ScheduleFinish/TaskOwner instead) and a different,
+ * older IfcWorkCalendar layout; both are out of scope and best-effort
+ * degrade (task metadata without dates; calendars simply aren't extracted).
  *
  * STEP attribute-index layouts, the record types themselves, and the small
- * pure/single-entity helpers (`asString` et al., `extractTaskTime`,
- * `extractLagTimeSeconds`) live in `schedule-types.ts` — this file owns only
- * the cross-entity orchestration (the multi-pass walk below that wires those
- * records together via their IFC relationships).
+ * pure/single-entity helpers live in `schedule-types.ts` (tasks/schedules)
+ * and `schedule-calendar-types.ts` (calendars) — this file owns only the
+ * cross-entity orchestration (the multi-pass walk below that wires those
+ * records together via their IFC relationships); the calendar-assignment
+ * half of that walk is in `schedule-control-extractor.ts`, split out
+ * purely to keep this file under the ~400-line module-size guideline.
  */
 
 import { EntityExtractor } from './entity-extractor.js';
@@ -30,8 +33,6 @@ import {
   REL_ASSIGNS_TO_PROCESS_ATTR,
   REL_ASSIGNS_TO_CONTROL_ATTR,
   REL_NESTS_ATTR,
-  WORK_SCHEDULE_ATTR,
-  WORK_PLAN_ATTR,
   asString,
   asNumber,
   asBoolean,
@@ -51,6 +52,11 @@ import type {
   WorkScheduleInfo,
   ScheduleExtraction,
 } from './schedule-types.js';
+import {
+  extractWorkScheduleInfo,
+  extractWorkCalendars,
+  tryAssignCalendar,
+} from './schedule-control-extractor.js';
 
 // Re-exported for backward compatibility — this is where consumers
 // (including this package's own public surface, see index.ts) have always
@@ -73,6 +79,9 @@ export type {
   ScheduleExtraction,
 };
 
+// Calendar types also resolve from here, alongside index.ts's own re-export.
+export type { WorkCalendarInfo, WorkTimeInfo, RecurrencePatternInfo, TimePeriodInfo } from './schedule-calendar-types.js';
+
 /**
  * Extract all scheduling data from a parsed IFC store.
  *
@@ -82,7 +91,7 @@ export type {
  */
 export function extractScheduleOnDemand(store: IfcDataStore): ScheduleExtraction {
   if (!store.source?.length) {
-    return { workSchedules: [], tasks: [], sequences: [], hasSchedule: false };
+    return { workSchedules: [], tasks: [], sequences: [], workCalendars: [], hasSchedule: false };
   }
 
   const byType = store.entityIndex.byType;
@@ -93,16 +102,21 @@ export function extractScheduleOnDemand(store: IfcDataStore): ScheduleExtraction
   const relAssignsProcessIds = byType.get('IFCRELASSIGNSTOPROCESS') ?? [];
   const relAssignsControlIds = byType.get('IFCRELASSIGNSTOCONTROL') ?? [];
   const relNestsIds = byType.get('IFCRELNESTS') ?? [];
+  const workCalendarIds = byType.get('IFCWORKCALENDAR') ?? [];
 
+  // A calendar-only file (no tasks/schedules/sequences yet) still counts as
+  // real 4D data worth surfacing, so it flips `hasAny`/`hasSchedule` exactly
+  // like the other schedule entity types.
   const hasAny =
     taskIds.length +
       workScheduleIds.length +
       workPlanIds.length +
-      relSeqIds.length >
+      relSeqIds.length +
+      workCalendarIds.length >
     0;
 
   if (!hasAny) {
-    return { workSchedules: [], tasks: [], sequences: [], hasSchedule: false };
+    return { workSchedules: [], tasks: [], sequences: [], workCalendars: [], hasSchedule: false };
   }
 
   const extractor = new EntityExtractor(store.source);
@@ -222,55 +236,20 @@ export function extractScheduleOnDemand(store: IfcDataStore): ScheduleExtraction
     }
   }
 
-  // Pass 4: extract work schedules / work plans.
+  // Pass 4: extract work schedules / work plans. The per-entity decode
+  // lives in `schedule-control-extractor.ts` alongside the calendar one.
   const workSchedules: WorkScheduleInfo[] = [];
   const scheduleByExpressId = new Map<number, WorkScheduleInfo>();
-
-  const extractSchedule = (
-    expressId: number,
-    kind: 'WorkSchedule' | 'WorkPlan',
-  ): WorkScheduleInfo | null => {
-    const ref = store.entityIndex.byId.get(expressId);
-    if (!ref) return null;
-    const entity = extractor.extractEntity(ref);
-    if (!entity) return null;
-    const a = entity.attributes || [];
-    const layout = kind === 'WorkPlan' ? WORK_PLAN_ATTR : WORK_SCHEDULE_ATTR;
-    const globalId = asString(a[layout.GlobalId]) ?? '';
-    const info: WorkScheduleInfo = {
-      expressId,
-      kind,
-      globalId,
-      name: asString(a[layout.Name]) ?? kind,
-      description: asString(a[layout.Description]),
-      identification: asString(a[layout.Identification]),
-      creationDate: asString(a[layout.CreationDate]),
-      purpose: asString(a[layout.Purpose]),
-      duration: asString(a[layout.Duration]),
-      startTime: asString(a[layout.StartTime]),
-      finishTime: asString(a[layout.FinishTime]),
-      predefinedType: asEnum(a[layout.PredefinedType]),
-      taskGlobalIds: [],
-      childScheduleGlobalIds: [],
-    };
-    if (globalId) globalIdByExpressId.set(expressId, globalId);
-    return info;
+  const collectSchedules = (ids: number[], kind: 'WorkSchedule' | 'WorkPlan') => {
+    for (const id of ids) {
+      const info = extractWorkScheduleInfo(extractor, store, id, kind, globalIdByExpressId);
+      if (!info) continue;
+      workSchedules.push(info);
+      scheduleByExpressId.set(id, info);
+    }
   };
-
-  for (const id of workScheduleIds) {
-    const info = extractSchedule(id, 'WorkSchedule');
-    if (info) {
-      workSchedules.push(info);
-      scheduleByExpressId.set(id, info);
-    }
-  }
-  for (const id of workPlanIds) {
-    const info = extractSchedule(id, 'WorkPlan');
-    if (info) {
-      workSchedules.push(info);
-      scheduleByExpressId.set(id, info);
-    }
-  }
+  collectSchedules(workScheduleIds, 'WorkSchedule');
+  collectSchedules(workPlanIds, 'WorkPlan');
 
   // Pass 4b: walk IfcRelNests again — IfcWorkPlan nesting IfcWorkSchedule.
   // Real-world files use IfcRelNests for this grouping (confirmed against the
@@ -310,17 +289,31 @@ export function extractScheduleOnDemand(store: IfcDataStore): ScheduleExtraction
     }
   }
 
-  // Pass 5: IfcRelAssignsToControl — map schedules to tasks, and (a second,
+  // Pass 4c: extract IfcWorkCalendar entities. Collection + the
+  // calendar-assignment branch of Pass 5 live in
+  // `schedule-control-extractor.ts` — split out purely for module size.
+  const { workCalendars, calendarByExpressId } = extractWorkCalendars(
+    extractor,
+    store,
+    schemaIs2x3 ? [] : workCalendarIds,
+  );
+
+  // Pass 5: IfcRelAssignsToControl — map schedules to tasks, (a second,
   // distinct grouping path from Pass 4b's IfcRelNests) IfcWorkPlan grouping
-  // IfcWorkSchedule. The SDK's scripting bridge
-  // (`assignSchedulesToWorkPlan` in packages/create/src/ifc-creator.ts)
-  // emits exactly this relation — RelatingControl the plan, RelatedObjects
-  // the schedules — not IfcRelNests, so a plan grouped through that bridge
-  // must resolve here too or the SDK-authored grouping never reads back.
+  // IfcWorkSchedule, and (via `tryAssignCalendar`) calendar assignment to
+  // tasks/schedules. The SDK's scripting bridge (`assignSchedulesToWorkPlan`
+  // in packages/create/src/ifc-creator.ts) emits exactly this relation —
+  // RelatingControl the plan, RelatedObjects the schedules — not
+  // IfcRelNests, so a plan grouped through that bridge must resolve here
+  // too or the SDK-authored grouping never reads back.
   // If a source file expresses the same WorkPlan->WorkSchedule pair through
   // *both* relations, Pass 4b (IfcRelNests) runs first and wins:
   // `parentPlanGlobalId` is set-once (guarded below and in Pass 4b), and
   // `childScheduleGlobalIds` is deduped so the pair is not double-counted.
+  // `tryAssignCalendar` only ever touches `calendarGlobalIds`, so a task
+  // carrying both a controlling schedule and a calendar (via two separate
+  // relation instances) gets both fields populated without either clobbering
+  // the other.
   for (const relId of relAssignsControlIds) {
     const ref = store.entityIndex.byId.get(relId);
     if (!ref) continue;
@@ -330,6 +323,11 @@ export function extractScheduleOnDemand(store: IfcDataStore): ScheduleExtraction
     const controlId = asRef(a[REL_ASSIGNS_TO_CONTROL_ATTR.RelatingControl]);
     const objects = asRefList(a[REL_ASSIGNS_TO_CONTROL_ATTR.RelatedObjects]);
     if (controlId === undefined) continue;
+
+    if (tryAssignCalendar(controlId, objects, calendarByExpressId, taskByExpressId, scheduleByExpressId)) {
+      continue;
+    }
+
     const schedule = scheduleByExpressId.get(controlId);
     if (!schedule) continue;
     for (const objId of objects) {
@@ -394,6 +392,7 @@ export function extractScheduleOnDemand(store: IfcDataStore): ScheduleExtraction
     workSchedules,
     tasks: Array.from(taskByExpressId.values()),
     sequences,
+    workCalendars,
     hasSchedule: true,
   };
 }
