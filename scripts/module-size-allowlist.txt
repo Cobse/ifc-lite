@@ -249,7 +249,7 @@
    573 packages/drawing-2d/src/symbols/door-symbol.ts
    808 packages/drawing-2d/src/types.ts
    592 packages/export/src/effective-index.ts
-   810 packages/export/src/ifc5-exporter.ts
+   746 packages/export/src/ifc5-exporter.ts
   1589 packages/export/src/merged-exporter.ts
    616 packages/export/src/parquet-exporter.ts
    976 packages/export/src/reference-collector.ts

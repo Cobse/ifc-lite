@@ -37,13 +37,7 @@ import {
   stripNodePathPrefix,
 } from './ifc5-export-helpers.js';
 import { addClassificationAttribute } from './ifc5-classification.js';
-
-/** Recursive spatial tree node type used when walking the hierarchy. */
-interface SpatialTreeNode {
-  expressId: number;
-  name?: string;
-  children: SpatialTreeNode[];
-}
+import { buildIfc5TreeScope, type Ifc5TreeScope } from './ifc5-tree-scope.js';
 
 // ============================================================================
 // Types
@@ -198,8 +192,9 @@ export class Ifc5Exporter {
     // Build visible set
     const visibleIds = this.buildVisibleSet(options);
 
-    // Build spatial tree set (entities reachable from the project node)
-    const treeIds = options.onlyTreeEntities !== false ? this.buildTreeEntitySet() : null;
+    // One effective graph drives membership and parent selection, including overlay endpoint edits.
+    const treeScope = buildIfc5TreeScope(this.dataStore, effective, options.applyMutations !== false ? this.mutationView : null);
+    const treeIds = options.onlyTreeEntities !== false ? treeScope.treeIds : null;
 
     // The single emission gate. Three independent, deliberately separate
     // mechanisms can keep an entity out of the export — an overlay tombstone
@@ -218,7 +213,7 @@ export class Ifc5Exporter {
       || (treeIds !== null && !treeIds.has(id));
 
     // Build UUID paths and child-name maps from spatial hierarchy
-    this.buildEntityMaps(isOmitted, options.stripPathPrefix);
+    this.buildEntityMaps(isOmitted, treeScope, options.stripPathPrefix);
 
     // Build mesh lookup by expressId
     const meshByEntity = this.buildMeshLookup(options);
@@ -427,7 +422,7 @@ export class Ifc5Exporter {
    * IFCX uses flat UUID paths (not hierarchical). Hierarchy is expressed
    * solely via the `children` dict on each node. This method:
    * 1. Assigns a UUID to every emitted entity (using GlobalId when available)
-   * 2. Builds the spatial parent→children map
+   * 2. Builds the parent→children map (containment, then decomposition)
    * 3. Computes unique child names for the children dict keys
    *
    * @param isOmitted `export`'s single emission gate — true for an entity that
@@ -436,8 +431,8 @@ export class Ifc5Exporter {
    *   check alone, so the maps can never describe a node `export` never wrote.
    * @param stripPathPrefix see {@link Ifc5ExportOptions.stripPathPrefix}.
    */
-  private buildEntityMaps(isOmitted: (id: number) => boolean, stripPathPrefix?: string): void {
-    const { spatialHierarchy, entities, strings } = this.dataStore;
+  private buildEntityMaps(isOmitted: (id: number) => boolean, treeScope: Ifc5TreeScope, stripPathPrefix?: string): void {
+    const { entities, strings } = this.dataStore;
 
     // --- 1. Assign UUID paths ---
     // An omitted entity gets no UUID entry. `getChildrenForEntity`'s `addChild`
@@ -456,39 +451,11 @@ export class Ifc5Exporter {
     }
 
     // --- 2. Build parent→children and spatial maps ---
-    const parentOf = new Map<number, number>();
-
-    const processChildren = (parentId: number, childIds: Set<number> | number[] | undefined) => {
-      if (!childIds) return;
-      for (const childId of childIds) {
-        parentOf.set(childId, parentId);
-      }
-    };
-
-    this.spatialNodeNames.clear();
-    if (spatialHierarchy?.project) {
-      const walkTree = (node: { expressId: number; name?: string; children: SpatialTreeNode[] }) => {
-        if (node.name) {
-          this.spatialNodeNames.set(node.expressId, node.name);
-        }
-        for (const child of node.children) {
-          parentOf.set(child.expressId, node.expressId);
-          walkTree(child);
-        }
-      };
-      walkTree(spatialHierarchy.project);
-    }
-
-    // Add element containment from flat maps
-    if (spatialHierarchy) {
-      for (const map of [spatialHierarchy.bySite, spatialHierarchy.byBuilding, spatialHierarchy.byStorey, spatialHierarchy.bySpace]) {
-        if (map) {
-          for (const [parentId, children] of map) {
-            processChildren(parentId, children);
-          }
-        }
-      }
-    }
+    // Containment first, decomposition second — see ifc5-tree-scope.ts. The
+    // same scope answers tree membership, so what the filter KEEPS and what
+    // the hierarchy can PLACE cannot drift apart (#4841).
+    const { parentOf, spatialNodeNames } = treeScope;
+    this.spatialNodeNames = spatialNodeNames;
 
     // --- 3. Compute unique child names ---
     // Build entity name lookup
@@ -750,37 +717,6 @@ export class Ifc5Exporter {
   // --------------------------------------------------------------------------
   // Visibility
   // --------------------------------------------------------------------------
-
-  /**
-   * Build the set of entity IDs reachable from the spatial tree.
-   * Includes Project, Site, Building, Storey, Space, and all contained elements.
-   */
-  private buildTreeEntitySet(): Set<number> {
-    const ids = new Set<number>();
-
-    // Walk spatial hierarchy tree
-    const { spatialHierarchy } = this.dataStore;
-    if (spatialHierarchy?.project) {
-      const walk = (node: { expressId: number; children: SpatialTreeNode[] }) => {
-        ids.add(node.expressId);
-        for (const child of node.children) walk(child);
-      };
-      walk(spatialHierarchy.project);
-    }
-
-    // Add elements from containment maps (elements assigned to storeys, etc.)
-    if (spatialHierarchy) {
-      for (const map of [spatialHierarchy.bySite, spatialHierarchy.byBuilding, spatialHierarchy.byStorey, spatialHierarchy.bySpace]) {
-        if (map) {
-          for (const children of map.values()) {
-            for (const id of children) ids.add(id);
-          }
-        }
-      }
-    }
-
-    return ids;
-  }
 
   /**
    * Build visible entity set if visibility filtering is requested.
