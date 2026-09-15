@@ -1494,7 +1494,7 @@ export function ChatPanel({ onClose }: ChatPanelProps) {
         {/* Empty state */}
         {messages.length === 0 && !streamingContent && (
           <div className="flex flex-col justify-end h-full px-3 pb-2">
-            <p className="text-xs text-muted-foreground/60 mb-2">Try something:</p>
+            <p className="text-xs text-muted-foreground mb-2">Try something:</p>
             <div className="flex flex-col gap-1">
               {EXAMPLE_PROMPTS.map((prompt) => (
                 <button

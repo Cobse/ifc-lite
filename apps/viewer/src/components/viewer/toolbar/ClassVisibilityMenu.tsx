@@ -170,7 +170,7 @@ export function ClassVisibilityMenuContent({ align = 'start' }: { align?: 'start
           Visibility
         </span>
         <div className="flex items-center gap-1">
-          <span className="text-[11px] tabular-nums text-muted-foreground/80">
+          <span className="text-[11px] tabular-nums text-muted-foreground">
             {visibleClassCount}/{classToggleCount}
           </span>
           <Button

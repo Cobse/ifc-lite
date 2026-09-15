@@ -45,7 +45,7 @@ export function projectedEnh(point: Vec3Like, anchor: AnchorGeoreference): Enh {
 export function EnhLine({ label, enh }: { label?: string; enh: Enh }) {
   return (
     <div className="flex items-center gap-2 font-mono text-[10px] leading-tight text-muted-foreground whitespace-nowrap">
-      {label && <span className="text-muted-foreground/60 w-3 shrink-0">{label}</span>}
+      {label && <span className="text-muted-foreground w-3 shrink-0">{label}</span>}
       <span>E {enh.e}</span>
       <span>N {enh.n}</span>
       <span>H {enh.h}</span>

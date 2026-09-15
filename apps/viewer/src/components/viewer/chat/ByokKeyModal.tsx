@@ -258,7 +258,7 @@ function ProviderTab({ provider, savedKey, savedWorkspaceId = '', requestSource 
                 Copy the key, come back here, paste it into the input above (the field is already focused — just press <code className="bg-muted px-1 rounded">⌘V</code>).
               </li>
             </ol>
-            <p className="text-[11px] text-muted-foreground/80">{meta.pricingHint}</p>
+            <p className="text-[11px] text-muted-foreground">{meta.pricingHint}</p>
             <Button size="sm" variant="outline" className="text-xs" onClick={handleOpenConsole}>
               <ExternalLink className="mr-1.5 h-3 w-3" />
               Open {meta.consoleLabel}

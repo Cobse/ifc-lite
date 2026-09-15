@@ -61,7 +61,7 @@ function CoordRow({ label, value, hint }: { label: string; value: string; hint?:
         {label}
       </span>
       <span className="font-mono text-[11px] tabular-nums">{value}</span>
-      {hint && <span className="font-mono text-[9px] text-muted-foreground/60">{hint}</span>}
+      {hint && <span className="font-mono text-[9px] text-muted-foreground">{hint}</span>}
     </div>
   );
 }

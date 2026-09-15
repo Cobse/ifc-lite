@@ -893,7 +893,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
                   <Label className="text-xs text-muted-foreground">
                     Property Set
                     {psetOptions.length > 0 && (
-                      <span className="ml-1 text-muted-foreground/60">
+                      <span className="ml-1 text-muted-foreground">
                         ({psetOptions.length} found)
                       </span>
                     )}
@@ -918,7 +918,7 @@ export function BulkPropertyEditor({ trigger }: BulkPropertyEditorProps) {
                 <Label className="text-xs text-muted-foreground">
                   {actionType === 'SET_ATTRIBUTE' ? 'Attribute' : 'Property Name'}
                   {actionType !== 'SET_ATTRIBUTE' && propOptions.length > 0 && (
-                    <span className="ml-1 text-muted-foreground/60">
+                    <span className="ml-1 text-muted-foreground">
                       ({propOptions.length} found)
                     </span>
                   )}

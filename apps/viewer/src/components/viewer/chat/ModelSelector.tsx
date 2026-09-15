@@ -80,7 +80,7 @@ export function ModelSelector() {
                 <span className="flex items-center gap-1.5">
                   <span>{m.name}</span>
                   <span className="text-muted-foreground text-[10px]">{m.provider}</span>
-                  <span className="text-muted-foreground/50 text-[10px]">{formatContextWindow(m.contextWindow)}</span>
+                  <span className="text-muted-foreground text-[10px]">{formatContextWindow(m.contextWindow)}</span>
                 </span>
               </SelectItem>
             ))}
@@ -102,7 +102,7 @@ export function ModelSelector() {
                 <span className="flex items-center gap-1.5">
                   <span>{m.name}</span>
                   <CostBadge cost={m.cost} />
-                  <span className="text-muted-foreground/50 text-[10px]">{formatContextWindow(m.contextWindow)}</span>
+                  <span className="text-muted-foreground text-[10px]">{formatContextWindow(m.contextWindow)}</span>
                   {!hasAnthropic && <Key className="h-3 w-3 text-muted-foreground/50" />}
                 </span>
               </SelectItem>
@@ -125,7 +125,7 @@ export function ModelSelector() {
                 <span className="flex items-center gap-1.5">
                   <span>{m.name}</span>
                   <CostBadge cost={m.cost} />
-                  <span className="text-muted-foreground/50 text-[10px]">{formatContextWindow(m.contextWindow)}</span>
+                  <span className="text-muted-foreground text-[10px]">{formatContextWindow(m.contextWindow)}</span>
                   {!hasOpenai && <Key className="h-3 w-3 text-muted-foreground/50" />}
                 </span>
               </SelectItem>

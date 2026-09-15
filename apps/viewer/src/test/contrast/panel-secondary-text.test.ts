@@ -69,6 +69,27 @@ const CHANGE_DETAIL_VIEW = join(VIEWER_DIR, 'compare/ChangeDetailView.tsx');
 const COMPARE_RESULTS_LIST = join(VIEWER_DIR, 'compare/CompareResultsList.tsx');
 const LAYERS_PANEL = join(VIEWER_DIR, 'layers/LayersPanel.tsx');
 
+// Post-merge audit of #4792/#4794 (this file's own remaining `/NN` grep
+// hits): ChatPanel's empty-state hint was outside both changesets' scope,
+// not a botched merge — the survey never measured it. Fixed here, plus the
+// other real always-visible text sites the same grep turned up that were
+// still unverified. Icon colors, `aria-hidden` decorations and
+// `disabled`-control dimming are exempt from WCAG's text-contrast rule and
+// are deliberately excluded (see the sibling-sweep report, not repeated in
+// this file).
+const LEARN_TAB = join(__dirname, '../../components/tours/LearnTab.tsx');
+const BULK_PROPERTY_EDITOR = join(VIEWER_DIR, 'BulkPropertyEditor.tsx');
+const BYOK_KEY_MODAL = join(VIEWER_DIR, 'chat/ByokKeyModal.tsx');
+const MODEL_SELECTOR = join(VIEWER_DIR, 'chat/ModelSelector.tsx');
+const CLASS_VISIBILITY_MENU = join(VIEWER_DIR, 'toolbar/ClassVisibilityMenu.tsx');
+const GEO_READOUT = join(VIEWER_DIR, 'tools/measure-modes/geo-readout.tsx');
+
+/** `KeyboardShortcutsDialog`'s panel — a hand-rolled overlay (not the
+ *  `Dialog`/`DialogContent` primitive), literal `bg-card` on its outer
+ *  `<div>` (see the component's `return`, not `PROPERTIES_PANEL_SURFACE`
+ *  or `bg-background`). `LearnTab` renders as one of its tabs. */
+const KEYBOARD_SHORTCUTS_DIALOG_SURFACE = 'bg-card';
+
 /** `PropertiesPanel`'s panel background — a literal `bg-white dark:bg-black`,
  *  not the `bg-background`/`bg-card` semantic tokens the rest of the viewer
  *  uses (see the panel's outer `<div>`, e.g. around its `ScrollArea`). No
@@ -314,6 +335,55 @@ describe('panel secondary text meets WCAG AA on its real surface (#4792)', () =>
       anchor: '/>\n          </div>\n          <p ',
       surface: 'bg-background',
     },
+    // Post-merge audit follow-up (this file's own `/NN` grep, not #4792's):
+    {
+      name: 'ChatPanel empty-state "Try something:" hint',
+      file: CHAT_PANEL,
+      anchor: '{/* Empty state */}\n        {messages.length === 0 && !streamingContent && (\n          <div className="flex flex-col justify-end h-full px-3 pb-2">\n            <p ',
+      surface: 'bg-background',
+    },
+    {
+      name: 'LearnTab "X min" readout',
+      file: LEARN_TAB,
+      anchor: 'text-xs text-muted-foreground">{tour.description}</div>\n              </div>\n              <span ',
+      surface: KEYBOARD_SHORTCUTS_DIALOG_SURFACE,
+    },
+    {
+      name: 'BulkPropertyEditor "(N found)" annotation',
+      file: BULK_PROPERTY_EDITOR,
+      anchor: 'Property Set\n                    {psetOptions.length > 0 && (\n                      <span ',
+      surface: 'bg-background',
+    },
+    {
+      name: 'ByokKeyModal pricing hint',
+      file: BYOK_KEY_MODAL,
+      anchor: '            </ol>\n            <p ',
+      surface: 'bg-background',
+    },
+    {
+      name: 'ModelSelector contextWindow readout',
+      file: MODEL_SELECTOR,
+      anchor: '<span>{m.name}</span>\n                  <span className="text-muted-foreground text-[10px]">{m.provider}</span>\n                  <span ',
+      surface: 'bg-popover',
+    },
+    {
+      name: 'ClassVisibilityMenu visible/total count',
+      file: CLASS_VISIBILITY_MENU,
+      anchor: '<div className="flex items-center gap-1">\n          <span ',
+      surface: 'bg-popover',
+    },
+    {
+      name: 'MeasurePointReadout CoordRow hint',
+      file: MEASURE_POINT_READOUT,
+      anchor: '<span className="font-mono text-[11px] tabular-nums">{value}</span>\n      {hint && <span ',
+      surface: 'bg-background',
+    },
+    {
+      name: 'geo-readout EnhLine label',
+      file: GEO_READOUT,
+      anchor: 'text-muted-foreground whitespace-nowrap">\n      {label && <span ',
+      surface: 'bg-background',
+    },
   ];
 
   for (const { name, file, anchor, surface, extractor } of fixedCases) {
@@ -344,6 +414,9 @@ describe('non-vacuousness proof: reintroducing the old opacity tiers reddens in 
     { name: 'MeasureQuantities / MeasurePointReadout (pre-#4792, /70)', surface: 'bg-background', className: 'font-mono text-[9px] leading-tight text-muted-foreground/70' },
     { name: 'ChunkErrorBoundary / IDSAuditSummary / EntityContextMenu / RoomPanel / CustomizeSidebar / SectionPanel / ribbon-primitives / compare-panels / LayersPanel (pre-follow-up, /70)', surface: 'bg-background', className: 'text-[10px] text-muted-foreground/70' },
     { name: 'compare/ChangeDetailView before/after arrow (pre-follow-up, /60)', surface: 'bg-background', className: 'text-muted-foreground/60 shrink-0' },
+    { name: 'ChatPanel empty-state hint / BulkPropertyEditor / MeasurePointReadout / geo-readout (pre-audit-fix, /60)', surface: 'bg-background', className: 'text-xs text-muted-foreground/60' },
+    { name: 'LearnTab "X min" (pre-audit-fix, /70)', surface: KEYBOARD_SHORTCUTS_DIALOG_SURFACE, className: 'shrink-0 text-[11px] tabular-nums text-muted-foreground/70' },
+    { name: 'ModelSelector / ClassVisibilityMenu (pre-audit-fix, /50-/80 on bg-popover)', surface: 'bg-popover', className: 'text-muted-foreground/50 text-[10px]' },
   ];
 
   for (const { name, surface, className } of regressedCases) {
