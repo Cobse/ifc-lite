@@ -934,7 +934,11 @@ impl GeometryRouter {
         // real roof pitch) to a single least-squares plane makes the slope
         // EXACTLY coplanar, so the cut emits one CDT-refined region (rim sliver
         // gone) with a clean opening hole. Deterministic + watertight + grid-
-        // snapped; a no-op for already-planar extrusion hosts.
+        // snapped; a no-op for already-planar extrusion hosts. The ordinary
+        // router has already removed sub-grid SOURCE triangles before placement;
+        // this whole-position-buffer weld does not replace that hygiene step or
+        // promise clean output. Fresh cut candidates require path-specific
+        // downstream handling (#4797).
         let mut result = crate::facet_weld::weld_near_coplanar_facets(&mesh);
 
         // ANALYTIC FAST PATH: an axis-aligned box host whose openings are ALL
@@ -1604,6 +1608,9 @@ impl GeometryRouter {
         // ⇒ cut volume is preserved exactly. A no-op on clean cuts (no triangle
         // exceeds 8:1), so it does not perturb the frozen corpus. Only runs when
         // a cut was actually attempted (`!ctx.is_noop()` guarantees this path).
+        // This canonicalizer is likewise not a hygiene boundary: fresh sub-grid
+        // candidates require handling by the remaining repair/clip/sweep path,
+        // independently of the router's earlier source cleanup (#4797).
         let mut result = crate::facet_weld::refine_high_aspect_slivers(&result);
 
         // UNDER-CUT REPAIR: a self-intersecting tessellated cutter (garbage

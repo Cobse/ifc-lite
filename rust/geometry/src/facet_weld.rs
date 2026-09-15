@@ -30,15 +30,9 @@
 //!
 //! ## Geometry-faithful (over-weld guard)
 //!
-//! Two independent guards keep the weld from flattening a real feature:
-//!
-//! 1. **Normal bucket** (`NORMAL_QUANT`): facets only cluster if their normals
-//!    quantise to the same direction (~0.06° resolution) — a real roof pitch /
-//!    dormer has a distinct normal bucket and never clusters with the slope.
-//! 2. **Offset jitter tolerance** (`MAX_OFFSET_JITTER`): within a normal
-//!    bucket, facets only cluster if their plane offsets are within this tight
-//!    band. Two genuinely-distinct parallel planes (e.g. the 0.4 m-apart slopes
-//!    on #1112) stay in separate clusters.
+//! Two guards keep the weld from flattening a real feature: facets must share a
+//! quantised normal (~0.06° resolution) and offsets within `MAX_OFFSET_JITTER`.
+//! Thus real pitches and #1112's distinct parallel slopes remain separated.
 //!
 //! On top of that the per-vertex MOVE is hard-capped (`MAX_VERTEX_MOVE`): a
 //! vertex is only projected if it lands within that cap of the fitted plane, so
@@ -46,6 +40,8 @@
 //! by at most the jitter (sub-100 µm) and never dragged onto a far plane. The
 //! correction is sub-millimetre at building scale; cut volume is preserved
 //! within the kernel's snap grid.
+//!
+//! Facet passes assume the router's index-only source cleanup (#4797); they neither replace it nor promise hygienic output. New candidates need local handling.
 //!
 //! ## Determinism (native == wasm)
 //!
@@ -149,6 +145,8 @@ fn tri_normal(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> Option<([f64; 3], f64)> 
 ///
 /// The returned mesh keeps the SAME topology (same indices); only vertices in
 /// welded dedup cells move, snapped to the kernel grid.
+///
+/// Preserve the router's source cleanup; this is no hygiene guarantee (#4797).
 pub fn weld_near_coplanar_facets(mesh: &Mesh) -> Mesh {
     let vertex_count = mesh.positions.len() / 3;
     let tri_count = mesh.indices.len() / 3;
@@ -546,6 +544,8 @@ fn aspect(a: [f64; 3], b: [f64; 3], c: [f64; 3]) -> f64 {
 ///
 /// Returns the input unchanged when no triangle exceeds the threshold (the
 /// common case for clean cuts).
+///
+/// Not source cleanup: its fresh candidates need local handling (#4797).
 pub fn refine_high_aspect_slivers(mesh: &Mesh) -> Mesh {
     refine_high_aspect_slivers_impl(mesh, None)
 }

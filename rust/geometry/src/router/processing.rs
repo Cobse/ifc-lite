@@ -130,12 +130,13 @@ impl GeometryRouter {
             combined_mesh.instance_meta = single_instance_meta;
         }
 
-        // Mesh hygiene before placement (rigid transform preserves geometry, so
-        // welding/dropping in local coords is identical and uses smaller f32
-        // magnitudes). Single chokepoint downstream of every per-item branch,
-        // incl. CSG output — restores the cleanup #1024 lost with Manifold:
-        // redundant/coincident source vertices that otherwise triangulate into
-        // visible needle spikes and jagged silhouettes. See clean_degenerate.
+        // Source-triangle hygiene before placement (rigid transforms preserve
+        // degeneracy, while the element-local frame retains more f32 precision).
+        // This is the merged-mesh router's choke point: downstream facet weld /
+        // refinement passes canonicalize geometry but do not replace this input
+        // cleanup or promise hygienic output. `clean_degenerate` removes indices,
+        // not the positions they formerly referenced. Cut-created candidates
+        // require separate, path-specific handling. See #4797.
         combined_mesh.clean_degenerate();
 
         // Apply placement transformation
@@ -242,11 +243,12 @@ impl GeometryRouter {
             }
         }
 
-        // Mesh hygiene before placement — same chokepoint as process_element,
-        // applied per sub-mesh for the multi-item (per-style) channel. Rigid
-        // placement preserves geometry, so order is immaterial. (The layered
-        // and textured channels are cleaned at their own sites:
-        // try_layered_sub_meshes and process_representation_map_with_texture.)
+        // Source-triangle hygiene before placement — the per-style counterpart
+        // to `process_element`'s choke point. Facet canonicalizers downstream do
+        // not replace this cleanup or promise hygienic output; cut-created
+        // candidates require path-specific handling. Only indices are removed, so
+        // unreferenced positions may remain. (Layered/textured early-return
+        // channels clean at their own sites.) See #4797.
         for sub in &mut sub_meshes.sub_meshes {
             sub.mesh.clean_degenerate();
         }

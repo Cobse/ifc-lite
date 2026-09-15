@@ -3024,7 +3024,11 @@ impl GeometryRouter {
             // the upfront clone, the probe clean, and the closure audits decided
             // nothing. Only a fixpoint that actually split an edge pays the
             // probe + self-check audits. Same 6-refine budget as before
-            // (1 here + up to 5 below).
+            // (1 here + up to 5 below). This refinement is not a replacement
+            // for the router's source-triangle cleanup and does not promise
+            // hygienic output. The probe informs acceptance; `finish_cut`
+            // closure-audits and prefers a clean result, but may return its
+            // explicit compatibility result (#4797).
             let mut refined =
                 crate::facet_weld::refine_high_aspect_slivers_within(&out, &refine_boxes);
             if refined.indices.len() != out.indices.len() {
