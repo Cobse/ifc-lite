@@ -71,7 +71,7 @@ function PanelWindowChrome({ entry }: { entry: PanelWindowEntry }) {
       <div className="flex items-center gap-2 h-9 shrink-0 px-2 border-b border-border bg-muted/40 select-none">
         {Icon && <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />}
         <span className="text-xs font-medium truncate flex-1 min-w-0">{def?.title ?? entry.id}</span>
-        <span className="text-[9px] uppercase tracking-wide text-muted-foreground/70 shrink-0">
+        <span className="text-[9px] uppercase tracking-wide text-muted-foreground shrink-0">
           {entry.kind === 'pip' ? 'Picture-in-picture' : 'Window'}
         </span>
         <button
@@ -93,7 +93,7 @@ function PanelWindowChrome({ entry }: { entry: PanelWindowEntry }) {
       </div>
       <div className="flex-1 min-h-0 overflow-hidden">{renderPanelBody(entry.id, close)}</div>
       {/* Decorative hint strip — reinforces that this content is live. */}
-      <div className="flex items-center gap-1.5 h-5 shrink-0 px-2 border-t border-border bg-muted/30 text-[9px] text-muted-foreground/70 select-none">
+      <div className="flex items-center gap-1.5 h-5 shrink-0 px-2 border-t border-border bg-muted/30 text-[9px] text-muted-foreground select-none">
         <MonitorUp className="h-3 w-3" />
         <span>Live · synced with the main window</span>
       </div>

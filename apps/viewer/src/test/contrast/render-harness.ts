@@ -171,28 +171,57 @@ async function resolveOverBackdrop(page: Page, color: string, backdrop: string):
  * it doesn't depend on which component uses it (see #4792's survey, which
  * measured every distinct combination in source this way before this helper
  * existed as a script).
+ *
+ * When `backdropClassName` is given, `surfaceClassName` is treated as a
+ * (possibly translucent) layer painted OVER that backdrop — e.g.
+ * `PanelWindowHost`'s `bg-muted/40` header stacked over its ancestor's
+ * `bg-background` — rather than as an opaque surface in its own right. The
+ * surface is rendered nested inside the backdrop element (mirroring the
+ * real DOM ancestry) and composited onto it with the same
+ * {@link resolveOverBackdrop} canvas-compositor already used to resolve a
+ * translucent TEXT color onto its surface below — reused here rather than
+ * duplicated, since "translucent layer over an opaque backdrop" is one
+ * operation regardless of which layer (text or surface) is translucent.
+ * The text color is then resolved onto that composited (now-opaque)
+ * surface color, same as the no-backdrop path. Omitting `backdropClassName`
+ * keeps the original behavior exactly (surface resolved "over itself",
+ * i.e. treated as already opaque), so every existing call site is
+ * unaffected.
  */
 export async function measureTextContrastOnSurface(
   theme: Theme,
   surfaceClassName: string,
   textClassName: string,
+  backdropClassName?: string,
 ): Promise<number> {
   const css = await compileAppCss();
   const browser = await getBrowser();
   const page = await browser.newPage();
   try {
+    const surfaceMarkup = `<div id="surface" class="${surfaceClassName}"><span id="txt" class="${textClassName}">Sample text</span></div>`;
+    const body =
+      backdropClassName === undefined
+        ? surfaceMarkup
+        : `<div id="backdrop" class="${backdropClassName}">${surfaceMarkup}</div>`;
     const html = `<!doctype html>
 <html class="${themeHtmlClass(theme)}">
 <head><meta charset="utf-8"><style>${css}</style></head>
 <body>
-  <div id="surface" class="${surfaceClassName}"><span id="txt" class="${textClassName}">Sample text</span></div>
+  ${body}
 </body>
 </html>`;
     await page.setContent(html, { waitUntil: 'load' });
     const surfaceColorRaw = await page.$eval('#surface', (el) => getComputedStyle(el).backgroundColor);
     const textColorRaw = await page.$eval('#txt', (el) => getComputedStyle(el).color);
-    const surface = await resolveOverBackdrop(page, surfaceColorRaw, surfaceColorRaw);
-    const text = await resolveOverBackdrop(page, textColorRaw, surfaceColorRaw);
+    let surface: Rgba;
+    if (backdropClassName === undefined) {
+      surface = await resolveOverBackdrop(page, surfaceColorRaw, surfaceColorRaw);
+    } else {
+      const backdropColorRaw = await page.$eval('#backdrop', (el) => getComputedStyle(el).backgroundColor);
+      surface = await resolveOverBackdrop(page, surfaceColorRaw, backdropColorRaw);
+    }
+    const surfaceCss = `rgb(${surface.r}, ${surface.g}, ${surface.b})`;
+    const text = await resolveOverBackdrop(page, textColorRaw, surfaceCss);
     return contrastRatio(text, surface);
   } finally {
     await page.close();

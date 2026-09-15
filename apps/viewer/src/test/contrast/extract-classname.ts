@@ -8,8 +8,20 @@
  * contrast tests in this directory measure whatever class the component
  * actually ships today — the same class a future edit could silently
  * change back to something unreadable, the way #4767 did to #4783's three
- * components. If the class ever becomes a template literal or a `cn(...)`
- * call, this throws instead of silently matching nothing.
+ * components. If the class becomes a `cn(...)` call, this throws instead
+ * of silently matching nothing.
+ *
+ * A `className={\`...\`}` TEMPLATE LITERAL is also supported, but only when
+ * it is statically analysable — its class tokens are all literal text, with
+ * no `${...}` expression at all (e.g. a component that uses backticks for
+ * no functional reason). The moment an actual `${...}` interpolation is
+ * present, the resulting string depends on a runtime value this static
+ * extractor cannot resolve, so it throws loudly rather than guessing a
+ * branch or returning a partial string — the same "throw, don't silently
+ * mismatch" property this file has always had for `cn(...)`. See
+ * `CoordinateDisplay.tsx` (#4825) for a real component whose template
+ * literal genuinely interpolates (`${primary ? 'a' : 'b'}`) and therefore
+ * still throws here.
  */
 
 import { readFileSync } from 'node:fs';
@@ -59,16 +71,32 @@ export function extractClassNameAfter(filePath: string, anchor: string): string 
   }
   const rest = boundToNextTagClose(src.slice(anchorIndex + anchor.length));
   const m = rest.match(/className=(["'])(.*?)\1/s);
-  if (!m) {
-    throw new Error(
-      `No literal className="..." found after anchor in ${filePath}: ${JSON.stringify(anchor)}, within its ` +
-        `own JSX opening tag. If this component switched to a template literal or cn(...), this extractor ` +
-        `needs updating — do not hardcode the expected class instead, that reintroduces the untestable-string ` +
-        `problem. If the className moved to a different tag than the anchor's, widen the anchor instead of ` +
-        `removing this boundary — it exists to stop matching unrelated markup further down the file.`,
-    );
+  if (m) {
+    return m[2];
   }
-  return m[2];
+  const t = rest.match(/className=\{`(.*?)`\}/s);
+  if (t) {
+    if (t[1].includes('${')) {
+      throw new Error(
+        `className is a template literal with runtime interpolation in ${filePath} after anchor ` +
+          `${JSON.stringify(anchor)}: \`${t[1]}\`. This extractor only handles a template literal whose class ` +
+          `tokens are literal text (no \${...} expression) — it cannot know which branch of a runtime-dependent ` +
+          `expression a real render would pick, and refuses to guess one or return a partial string. Either give ` +
+          `this className a literal value, or extend this extractor for the specific statically-analysable shape ` +
+          `this expression is (e.g. a ternary between two string-literal branches), which is a design decision ` +
+          `about what the extractor's result type should be for multiple possible classNames — do not hardcode ` +
+          `the expected class here instead, that reintroduces the untestable-string problem.`,
+      );
+    }
+    return t[1];
+  }
+  throw new Error(
+    `No literal className="..." found after anchor in ${filePath}: ${JSON.stringify(anchor)}, within its ` +
+      `own JSX opening tag. If this component switched to a cn(...) call, this extractor needs updating — do ` +
+      `not hardcode the expected class instead, that reintroduces the untestable-string problem. If the ` +
+      `className moved to a different tag than the anchor's, widen the anchor instead of removing this ` +
+      `boundary — it exists to stop matching unrelated markup further down the file.`,
+  );
 }
 
 /**

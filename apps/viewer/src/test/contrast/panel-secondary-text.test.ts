@@ -122,6 +122,7 @@ describe('panel secondary text meets WCAG AA on its real surface (#4792)', () =>
     anchor: string;
     surface: string;
     extractor?: (file: string, anchor: string) => string;
+    backdrop?: string;
   }> = [
     {
       name: 'ChatPanel "Streaming..." status',
@@ -194,12 +195,21 @@ describe('panel secondary text meets WCAG AA on its real surface (#4792)', () =>
       file: MEASURE_PANEL,
       anchor: 'reground">m</span>\n            </div>\n          </div>\n          <div ',
       // MeasurePanel's real panel surface is `bg-background/95 backdrop-blur-sm`,
-      // floating translucent over the live 3D viewport — deliberately
-      // measured here against the opaque `bg-background` as the nearest
-      // reasonable proxy, since the true composited backdrop behind the
-      // blur is scene-dependent (whatever geometry/background is under the
-      // panel at the time) and not a fixed value this harness can render.
-      surface: 'bg-background',
+      // floating translucent over the live 3D viewport. #4825's harness
+      // extension (`measureTextContrastOnSurface`'s `backdropClassName`)
+      // makes the `/95` alpha itself measurable — composited here over the
+      // app's own `bg-background` token as the nearest fixed backdrop,
+      // still a proxy for the true composited result: the real backdrop is
+      // whatever geometry/background sits under the floating panel at the
+      // time, which this harness cannot render, and `backdrop-blur-sm`'s
+      // blur is not modeled by alpha compositing at all (see
+      // `render-harness.ts`'s doc comment). Measured floor with this
+      // backdrop: 4.83:1 light / 5.16:1 dark / 5.32:1 colorful — still
+      // clears AA in every theme, but with less margin than the old
+      // fully-opaque `bg-background` proxy suggested (was 4.83 / 5.42 /
+      // 6.66), most visibly in colorful (6.66 -> 5.32).
+      surface: 'bg-background/95 backdrop-blur-sm',
+      backdrop: 'bg-background',
     },
     {
       name: 'MeasureQuantities row label',
@@ -386,15 +396,15 @@ describe('panel secondary text meets WCAG AA on its real surface (#4792)', () =>
     },
   ];
 
-  for (const { name, file, anchor, surface, extractor } of fixedCases) {
+  for (const { name, file, anchor, surface, extractor, backdrop } of fixedCases) {
     for (const theme of THEMES) {
       it(`${name} clears AA (${WCAG_AA_NORMAL_TEXT}:1) in ${theme} theme`, async () => {
         const className = (extractor ?? extractClassNameAfter)(file, anchor);
-        const ratio = await measureTextContrastOnSurface(theme, surface, className);
+        const ratio = await measureTextContrastOnSurface(theme, surface, className, backdrop);
         assert.ok(
           ratio >= WCAG_AA_NORMAL_TEXT,
           `expected >= ${WCAG_AA_NORMAL_TEXT}:1, measured ${ratio.toFixed(2)}:1 for className="${className}" ` +
-            `on surface="${surface}" in ${theme} theme`,
+            `on surface="${surface}"${backdrop ? ` over backdrop="${backdrop}"` : ''} in ${theme} theme`,
         );
       });
     }
