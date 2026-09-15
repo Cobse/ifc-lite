@@ -12,6 +12,10 @@ interface GanttEmptyStateProps {
   canGenerate?: boolean;
   /** Human-readable extraction error (last parser failure), if any. */
   extractionError?: string | null;
+  /** The extraction contains at least one visible IfcWorkPlan container. */
+  hasWorkPlans?: boolean;
+  /** The model has tasks, but the selected IfcWorkSchedule contains none. */
+  selectedScheduleEmpty?: boolean;
   onClose?: () => void;
   onGenerate?: () => void;
   /** Opens the file picker to import an MS Project (MSPDI) / Gantt CSV file. */
@@ -40,6 +44,8 @@ export function GanttEmptyState({
   hasModel,
   canGenerate,
   extractionError,
+  hasWorkPlans,
+  selectedScheduleEmpty,
   onClose,
   onGenerate,
   onImport,
@@ -94,6 +100,44 @@ export function GanttEmptyState({
                   Import schedule…
                 </Button>
               )}
+            </div>
+          ) : null}
+        </>
+      ) : selectedScheduleEmpty ? (
+        <>
+          <h3 className="text-sm font-semibold text-foreground">No tasks in selected schedule</h3>
+          <p className="text-xs max-w-md">
+            Choose <span className="font-medium text-foreground">All tasks</span> or another
+            schedule to see the model&apos;s other <span className="font-mono">IfcTask</span> records.
+          </p>
+        </>
+      ) : hasWorkPlans ? (
+        <>
+          <h3 className="text-sm font-semibold text-foreground">No scheduled tasks</h3>
+          <p className="text-xs max-w-md">
+            The loaded <span className="font-mono">IfcWorkPlan</span> data is shown above, but
+            it has no <span className="font-mono">IfcTask</span> records to draw on the Gantt
+            timeline.
+          </p>
+          {(canGenerate && onGenerate) || onImport ? (
+            <div className="flex flex-col items-center gap-2 pt-2">
+              <div className="flex items-center gap-2">
+                {canGenerate && onGenerate && (
+                  <Button size="sm" onClick={onGenerate} className="gap-2">
+                    <CalendarPlus className="h-4 w-4" />
+                    Generate schedule
+                  </Button>
+                )}
+                {onImport && (
+                  <Button size="sm" variant="outline" onClick={onImport} className="gap-2">
+                    <Upload className="h-4 w-4" />
+                    Import schedule…
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground max-w-xs">
+                {emptyStateHelperText(Boolean(canGenerate && onGenerate), Boolean(onImport))}
+              </p>
             </div>
           ) : null}
         </>

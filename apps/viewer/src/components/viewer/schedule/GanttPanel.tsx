@@ -22,6 +22,7 @@ import { GanttToolbar } from './GanttToolbar';
 import { GanttTaskTree } from './GanttTaskTree';
 import { GanttTimeline } from './GanttTimeline';
 import { GanttEmptyState } from './GanttEmptyState';
+import { GanttWorkPlanSummary } from './GanttWorkPlanSummary';
 import { GenerateScheduleDialog } from './GenerateScheduleDialog';
 import { flattenTaskTree, shouldApplyExtractedSchedule } from './schedule-utils';
 import { canGenerateScheduleFrom, resolveActiveDataStore } from './generate-schedule';
@@ -214,6 +215,13 @@ export function GanttPanel({ onClose }: GanttPanelProps) {
   };
 
   const showEmpty = !scheduleData || !scheduleRange || rows.length === 0;
+  const hasWorkPlans = scheduleData?.workSchedules.some(item => item.kind === 'WorkPlan') ?? false;
+  const selectedScheduleEmpty = Boolean(
+    scheduleData
+    && scheduleData.tasks.length > 0
+    && activeWorkScheduleId
+    && rows.length === 0,
+  );
 
   // Keyboard shortcuts for schedule undo/redo — active only while the
   // Gantt panel (or a descendant) has focus, so the shortcut doesn't
@@ -258,6 +266,10 @@ export function GanttPanel({ onClose }: GanttPanelProps) {
         canGenerate={canGenerate}
       />
 
+      {scheduleData && (
+        <GanttWorkPlanSummary workSchedules={scheduleData.workSchedules} />
+      )}
+
       <GenerateScheduleDialog open={generateOpen} onOpenChange={setGenerateOpen} />
 
       {pendingImport && (
@@ -287,6 +299,8 @@ export function GanttPanel({ onClose }: GanttPanelProps) {
           hasModel={!!ifcDataStore || models.size > 0}
           canGenerate={canGenerate}
           extractionError={extractionError}
+          hasWorkPlans={hasWorkPlans}
+          selectedScheduleEmpty={selectedScheduleEmpty}
           onGenerate={() => setGenerateOpen(true)}
           onImport={() => importFileInputRef.current?.click()}
           onClose={onClose}

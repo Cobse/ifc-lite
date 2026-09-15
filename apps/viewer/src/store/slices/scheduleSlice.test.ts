@@ -292,6 +292,48 @@ function mkExtraction(tasks: ScheduleTaskInfo[]): ScheduleExtraction {
   return { hasSchedule: true, workCalendars: [], workSchedules: [], sequences: [], tasks };
 }
 
+describe('scheduleSlice work-schedule filter', () => {
+  const planFirstExtraction = (): ScheduleExtraction => ({
+    hasSchedule: true,
+    workCalendars: [],
+    sequences: [],
+    tasks: [mkTask({ globalId: 'task', controllingScheduleGlobalIds: ['schedule'] })],
+    workSchedules: [
+      {
+        expressId: 1,
+        globalId: 'plan',
+        kind: 'WorkPlan',
+        name: 'Plan',
+        taskGlobalIds: [],
+        childScheduleGlobalIds: ['schedule'],
+      },
+      {
+        expressId: 2,
+        globalId: 'schedule',
+        kind: 'WorkSchedule',
+        name: 'Schedule',
+        taskGlobalIds: ['task'],
+        parentPlanGlobalId: 'plan',
+      },
+    ],
+  });
+
+  it('defaults to an IfcWorkSchedule when an IfcWorkPlan is first (#4834)', () => {
+    const store = bootScheduleStore();
+    store.getState().setScheduleData(planFirstExtraction());
+
+    assert.equal(store.getState().activeWorkScheduleId, 'schedule');
+  });
+
+  it('does not accept an IfcWorkPlan as a task-controlling filter (#4834)', () => {
+    const store = bootScheduleStore();
+    store.getState().setScheduleData(planFirstExtraction());
+    store.getState().setActiveWorkScheduleId('plan');
+
+    assert.equal(store.getState().activeWorkScheduleId, '');
+  });
+});
+
 describe('scheduleSlice editing — updateTask', () => {
   it('patches name / predefinedType without touching unrelated fields', () => {
     const store = bootScheduleStore();
