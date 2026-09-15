@@ -101,11 +101,15 @@
   --color-popover: hsl(0 0% 100%);
   --color-popover-foreground: hsl(240 10% 3.9%);
   --color-primary: var(--tokyo-blue);
-  --color-primary-foreground: hsl(0 0% 100%);
+  /* Tokyo blue is a light accent: dark ink clears AA where white measured
+     only 2.52:1 (#4792). */
+  --color-primary-foreground: var(--tokyo-night);
   --color-secondary: hsl(240 4.8% 95.9%);
   --color-secondary-foreground: hsl(240 5.9% 10%);
   --color-muted: hsl(240 4.8% 95.9%);
-  --color-muted-foreground: hsl(240 3.8% 46.1%);
+  /* Slightly darker than Tailwind zinc-500 so muted text also clears AA on
+     the light theme's raised `bg-muted` surface (#4792). */
+  --color-muted-foreground: hsl(240 3.8% 44%);
   --color-accent: hsl(240 4.8% 95.9%);
   --color-accent-foreground: hsl(240 5.9% 10%);
   --color-destructive: var(--tokyo-red);
@@ -158,6 +162,28 @@ body {
   background-color: var(--color-background);
   color: var(--color-foreground);
   font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+/* Zinc 400 is only 2.4-2.7:1 on the light viewer's white/zinc panel
+   surfaces. It is used widely for enabled counts, labels, and descriptions,
+   so route that utility through the accessible semantic muted ink in light
+   mode. Dark and colorful provide their own explicit zinc overrides below. */
+@layer utilities {
+  :where(html:not(.dark):not(.colorful)) .text-zinc-400:where(:not(.cursor-not-allowed)) {
+    color: var(--color-muted-foreground);
+  }
+}
+
+/* A print preview is fixed white paper with fixed dark ink. Giving it a
+   purpose-built class keeps the dark/colorful `.bg-white` panel overrides
+   from turning the paper dark underneath neutral report text (#4792). */
+.document-preview-paper {
+  background-color: #fff;
+  color: #171717;
+}
+
+.document-preview-muted {
+  color: #525252;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -523,7 +549,9 @@ body {
   --color-popover: var(--cf-popover-solid) !important;
   --color-popover-foreground: #1a1b2e !important;
   --color-primary: var(--cf-purple) !important;
-  --color-primary-foreground: #fff !important;
+  /* Purple is light enough that white is only 3.33:1. Keep the colorful
+     accent and use the theme's dark ink for AA text contrast (#4792). */
+  --color-primary-foreground: #1a1b2e !important;
   --color-secondary: rgba(157, 124, 216, 0.10) !important;
   --color-secondary-foreground: #2e3050 !important;
   --color-muted: rgba(0, 0, 0, 0.04) !important;

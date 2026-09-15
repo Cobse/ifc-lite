@@ -16,6 +16,7 @@ import { REPORT_THEME } from '@/lib/export/report/generate-report-pdf';
 import { topicLines, topicSnapshotDataUrl } from '@/lib/document/generate-document-pdf';
 import { pageBox } from '@/lib/export/report/compose';
 import type { DocumentBlock, DocumentSpec, TextBlock } from '@/lib/document/types';
+import { DOCUMENT_PREVIEW_MUTED_TEXT_CLASS, DOCUMENT_PREVIEW_PAPER_CLASS } from './preview-theme';
 
 export interface DocumentPreviewProps {
   document: DocumentSpec;
@@ -68,7 +69,7 @@ function ChartSvg({ aggregation, width }: { aggregation: Aggregation | null; wid
 function Block({ block, bindings, aggregation, topic, contentWidth }: { block: DocumentBlock; bindings: BindingContext; aggregation: Aggregation | null; topic: BCFTopic | undefined; contentWidth: number }) {
   switch (block.kind) {
     case 'text':
-      return <div className={TEXT_CLASS[block.style]} data-block-text>{block.text.trim() ? <ResolvedText text={block.text} bindings={bindings} /> : <span className="text-neutral-400">(empty)</span>}</div>;
+      return <div className={TEXT_CLASS[block.style]} data-block-text>{block.text.trim() ? <ResolvedText text={block.text} bindings={bindings} /> : <span className={DOCUMENT_PREVIEW_MUTED_TEXT_CLASS}>(empty)</span>}</div>;
     case 'image': {
       const justify = block.align === 'left' ? 'justify-start' : block.align === 'right' ? 'justify-end' : 'justify-center';
       return (
@@ -113,10 +114,10 @@ export function DocumentPreview({ document, bindings, aggregations, topics, sele
   return (
     <div className="flex justify-center p-3" data-document-preview>
       <div
-        className="bg-white text-neutral-900 shadow-md"
+        className={`${DOCUMENT_PREVIEW_PAPER_CLASS} shadow-md`}
         style={{ width, minHeight: width * (size.h / size.w), padding: `${(40 / size.w) * width}px`, fontFamily: 'Helvetica, Arial, sans-serif' }}
       >
-        <div className="mb-3 text-[9px] text-neutral-400">{document.name}</div>
+        <div className={`mb-3 text-[9px] ${DOCUMENT_PREVIEW_MUTED_TEXT_CLASS}`}>{document.name}</div>
         <div className="flex flex-col gap-2.5">
           {document.blocks.map((block) => (
             <div
@@ -128,7 +129,7 @@ export function DocumentPreview({ document, bindings, aggregations, topics, sele
               <Block block={block} bindings={bindings} aggregation={aggregations.get(block.id) ?? null} topic={block.kind === 'topic' ? topics.get(block.guid) : undefined} contentWidth={contentWidth} />
             </div>
           ))}
-          {document.blocks.length === 0 && <div className="text-xs text-neutral-400">An empty page — add a block on the left.</div>}
+          {document.blocks.length === 0 && <div className={`text-xs ${DOCUMENT_PREVIEW_MUTED_TEXT_CLASS}`}>An empty page — add a block on the left.</div>}
         </div>
       </div>
     </div>

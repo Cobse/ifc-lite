@@ -318,7 +318,7 @@ export const ExecutableCodeBlock = memo(function ExecutableCodeBlock({
               <AlertCircle className="h-3 w-3 ml-1 text-destructive" />
             )}
             {result?.durationMs !== undefined && result.status !== 'running' && (
-              <span className="text-[10px] font-mono text-muted-foreground/60 ml-auto">
+              <span className="text-[10px] font-mono text-muted-foreground ml-auto">
                 {result.durationMs}ms
               </span>
             )}

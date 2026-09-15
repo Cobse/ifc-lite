@@ -25,10 +25,12 @@
  * at 10px (`text-[10px]`) or inherits a `text-xs`/small ancestor, so normal
  * text's 4.5:1 is the applicable bar, never the relaxed large-text one.
  *
- * NON-VACUOUSNESS: reverting any of the three cherry-picked #4784 fixes back
- * to `text-primary-foreground/{70,80}` reproduces #4783 exactly — measured
- * ratios of ~1.00-1.13 in all three themes (invisible: the "REGRESSION"
- * cases below assert this). BsddCard's dataType line was itself a known gap
+ * NON-VACUOUSNESS: the "REGRESSION" cases below render foreground equal to
+ * the popover surface and prove the real-browser harness detects invisible
+ * text in every theme. The old #4783 fixture used
+ * `text-primary-foreground/{70,80}`, but #4792 intentionally gave that token
+ * sufficient contrast, so it is no longer a valid negative control.
+ * BsddCard's dataType line was itself a known gap
  * (`text-muted-foreground/80` measured 3.29:1 in light theme, below AA)
  * until the `/80` was dropped to match the sibling description line; the
  * same fixedCases assertion below reddens if `/80` (or any other opacity
@@ -104,31 +106,22 @@ describe('tooltip secondary text meets WCAG AA on the real popover surface (#478
   }
 });
 
-describe('non-vacuousness proof: reintroducing #4783 exactly reddens in every theme', () => {
-  // Not extracted from source — this deliberately renders the OLD, reverted
-  // classes #4783 reported, to prove the harness and threshold actually
-  // catch the regression rather than passing regardless of input. Do not
-  // "fix" these by extracting from source; that would defeat the point.
-  const regressedCases: Array<{ name: string; className: string }> = [
-    { name: 'QuantitySetCard / PropertySetCard (pre-#4784)', className: 'text-primary-foreground/80' },
-    { name: 'BsddCard description (pre-#4784)', className: 'text-primary-foreground/80' },
-    { name: 'BsddCard dataType (pre-#4784)', className: 'text-primary-foreground/70' },
-  ];
+describe('non-vacuousness proof: invisible tooltip text reddens in every theme', () => {
+  // `text-popover` resolves to the same color as TooltipContent's
+  // `bg-popover`. It is deliberately independent of the primary token this
+  // issue repairs, so improving that token cannot silently invalidate the
+  // harness's negative control again.
+  const className = 'text-popover';
 
-  for (const { name, className } of regressedCases) {
-    for (const theme of THEMES) {
-      it(`${name} in ${theme} theme measures well under AA (proves the harness is non-vacuous)`, async () => {
-        const ratio = await measureTooltipTextContrast(theme, className);
-        assert.ok(
-          ratio < WCAG_AA_NORMAL_TEXT,
-          `expected the pre-#4784 regression to measure below AA; got ${ratio.toFixed(2)}:1 — ` +
-            `either the harness stopped measuring correctly, or the theme tokens changed enough that this className is no longer a valid regression fixture`,
-        );
-        // The real #4783 defect was near-total invisibility (ratio ~1), not
-        // merely sub-AA. Pin that too so a harness bug that silently caps
-        // every ratio near 4 (still "< 4.5") would not slip through.
-        assert.ok(ratio < 1.5, `expected near-invisible (~1:1), got ${ratio.toFixed(2)}:1`);
-      });
-    }
+  for (const theme of THEMES) {
+    it(`matching foreground and surface in ${theme} theme measures near 1:1`, async () => {
+      const ratio = await measureTooltipTextContrast(theme, className);
+      assert.ok(
+        ratio < WCAG_AA_NORMAL_TEXT,
+        `expected invisible tooltip text to measure below AA; got ${ratio.toFixed(2)}:1 — ` +
+          'either the harness stopped measuring correctly or the negative-control class no longer matches the surface',
+      );
+      assert.ok(ratio < 1.5, `expected near-invisible (~1:1), got ${ratio.toFixed(2)}:1`);
+    });
   }
 });

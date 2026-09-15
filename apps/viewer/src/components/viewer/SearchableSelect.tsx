@@ -283,7 +283,7 @@ export function SearchableSelect({
           )}
           <div className="overflow-y-auto flex-1">
             {filtered.length === 0 && (
-              <div className="px-2 py-1.5 text-xs text-zinc-400">No matches</div>
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">No matches</div>
             )}
             {filtered.map(opt => (
               <button

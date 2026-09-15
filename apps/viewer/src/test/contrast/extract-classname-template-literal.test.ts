@@ -19,11 +19,8 @@
  * never silently returns a partial or best-guess string for a value it
  * cannot fully resolve statically.
  *
- * `CoordinateDisplay.tsx`'s two secondary spans (#4825's third named gap)
- * use a template literal with a `${primary ? 'a' : 'b'}` expression — real
- * runtime interpolation, not literal text — so per this same boundary they
- * still throw; see `coordinate-display.test.ts` for confirmation and the
- * design question that follows from it.
+ * `CoordinateDisplay.tsx`'s value span still has real runtime interpolation,
+ * while #4792 made its label a statically measurable muted-foreground class.
  */
 
 import { describe, it } from 'node:test';
@@ -52,16 +49,11 @@ describe('extractClassNameAfter still throws loudly on an interpolated template 
   });
 });
 
-describe('CoordinateDisplay.tsx (#4825) genuinely cannot be measured by this extractor', () => {
-  // Confirms the issue's own claim: both secondary spans interpolate a real
-  // `primary` prop (`${primary ? 'a' : 'b'}`), not literal text, so per the
-  // boundary above they still throw — pinning that "unmeasurable, needs a
-  // design decision or a refactor" is the correct, current, verified answer
-  // for this component, not an aging assumption this file failed to check.
-  it('CoordRow label span still throws on real primary-prop interpolation', () => {
-    assert.throws(
-      () => extractClassNameAfter(COORDINATE_DISPLAY, '{label && (\n        <span '),
-      /interpolat/i,
+describe('CoordinateDisplay.tsx (#4792)', () => {
+  it('extracts the now-static muted label class', () => {
+    assert.equal(
+      extractClassNameAfter(COORDINATE_DISPLAY, '{label && (\n        <span '),
+      'text-[9px] font-medium uppercase tracking-wider w-[34px] shrink-0 pt-px text-muted-foreground',
     );
   });
 

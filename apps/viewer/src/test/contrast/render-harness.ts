@@ -120,6 +120,32 @@ export async function closeContrastBrowser(): Promise<void> {
 
 export type Theme = 'light' | 'dark' | 'colorful';
 
+/** Resolve an interactive text color before and after hover, alongside the
+ * plain utility color the hover variant is expected to reveal. */
+export async function measureTextHoverColors(
+  theme: Theme,
+  textClassName: string,
+  expectedHoverClassName: string,
+): Promise<{ before: string; after: string; expected: string }> {
+  const css = await compileAppCss();
+  const browser = await getBrowser();
+  const page = await browser.newPage();
+  try {
+    await page.setContent(`<!doctype html>
+<html class="${themeHtmlClass(theme)}">
+<head><meta charset="utf-8"><style>${css}</style></head>
+<body><button id="target" class="${textClassName}">Target</button><span id="expected" class="${expectedHoverClassName}">Expected</span></body>
+</html>`, { waitUntil: 'load' });
+    const before = await page.$eval('#target', (el) => getComputedStyle(el).color);
+    const expected = await page.$eval('#expected', (el) => getComputedStyle(el).color);
+    await page.hover('#target');
+    const after = await page.$eval('#target', (el) => getComputedStyle(el).color);
+    return { before, after, expected };
+  } finally {
+    await page.close();
+  }
+}
+
 /** The class the real app puts on `<html>` for each theme, mirroring
  *  `apps/viewer/src/store/slices/uiSlice.ts`'s `applyTheme`
  *  (`el.classList.toggle('dark', theme === 'dark')`,
