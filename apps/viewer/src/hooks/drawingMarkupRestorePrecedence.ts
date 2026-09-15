@@ -28,16 +28,21 @@ import { getDefaultDrawing2DState } from '@/store/slices/drawing2DSlice.js';
 import { loadDrawing2DEntry } from '@/store/slices/drawing2DSlice.persistence.js';
 
 /** modelId -> resolved content hash, or `null` when one could not be computed (no `sourceFile`). */
-const hashCache = new Map<string, string | null>();
+const hashCache = new Map<string, { hash: string | null; source?: WeakRef<File> }>();
 
 /** Read `modelId`'s cached hash. `undefined` means no hash has been resolved (or attempted) for it yet. */
 export function getCachedHash(modelId: string): string | null | undefined {
-  return hashCache.get(modelId);
+  const entry = hashCache.get(modelId);
+  // Source replacement invalidates the decision synchronously, before React
+  // effects or parse-cache subscribers can mistake the old hash for this file.
+  if (entry?.source?.deref() !== useViewerStore.getState().models.get(modelId)?.sourceFile) return undefined;
+  return entry?.hash;
 }
 
 /** Record `modelId`'s resolved hash (or `null` when one could not be computed), and nothing else — callers still notify {@link notifyDecided} themselves once ready to. */
 export function setCachedHash(modelId: string, hash: string | null): void {
-  hashCache.set(modelId, hash);
+  const source = useViewerStore.getState().models.get(modelId)?.sourceFile;
+  hashCache.set(modelId, { hash, source: source ? new WeakRef(source) : undefined });
 }
 
 /**
@@ -69,7 +74,7 @@ export function notifyDecided(modelId: string): void {
  * mount (e.g. a cached hash from an earlier visit this session).
  */
 export function hasPersistedMarkupEntryFor(modelId: string): 'pending' | boolean {
-  const hash = hashCache.get(modelId);
+  const hash = getCachedHash(modelId);
   if (hash === undefined) {
     // No `useDrawing2DPersistence()` consumer has resolved this model's
     // hash yet — but a model with no `sourceFile` at all (a cache-restored

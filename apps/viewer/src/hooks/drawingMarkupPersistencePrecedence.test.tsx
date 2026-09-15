@@ -37,7 +37,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { IfcParser, type IfcDataStore } from '@ifc-lite/parser';
 import { useViewerStore } from '@/store';
 import type { FederatedModel } from '@/store';
-import { useDrawing2DPersistence } from './useDrawing2DPersistence.js';
+import { useDrawing2DPersistence, hasPersistedMarkupEntryFor } from './useDrawing2DPersistence.js';
 import { useDrawingMarkupRestoreOnLoad, __resetDrawingMarkupRestoreForTests } from './useDrawingMarkupRestoreOnLoad.js';
 import { __setOverlayWorkerFactoryForTest } from '@/lib/overlay-parse/index.js';
 import { createEmptyFlatSymbolic } from '@/lib/overlay-parse/symbolic-flat.js';
@@ -251,6 +251,22 @@ describe('localStorage (#4159) vs IFC-embedded (#4170) markup restore precedence
       [],
       'a localStorage entry that already resolved (even an empty one) must win — the IFC\'s stale embedded markup must not resurface on top of it',
     );
+
+    // #4836: replacement bytes reuse the model ID. Its parse may publish
+    // before hashing completes, but neither the old saved decision nor its
+    // run-once marker may suppress this file's embedded markup.
+    const replacement = fileWithHeldHash(29, 'replacement.ifc');
+    const replacementStore = await parseFixture();
+    await act(async () => {
+      useViewerStore.setState({ models: new Map([[model.id, { ...model, sourceFile: replacement.file, ifcDataStore: replacementStore }]]) });
+      assert.equal(hasPersistedMarkupEntryFor(model.id), 'pending', 'invalidates before effects run');
+    });
+    // The same parsed annotation geometry is already in the overlay cache.
+    await flush();
+    assert.deepEqual(useViewerStore.getState().measure2DResults, []);
+    await act(async () => { replacement.release(); });
+    await settleUntil(() => useViewerStore.getState().measure2DResults.length === 1);
+    assert.equal(useViewerStore.getState().measure2DResults[0]?.distance, 5);
   });
 
   it('waits for localStorage\'s decision when the IFC parse finishes FIRST, then restores once localStorage resolves to no saved entry', async () => {

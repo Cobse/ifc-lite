@@ -65,7 +65,12 @@ import { ensureParseFor, subscribeToParseCache } from './symbolic-parse-cache.js
 import { hasPersistedMarkupEntryFor, onLocalStorageDecidedFor } from './useDrawing2DPersistence.js';
 
 /** Models this session has already attempted a restore for — see the module doc. */
-const restoredForModel = new Set<string>();
+const restoredForModel = new Map<string, WeakRef<File> | undefined>();
+
+function markRestored(modelId: string): void {
+  const source = useViewerStore.getState().models.get(modelId)?.sourceFile;
+  restoredForModel.set(modelId, source ? new WeakRef(source) : undefined);
+}
 
 /**
  * Models currently waiting on #4159's localStorage precedence decision —
@@ -128,12 +133,13 @@ function markupFieldsEmpty(): boolean {
  * race `act()` batching would mask.
  */
 export function tryRestoreDrawingMarkup(modelId: string): void {
-  if (restoredForModel.has(modelId)) return;
+  if (restoredForModel.has(modelId)
+    && restoredForModel.get(modelId)?.deref() === useViewerStore.getState().models.get(modelId)?.sourceFile) return;
   if (useViewerStore.getState().activeModelId !== modelId) return;
   if (!markupFieldsEmpty()) {
     // Something else (a user drawing) already populated this model's
     // fields — never overwrite it.
-    restoredForModel.add(modelId);
+    markRestored(modelId);
     return;
   }
 
@@ -154,14 +160,14 @@ export function tryRestoreDrawingMarkup(modelId: string): void {
   if (persisted) {
     // A localStorage entry exists (empty or not) for this exact file —
     // it always wins over the IFC's embedded markup. Back off for good.
-    restoredForModel.add(modelId);
+    markRestored(modelId);
     return;
   }
 
   const result = restoreDrawingMarkupFromModel(modelId);
   if (!result) return; // not parsed yet — retry on the next parse-cache notification
 
-  restoredForModel.add(modelId);
+  markRestored(modelId);
   const total =
     result.measure2DResults.length +
     result.polygonArea2DResults.length +

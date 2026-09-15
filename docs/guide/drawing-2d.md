@@ -42,6 +42,26 @@ This is a viewer workspace adjustment: it does not rewrite the source IFC
 placements. Existing measurements retain their recorded workspace points and
 are marked stale after movement; remeasure them in the new arrangement.
 
+## Saved Sheet Setup
+
+The viewer remembers each model's sheet setup in this browser: paper size,
+frame, title-block fields and logo, revisions, drawing scale, scale bar, and
+north arrow. Reopening the same file restores its setup; switching between
+loaded models switches their sheets. File identity uses the complete file
+contents, so a renamed copy shares its saved setup and changed contents start
+with a separate setup.
+
+Saved sheet templates form a reusable library across models. Clearing the
+current sheet does not remove templates. Panel visibility and the sheet-enable
+toggle are not restored after a browser reload.
+
+The browser keeps the 20 most recently saved model setups; templates are not
+part of that limit. This is local browser storage, not a backup or an IFC file
+edit. Clearing site data removes it. Large embedded logos can exhaust browser
+storage: a failed save logs a warning and retains the previous saved version.
+Models without source bytes remain usable but cannot restore a sheet by file
+content.
+
 ## Quick Start
 
 ### Generating a Floor Plan

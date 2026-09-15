@@ -48,7 +48,7 @@ import { loadDrawing2DEntry, clearAllDrawing2DEntries } from '@/store/slices/dra
 import { computeFullSourceHashFromBlob } from '@/utils/sourceContentHash.js';
 import { computeSourceFingerprint } from './sourceFingerprint.js';
 import type { Measure2DResult } from '@/store/slices/drawing2DSlice.js';
-import type { SectionConfig } from '@ifc-lite/drawing-2d';
+import type { DrawingSheet, SectionConfig } from '@ifc-lite/drawing-2d';
 
 const STALE_CONFIG: SectionConfig = {
   plane: { axis: 'z', position: 999, flipped: false },
@@ -255,6 +255,44 @@ describe('active-model switch — MUTATION TARGET: Bug 2', () => {
 
     // And A's own saved entry must be untouched by the switch.
     assert.strictEqual(loadDrawing2DEntry(hashA, DEFAULTS)!.measure2DResults[0].id, 'mA');
+  });
+});
+
+describe('failed hash after close — MUTATION TARGET: release detached sessions', () => {
+  it('does not restore a closed model\'s unsaved sheet when its pending File read rejects', async () => {
+    let rejectRead: ((reason?: unknown) => void) | undefined;
+    const failedRead = new Promise<ArrayBuffer>((_resolve, reject) => { rejectRead = reject; });
+    const source = fileWithBytes(31, 'failed-hash.ifc');
+    Object.defineProperty(source, 'arrayBuffer', {
+      configurable: true,
+      value: () => failedRead,
+    });
+    const model = stubModel('failed-hash-model', source);
+
+    useViewerStore.setState({ models: new Map([[model.id, model]]) });
+    await mount();
+    await act(async () => { useViewerStore.getState().setActiveModel(model.id); });
+    await act(async () => { useViewerStore.getState().createSheet(); });
+    assert.ok(useViewerStore.getState().activeSheet, 'setup: pending session owns a sheet');
+
+    await act(async () => { useViewerStore.getState().clearAllModels(); });
+    rejectRead?.(new Error('simulated File read failure'));
+    await flush();
+
+    // Reopening the same File object makes the leaked-session failure
+    // observable without relying on GC: a retained entry restores the old
+    // measurement synchronously, while a settled closed entry starts blank.
+    let reopenedSheet: DrawingSheet | null = null;
+    await act(async () => {
+      useViewerStore.setState({ models: new Map([[model.id, model]]) });
+      useViewerStore.getState().setActiveModel(model.id);
+      reopenedSheet = useViewerStore.getState().activeSheet;
+    });
+    assert.strictEqual(
+      reopenedSheet,
+      null,
+      'a failed hash must release the closed pending session instead of reviving its sheet',
+    );
   });
 });
 
