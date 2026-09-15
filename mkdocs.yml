@@ -13,9 +13,20 @@ validation:
 
 # architecture/evidence/** are the supporting artifacts (fixtures, screenshots,
 # method notes) behind the design docs above them, not pages in their own right.
+# They are absent from `nav` but reached from their parent design doc.
+#
+# research/** holds decision records: the measurements behind an experiment,
+# kept so nobody re-runs it. Same reason for skipping `nav` -- a dropped
+# experiment does not belong beside the user guides -- but NOT the same
+# reachability. These are built and search-indexed like any page, and today
+# nothing links to them, so they are findable only by search or a direct URL.
+# If you add one, link it from the design doc it informs; "kept" and "kept where
+# the next person finds it" are not the same thing.
+#
 # Declaring them here keeps `omitted_files: warn` meaningful for everything else.
 not_in_nav: |
   architecture/evidence/**
+  research/**
 
 theme:
   name: material
