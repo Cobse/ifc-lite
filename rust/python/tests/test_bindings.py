@@ -37,6 +37,9 @@ OCCURRENCE_PSET = REPO / (
 # Georeferenced: rtc_offset is ~[1508050, 5039449, 0], so any frame mismatch
 # between placements and vertices shows up as a ~1.5e6 metre separation.
 GEOREFERENCED = REPO / "rust/geometry/tests/fixtures/issue_098_wall_V5C.ifc"
+# One wall cut by seven IfcOpeningElements. Filtering to the wall alone must
+# retain those dependency entities for CSG even though they are not output.
+OPENING_HOST = REPO / "rust/geometry/tests/fixtures/issue_098_wall_W.ifc"
 # Millimetre file whose IfcWall carries Qto-style IfcQuantityLength 'Foo' = 42.
 # The only fixture here with a quantity set, so without it the whole
 # quantity_sets branch is unexercised.
@@ -96,6 +99,79 @@ def test_quality_applies_to_the_json_path_too():
     low = json.loads(ifclite_geom.geometry_data_json(ifc, "lowest"))
     high = json.loads(ifclite_geom.geometry_data_json(ifc, "highest"))
     assert indices(low) < indices(high)
+
+
+def test_issue_4803_id_filter_none_empty_subset_and_unknown():
+    ifc = read(WALLS)
+    full = ifclite_geom.geometry_data_buffers(ifc)
+    ids = sorted(full["elements"])
+    assert len(ids) == 4, "fixture must contain multiple meshes to exercise a subset"
+
+    # Explicit None is the backward-compatible unfiltered path.
+    assert ifclite_geom.geometry_data_buffers(ifc, ids=None) == full
+
+    # An empty set is an active filter, not another spelling of no filter.
+    empty = ifclite_geom.geometry_data_buffers(ifc, ids=set())
+    assert empty["element_count"] == 0
+    assert empty["elements"] == {}
+
+    subset_ids = {ids[0], ids[-1]}
+    subset = ifclite_geom.geometry_data_buffers(ifc, ids=subset_ids)
+    assert set(subset["elements"]) == subset_ids
+    assert subset["element_count"] == len(subset_ids)
+    assert subset["elements"] == {step_id: full["elements"][step_id] for step_id in subset_ids}
+
+    unknown = max(ids) + 1
+    assert ifclite_geom.geometry_data_buffers(ifc, ids={unknown})["elements"] == {}
+    mixed = ifclite_geom.geometry_data_buffers(ifc, ids={ids[0], unknown})
+    assert set(mixed["elements"]) == {ids[0]}
+
+
+def test_issue_4803_buffers_and_json_filters_are_geometry_identical():
+    ifc = read(WALLS)
+    all_ids = sorted(ifclite_geom.geometry_data_buffers(ifc)["elements"])
+    selected = {all_ids[1], all_ids[2]}
+
+    buffers = ifclite_geom.geometry_data_buffers(ifc, "low", selected)
+    document = json.loads(ifclite_geom.geometry_data_json(ifc, "low", selected))
+
+    assert set(buffers["elements"]) == selected
+    assert set(document["elements"]) == {str(step_id) for step_id in selected}
+    assert buffers["element_count"] == document["element_count"] == len(selected)
+    assert buffers["rtc_offset"] == document["rtc_offset"]
+
+    for step_id, buffered in buffers["elements"].items():
+        encoded = document["elements"][str(step_id)]
+        vertex_values = struct.unpack(
+            f"<{len(buffered['vertices']) // 8}d", buffered["vertices"]
+        )
+        face_values = struct.unpack(
+            f"<{len(buffered['faces']) // 4}I", buffered["faces"]
+        )
+        vertices = [list(vertex_values[i:i + 3]) for i in range(0, len(vertex_values), 3)]
+        faces = [list(face_values[i:i + 3]) for i in range(0, len(face_values), 3)]
+
+        assert encoded["vertices"] == vertices
+        assert encoded["faces"] == faces
+        assert encoded["ifc_type"] == buffered["ifc_type"]
+        assert encoded.get("global_id") == buffered["global_id"]
+        assert encoded.get("name") == buffered["name"]
+        # JSON prints the shortest decimal that round-trips to the source f32,
+        # while PyO3 widens the same f32 to a Python float.
+        assert encoded["color"] == pytest.approx(buffered["color"])
+
+
+def test_issue_4803_filtered_host_keeps_unselected_opening_dependencies():
+    ifc = read(OPENING_HOST)
+    host_id = 928204
+    full = ifclite_geom.geometry_data_buffers(ifc)
+    assert host_id in full["elements"], "fixture wall must produce geometry"
+
+    selected = ifclite_geom.geometry_data_buffers(ifc, ids={host_id})
+    assert set(selected["elements"]) == {host_id}
+    # Exact equality proves the seven unselected opening cutters still reached
+    # the selected wall's CSG path; filtering dependencies would change its mesh.
+    assert selected["elements"][host_id] == full["elements"][host_id]
 
 
 def test_entity_data_reads_occurrence_property_sets():

@@ -19,8 +19,8 @@ silicon and Intel), and Windows (x64). No Rust toolchain needed.
 
 ## Quick start
 
-The module is `ifclite_geom` and exposes two functions. Both take the raw IFC
-file as `bytes` and return the same geometry; they differ only in output format.
+The geometry functions both take the raw IFC file as `bytes` and return the same
+geometry; they differ only in output format.
 
 ```python
 import ifclite_geom
@@ -53,7 +53,7 @@ print(first["ifc_type"], first["vertices"][0])  # [x, y, z] in metres
 
 ## Functions
 
-### `geometry_data_buffers(ifc_bytes: bytes) -> dict`
+### `geometry_data_buffers(ifc_bytes: bytes, quality: str | None = None, ids: set[int] | None = None) -> dict`
 
 The fast path. Vertices and faces come back as raw little-endian byte buffers so
 you can hand them straight to `numpy.frombuffer` with zero parsing.
@@ -85,12 +85,33 @@ verts = np.frombuffer(el["vertices"], dtype=np.float64).reshape(-1, 3)  # (V, 3)
 faces = np.frombuffer(el["faces"],    dtype=np.uint32 ).reshape(-1, 3)  # (F, 3)
 ```
 
-### `geometry_data_json(ifc_bytes: bytes) -> str`
+### `geometry_data_json(ifc_bytes: bytes, quality: str | None = None, ids: set[int] | None = None) -> str`
 
 The same geometry as a readable `ifc-lite-geometry-data` JSON document (a string;
 call `json.loads` on it). Vertices are `[x, y, z]` arrays and faces are
 `[a, b, c]` index arrays, so no numpy is required. Each element also carries
 `global_id` and `name` when the source entity has them.
+
+### Filter by IFC STEP id
+
+Pass `ids` to tessellate only matching occurrences. This pairs with
+`entity_data` when selection depends on IFC type, attributes, properties or
+quantities:
+
+```python
+entities = ifclite_geom.entity_data(ifc_bytes)
+wall_ids = {
+    step_id
+    for step_id, row in entities["entities"].items()
+    if row["ifc_type"] == "IfcWall"
+}
+walls = ifclite_geom.geometry_data_buffers(ifc_bytes, ids=wall_ids)
+```
+
+`ids=None` preserves the unfiltered behaviour. An empty set returns zero
+elements, and unknown ids are ignored. Dependencies remain available during
+tessellation, so a selected host retains cuts from unselected
+`IfcOpeningElement` entities without emitting those opening meshes.
 
 ## Notes
 

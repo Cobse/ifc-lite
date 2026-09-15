@@ -30,6 +30,10 @@ mod csg_summary_tests;
 mod diagnostics;
 mod entity_index;
 use entity_index::{IndexBuilder, ProcessingIndex};
+mod id_filter;
+pub use id_filter::{
+    process_geometry_filtered_with_quality, process_geometry_filtered_with_quality_and_ids,
+};
 pub(crate) mod instancing;
 mod jobs;
 mod opening_filter;
@@ -414,33 +418,6 @@ where
     process_geometry_filtered_with_quality(content, opening_filter, TessellationQuality::default())
 }
 
-/// Like [`process_geometry_filtered`] with a consumer-selected tessellation
-/// detail level (#976) — the server half of the quality knob the wasm path
-/// exposes via `setTessellationQuality`.
-pub fn process_geometry_filtered_with_quality<T>(
-    content: &T,
-    opening_filter: OpeningFilterMode,
-    tessellation_quality: TessellationQuality,
-) -> ProcessingResult
-where
-    T: AsRef<[u8]> + ?Sized,
-{
-    let content = content.as_ref();
-    process_geometry_streaming_filtered_with_options(
-        content,
-        opening_filter,
-        StreamingOptions {
-            initial_batch_size: usize::MAX,
-            throughput_batch_size: usize::MAX,
-            tessellation_quality,
-            ..StreamingOptions::default()
-        },
-        |_, _, _| {},
-        |_| {},
-        |_| {},
-    )
-}
-
 /// Process IFC content with parallel geometry extraction and a configurable streaming batch size.
 pub fn process_geometry_streaming_filtered(
     content: &[u8],
@@ -468,6 +445,26 @@ pub fn process_geometry_streaming_filtered_with_options(
     content: &[u8],
     opening_filter: OpeningFilterMode,
     options: StreamingOptions,
+    on_batch: impl FnMut(&[MeshData], usize, usize),
+    on_color_update: impl FnMut(&[(u32, [f32; 4])]),
+    on_quick_metadata_bootstrap: impl FnMut(&QuickMetadataBootstrap),
+) -> ProcessingResult {
+    process_geometry_streaming_filtered_with_options_and_ids(
+        content,
+        opening_filter,
+        options,
+        None,
+        on_batch,
+        on_color_update,
+        on_quick_metadata_bootstrap,
+    )
+}
+
+fn process_geometry_streaming_filtered_with_options_and_ids(
+    content: &[u8],
+    opening_filter: OpeningFilterMode,
+    options: StreamingOptions,
+    entity_ids: Option<&HashSet<u32>>,
     mut on_batch: impl FnMut(&[MeshData], usize, usize),
     mut on_color_update: impl FnMut(&[(u32, [f32; 4])]),
     mut on_quick_metadata_bootstrap: impl FnMut(&QuickMetadataBootstrap),
@@ -927,6 +924,15 @@ pub fn process_geometry_streaming_filtered_with_options(
         &mut decoder,
         opening_filter,
     );
+
+    // Filter output jobs only after the whole-file relationship/style pre-pass
+    // and opening-filter resolution. A selected host still needs unselected
+    // IfcOpeningElement cutters from `filtered_void_index`, but only selected
+    // products should enter the tessellation loop below. Keeping `None` apart
+    // from `Some(empty)` is part of the public filtering contract.
+    if let Some(ids) = entity_ids {
+        entity_jobs.retain(|job| ids.contains(&job.id));
+    }
 
     let schema_version = schema_detection::detect_schema_version(content).to_string();
 

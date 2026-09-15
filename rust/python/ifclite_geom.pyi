@@ -4,7 +4,7 @@
 #
 # Type stubs for the ifclite-geom native extension.
 # Shipped next to the compiled module so editors and type checkers see the API.
-from typing import Any, Dict, List, Literal, Optional, TypedDict
+from typing import Any, Dict, List, Literal, Optional, Set, TypedDict
 
 Quality = Literal["lowest", "low", "medium", "high", "highest"]
 
@@ -67,7 +67,9 @@ class EntityData(TypedDict):
     entities: Dict[int, EntityRow]  # keyed by IFC STEP id, in file order
 
 def geometry_data_buffers(
-    ifc_bytes: bytes, quality: Optional[Quality] = None
+    ifc_bytes: bytes,
+    quality: Optional[Quality] = None,
+    ids: Optional[Set[int]] = None,
 ) -> GeometryBuffers:
     """Tessellate IFC bytes; return per-entity geometry with vertices/faces as
     raw little-endian byte buffers (f64 xyz triplets, u32 triangle indices) for
@@ -83,19 +85,28 @@ def geometry_data_buffers(
     is roughly a tenth of ``"medium"``'s triangle budget on curve-heavy
     elements such as reinforcing bars.
 
+    ``ids`` optionally restricts tessellation to those IFC STEP ids. ``None``
+    preserves the unfiltered behaviour; an empty set returns no elements, and
+    ids absent from the file are ignored. Relationship and representation
+    dependencies needed by selected products are still resolved.
+
     Raises:
         RuntimeError: the geometry pipeline failed.
         ValueError: ``quality`` is not a recognised label.
     """
     ...
 
-def geometry_data_json(ifc_bytes: bytes, quality: Optional[Quality] = None) -> str:
+def geometry_data_json(
+    ifc_bytes: bytes,
+    quality: Optional[Quality] = None,
+    ids: Optional[Set[int]] = None,
+) -> str:
     """Tessellate IFC bytes; return the ``ifc-lite-geometry-data`` JSON document
     as a string (call ``json.loads`` on it).
 
     Same geometry as :func:`geometry_data_buffers`, but vertices/faces are JSON
     arrays (no numpy needed) and each element also carries ``global_id`` and
-    ``name`` when present. ``quality`` is as documented there.
+    ``name`` when present. ``quality`` and ``ids`` are as documented there.
 
     Raises:
         RuntimeError: the geometry pipeline failed.

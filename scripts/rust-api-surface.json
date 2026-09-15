@@ -320,6 +320,7 @@
     "process_geometry": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "process_geometry_filtered": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "process_geometry_filtered_with_quality": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
+    "process_geometry_filtered_with_quality_and_ids": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "process_geometry_streaming": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "process_geometry_streaming_filtered": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",
     "process_geometry_streaming_filtered_with_options": "unresolved (not a local struct/enum — fn/const/trait/type or unknown)",

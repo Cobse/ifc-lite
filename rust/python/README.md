@@ -57,7 +57,7 @@ print(first["ifc_type"], first["vertices"][0])  # [x, y, z] in metres
 
 ## API
 
-### `geometry_data_buffers(ifc_bytes: bytes, quality: str | None = None) -> dict`
+### `geometry_data_buffers(ifc_bytes: bytes, quality: str | None = None, ids: set[int] | None = None) -> dict`
 
 The fast path. Vertices and faces come back as raw little-endian byte buffers so
 you can hand them straight to `numpy.frombuffer` with zero parsing.
@@ -89,7 +89,7 @@ verts = np.frombuffer(el["vertices"], dtype=np.float64).reshape(-1, 3)  # (V, 3)
 faces = np.frombuffer(el["faces"],    dtype=np.uint32 ).reshape(-1, 3)  # (F, 3)
 ```
 
-### `geometry_data_json(ifc_bytes: bytes, quality: str | None = None) -> str`
+### `geometry_data_json(ifc_bytes: bytes, quality: str | None = None, ids: set[int] | None = None) -> str`
 
 The same geometry as a readable `ifc-lite-geometry-data` JSON document (a
 string; call `json.loads` on it). Vertices are `[x, y, z]` arrays and faces are
@@ -122,6 +122,28 @@ An unrecognised label raises `ValueError` rather than silently falling back, so
 a typo cannot cost you a 10x triangle budget without saying so. This is the same
 knob the browser build exposes as `setTessellationQuality` and the server as
 `?tessellation_quality=`; the level is model-wide, not per IFC type.
+
+### Filter by IFC STEP id
+
+Both geometry functions accept an optional `ids` set. Only matching occurrence
+ids are tessellated, which lets you select products through `entity_data` first
+without paying to mesh the rest of the model:
+
+```python
+entities = ifclite_geom.entity_data(ifc_bytes)
+wall_ids = {
+    step_id
+    for step_id, row in entities["entities"].items()
+    if row["ifc_type"] == "IfcWall"
+}
+walls = ifclite_geom.geometry_data_buffers(ifc_bytes, ids=wall_ids)
+```
+
+`ids=None` preserves the unfiltered behaviour. An empty set returns zero
+elements, and ids not present in the file are ignored. The pipeline still
+resolves relationship and representation dependencies: for example, selecting
+a wall keeps its unselected `IfcOpeningElement` cutters available to the wall's
+CSG operation without emitting meshes for those openings.
 
 ### `entity_data(ifc_bytes, placements=False, type_properties=True, attributes=True) -> dict`
 

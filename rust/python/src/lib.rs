@@ -24,12 +24,13 @@
 
 use ifc_lite_export::{build_export_model_with_options, ExportModel, ModelOptions};
 use ifc_lite_processing::{
-    build_geometry_data_export, process_geometry_filtered_with_quality, GeometryDataExport,
-    MeshCoordinateSpace, OpeningFilterMode, TessellationQuality,
+    build_geometry_data_export, process_geometry_filtered_with_quality_and_ids,
+    GeometryDataExport, MeshCoordinateSpace, OpeningFilterMode, TessellationQuality,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
+use std::collections::HashSet;
 
 /// Stack size for the geometry worker (256 MiB). IFC CSG recurses deeply
 /// (BSP-tree booleans, nested clips); the default thread stack overflows.
@@ -59,15 +60,17 @@ fn parse_quality(label: Option<&str>) -> PyResult<TessellationQuality> {
 fn run_export(
     ifc_bytes: Vec<u8>,
     quality: TessellationQuality,
+    ids: Option<HashSet<u32>>,
 ) -> Result<GeometryDataExport, String> {
     std::thread::Builder::new()
         .stack_size(GEOMETRY_STACK_BYTES)
         .name("ifclite-geometry".into())
         .spawn(move || {
-            let result = process_geometry_filtered_with_quality(
+            let result = process_geometry_filtered_with_quality_and_ids(
                 &ifc_bytes,
                 OpeningFilterMode::Default,
                 quality,
+                ids.as_ref(),
             );
             let rtc = result.metadata.coordinate_info.origin_shift;
             // Reapply the IfcSite rotation only in the site-local axis frame;
@@ -97,16 +100,19 @@ fn run_export(
 /// `quality` selects the tessellation detail level (`"lowest"`, `"low"`,
 /// `"medium"` (default), `"high"`, `"highest"`), scaling the segment count on
 /// every curved primitive (swept-disk tubes, cylinders, revolutions, arcs).
+/// `ids` optionally restricts tessellation to those IFC STEP ids. `None` keeps
+/// every occurrence, while an empty set produces an empty geometry export.
 #[pyfunction]
-#[pyo3(signature = (ifc_bytes, quality = None))]
+#[pyo3(signature = (ifc_bytes, quality = None, ids = None))]
 fn geometry_data_buffers(
     py: Python<'_>,
     ifc_bytes: Vec<u8>,
     quality: Option<&str>,
+    ids: Option<HashSet<u32>>,
 ) -> PyResult<Py<PyAny>> {
     let quality = parse_quality(quality)?;
     let export = py
-        .detach(|| run_export(ifc_bytes, quality))
+        .detach(|| run_export(ifc_bytes, quality, ids))
         .map_err(PyRuntimeError::new_err)?;
 
     let out = PyDict::new(py);
@@ -152,17 +158,18 @@ fn geometry_data_buffers(
 /// `name` when present.
 ///
 /// `ifc_bytes` is the raw IFC file content (e.g. `open(path, "rb").read()`).
-/// `quality` is as documented on [`geometry_data_buffers`].
+/// `quality` and `ids` are as documented on [`geometry_data_buffers`].
 #[pyfunction]
-#[pyo3(signature = (ifc_bytes, quality = None))]
+#[pyo3(signature = (ifc_bytes, quality = None, ids = None))]
 fn geometry_data_json(
     py: Python<'_>,
     ifc_bytes: Vec<u8>,
     quality: Option<&str>,
+    ids: Option<HashSet<u32>>,
 ) -> PyResult<String> {
     let quality = parse_quality(quality)?;
     let export = py
-        .detach(|| run_export(ifc_bytes, quality))
+        .detach(|| run_export(ifc_bytes, quality, ids))
         .map_err(PyRuntimeError::new_err)?;
     export
         .to_json()
