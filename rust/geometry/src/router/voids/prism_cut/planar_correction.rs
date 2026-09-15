@@ -5,9 +5,8 @@
 //! Final overlap removal for staged mixed planar/residual differences (#4617).
 
 use super::{
-    closed_or_hairline, cut_prism, dedup_cut_vertices, directed_closed,
-    extend_prism_caps, mesh_from_ptris, prepare_prism, ptris_from_mesh,
-    Mesh, OpeningType, PTri,
+    closed_enough_to_emit, cut_prism, dedup_cut_vertices, extend_prism_caps, mesh_from_ptris,
+    prepare_prism, ptris_from_mesh, Mesh, OpeningType, PTri,
 };
 
 /// Apply every mandatory correction atomically using the analytic prism kernel.
@@ -27,7 +26,7 @@ pub(in crate::router::voids) fn correct_planar_overlap(
     let mut tris = ptris_from_mesh(mesh)?;
     // Reuse the established prism admission audit: the cap classifier requires
     // a closed solid, including the explicitly tolerated subdivision hairlines.
-    if !directed_closed(mesh) && !closed_or_hairline(mesh) {
+    if !closed_enough_to_emit(mesh) {
         return None;
     }
     for cutter in cutters {
@@ -39,5 +38,5 @@ pub(in crate::router::voids) fn correct_planar_overlap(
         tris = cut_prism(&tris, &prism).ok()?;
     }
     let out = dedup_cut_vertices(&mesh_from_ptris(&tris, mesh), mesh);
-    (directed_closed(&out) || closed_or_hairline(&out)).then_some(out)
+    closed_enough_to_emit(&out).then_some(out)
 }

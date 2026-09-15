@@ -4,12 +4,7 @@
 
 //! Final hygiene, ulp welding, and closure audit for analytic cuts.
 
-use super::{closed_or_hairline, dedup_cut_vertices, directed_closed, Mesh};
-
-#[inline]
-fn closed_enough(mesh: &Mesh) -> bool {
-    directed_closed(mesh) || closed_or_hairline(mesh)
-}
+use super::{closed_enough_to_emit, dedup_cut_vertices, Mesh};
 
 /// Return an audited cut, preferring the fully hygienic fixed point.
 ///
@@ -40,12 +35,12 @@ pub(in crate::router::voids) fn finish_cut(candidate: Mesh, host: &Mesh) -> Opti
         }
         hygienic = dedup_cut_vertices(&hygienic, host);
     }
-    if closed_enough(&hygienic) {
+    if closed_enough_to_emit(&hygienic) {
         return Some(hygienic);
     }
 
     let compatibility = dedup_cut_vertices(&candidate, host);
-    closed_enough(&compatibility).then_some(compatibility)
+    closed_enough_to_emit(&compatibility).then_some(compatibility)
 }
 
 #[cfg(test)]
@@ -100,7 +95,7 @@ mod tests {
 
         let finished = finish_cut(candidate, &host).expect("the hygienic tetrahedron is closed");
         assert_eq!(finished.triangle_count(), 4);
-        assert!(closed_enough(&finished));
+        assert!(closed_enough_to_emit(&finished));
     }
 
     #[test]
@@ -116,7 +111,7 @@ mod tests {
             finished.positions[3], referenced_x,
             "an unreferenced earlier vertex must not displace a surviving seam vertex"
         );
-        assert!(closed_enough(&finished));
+        assert!(closed_enough_to_emit(&finished));
     }
 
     #[test]
@@ -148,7 +143,7 @@ mod tests {
             }
         }
         assert!(
-            closed_enough(&candidate),
+            closed_enough_to_emit(&candidate),
             "premise: the subdivided tetrahedron is closed"
         );
         let mut cleaned = candidate.clone();
@@ -159,13 +154,13 @@ mod tests {
             "premise: hygiene removes each thin face"
         );
         assert!(
-            !closed_enough(&cleaned),
+            !closed_enough_to_emit(&cleaned),
             "premise: removing that face opens the tetrahedron"
         );
 
         let finished = finish_cut(candidate.clone(), &candidate).expect("compatibility fallback");
         assert_eq!(finished.indices, candidate.indices);
         assert_eq!(finished.positions, candidate.positions);
-        assert!(closed_enough(&finished));
+        assert!(closed_enough_to_emit(&finished));
     }
 }

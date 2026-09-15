@@ -77,7 +77,9 @@ mod planar_correction;
 #[cfg(test)]
 #[path = "prism_cut_tests.rs"]
 mod tests;
-use closure_checks::{closed_or_hairline, directed_closed};
+use closure_checks::{closed_enough_to_emit, directed_closed, ClosureVerdict};
+#[cfg(test)]
+use closure_checks::closed_or_hairline;
 pub(crate) use vertex_dedup::dedup_cut_vertices;
 pub(in crate::router::voids) use finish::finish_cut;
 pub(super) use planar_correction::correct_planar_overlap;
@@ -2802,7 +2804,7 @@ impl GeometryRouter {
         // self-check are only meaningful on a host that arrives as a
         // consistently-wound closed solid (hairline subdivision mismatches
         // tolerated — tessellated hosts routinely carry them).
-        if !directed_closed(mesh) && !closed_or_hairline(mesh) {
+        if !closed_enough_to_emit(mesh) {
             defer(0);
             return None;
         }
@@ -2982,8 +2984,8 @@ impl GeometryRouter {
         // large triangles — 2-3x fewer output triangles on the advanced_model
         // walls, matching the exact kernel's tessellation density.
         out = crate::csg::ClippingProcessor::consolidate_coplanar(out);
-        let consolidated_closed = directed_closed(&out);
-        if (consolidated_closed || closed_or_hairline(&out))
+        let consolidated_closure = ClosureVerdict::for_mesh(&out);
+        if consolidated_closure.closed_enough_to_emit()
             && !consolidated_change_is_measurable(mesh, &out)
         {
             defer(4);
@@ -3007,7 +3009,7 @@ impl GeometryRouter {
         // mismatch, and the split slivers can fall below the clean-degenerate
         // grid — so accept the refined mesh only when it is STRICTLY closed
         // and a cleaned probe stays at least hairline-closed.
-        if residual_idx.is_empty() && consolidated_closed {
+        if residual_idx.is_empty() && consolidated_closure.is_directed_closed() {
             // SCOPED to the committed cutters' padded AABBs: #1007's target is
             // the high-aspect corner sliver the CUT emits at an opening rim, and
             // every rim-incident sliver touches its cutter's box. The unscoped
@@ -3036,9 +3038,7 @@ impl GeometryRouter {
                 }
                 let mut probe = refined.clone();
                 probe.clean_degenerate();
-                if directed_closed(&refined)
-                    && (directed_closed(&probe) || closed_or_hairline(&probe))
-                {
+                if directed_closed(&refined) && closed_enough_to_emit(&probe) {
                     out = refined;
                 }
             }

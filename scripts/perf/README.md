@@ -459,6 +459,24 @@ as well as JavaScript errors, and stop memory sampling on every exit path.
   intentional observable delta was ISSUE_129's new CSG diagnostic count, 1 ->
   9. **Lesson:** keep this as an audit of the final result only — auditing
   batch intermediates turns diagnostic volume into workload-dependent noise.
+- **Shared void-closure verdict (#4796): supported fixtures did not regress;
+  heavy result inconclusive.**
+  The closure decisions now reuse one directed-edge map, while strict-only
+  callers still avoid the lazy hairline phase. Balanced base/branch runs covered
+  FZK-Haus, CSG-heavy ISSUE_129, and the heavy Holter model; ordered geometry
+  fingerprints and entity/mesh/triangle counts matched on every iteration.
+  Controlled FZK-Haus and ISSUE_129 results were flat within mixed paired runs.
+  Holter's pooled full-wall median was slightly slower and three of four paired
+  medians favored base, while its spread remained too wide for a confident
+  regression verdict; a small heavy-model overhead is therefore not excluded.
+  This is a native full-load verdict, not a browser worker-pool or UI speedup
+  claim. Unlike
+  #3442's final-result diagnostic audit, this change shares the edge calculation
+  between the existing closure decisions without making hairline analysis eager.
+  Raw samples, executable and source hashes, environment, schedule, and metric
+  semantics are in
+  [`docs/architecture/evidence/closure-verdict/performance-controlled.json`](../../docs/architecture/evidence/closure-verdict/performance-controlled.json).
+  The superseded uncontrolled run is retained beside it as `performance.json`.
 - **Entity indexes built and never read** (`index_vs_scan.rs`): `relationships()`
   built a full parallel index and handed it to the decoder, but every decode in it
   is `decode_at_with_id` over the scanner's own spans and only `decode_by_id`

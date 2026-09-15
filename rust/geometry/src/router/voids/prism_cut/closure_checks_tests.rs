@@ -14,7 +14,7 @@
 //! "closed" on a mesh the multiplicity sweep rejects pins the gap this module
 //! exists to close.
 
-use super::{closed_or_hairline, directed_closed, edge_multiplicity_defects};
+use super::{closed_or_hairline, directed_closed, edge_multiplicity_defects, ClosureVerdict};
 use crate::mesh::Mesh;
 
 /// Build a mesh from raw vertex positions and triangle indices. Flat list, no
@@ -116,6 +116,30 @@ fn a_closed_tetrahedron_has_no_multiplicity_defect() {
         super::EdgeMultiplicityDefects::default(),
         "a closed, consistently wound solid must carry no multiplicity defect"
     );
+}
+
+/// #4796: both public meanings come from one cached directed-edge walk.
+/// This pins the two verdicts; source review and the recorded performance audit
+/// pin the structural sharing, which has no intentionally changed output.
+#[test]
+fn closure_verdict_preserves_strict_and_emit_semantics_4796() {
+    let closed = tetrahedron();
+    let verdict = ClosureVerdict::for_mesh(&closed);
+    assert!(verdict.is_directed_closed());
+    assert!(verdict.closed_enough_to_emit());
+
+    let open = mesh_of(
+        &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+        &[[0, 1, 2]],
+    );
+    let verdict = ClosureVerdict::for_mesh(&open);
+    assert!(!verdict.is_directed_closed());
+    assert!(!verdict.closed_enough_to_emit());
+
+    let empty = Mesh::new();
+    let verdict = ClosureVerdict::for_mesh(&empty);
+    assert!(!verdict.is_directed_closed());
+    assert!(!verdict.closed_enough_to_emit());
 }
 
 /// THREE triangles on one shared edge: the fin. The signed tally nets to zero

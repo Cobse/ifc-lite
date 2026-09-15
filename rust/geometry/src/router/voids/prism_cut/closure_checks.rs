@@ -10,14 +10,43 @@ use super::{dot, norm, normalize, scale, sub, V3};
 use crate::mesh::Mesh;
 use rustc_hash::FxHashMap;
 
-/// DIRECTED quantized closed-surface audit (0.1 mm grid): every directed edge
-/// must be cancelled by its reverse. Strictly stronger than the undirected
-/// 2-manifold check — it catches inconsistent winding and doubled coincident
-/// surfaces (two triangles sharing an edge in the SAME direction), not just
-/// cracks. Triangles that collapse to a degenerate key on the grid are skipped
-/// (their edges net to zero).
-pub(crate) fn directed_closed(mesh: &Mesh) -> bool {
-    let key = |i: u32| -> (i64, i64, i64) {
+type QuantizedPoint = (i64, i64, i64);
+type DirectedEdgeCounts = FxHashMap<(QuantizedPoint, QuantizedPoint), i64>;
+
+/// Cached result of the shared 0.1 mm directed-edge walk.
+///
+/// Strict callers read the directed verdict without running the hairline
+/// matcher. Emit callers first accept strict closure and only then evaluate
+/// the bounded T-junction tolerance from the same edge counts (#4796).
+pub(crate) struct ClosureVerdict {
+    has_edges: bool,
+    bad: Vec<(QuantizedPoint, QuantizedPoint, i64)>,
+}
+
+impl ClosureVerdict {
+    pub(crate) fn for_mesh(mesh: &Mesh) -> Self {
+        let edges = directed_edge_counts(mesh);
+        let has_edges = !edges.is_empty();
+        let mut bad = Vec::new();
+        for (&(a, b), &count) in &edges {
+            if count > 0 {
+                bad.push((a, b, count));
+            }
+        }
+        Self { has_edges, bad }
+    }
+
+    pub(crate) fn is_directed_closed(&self) -> bool {
+        self.has_edges && self.bad.is_empty()
+    }
+
+    pub(crate) fn closed_enough_to_emit(&self) -> bool {
+        self.has_edges && (self.bad.is_empty() || hairline_closed(&self.bad))
+    }
+}
+
+fn directed_edge_counts(mesh: &Mesh) -> DirectedEdgeCounts {
+    let key = |i: u32| -> QuantizedPoint {
         let b = i as usize * 3;
         let q = |v: f32| (v as f64 / 1.0e-4).round() as i64;
         (
@@ -26,7 +55,7 @@ pub(crate) fn directed_closed(mesh: &Mesh) -> bool {
             q(mesh.positions[b + 2]),
         )
     };
-    let mut edges: FxHashMap<((i64, i64, i64), (i64, i64, i64)), i64> = FxHashMap::default();
+    let mut edges: DirectedEdgeCounts = FxHashMap::default();
     for tri in mesh.indices.chunks_exact(3) {
         let (ka, kb, kc) = (key(tri[0]), key(tri[1]), key(tri[2]));
         if ka == kb || kb == kc || kc == ka {
@@ -37,7 +66,18 @@ pub(crate) fn directed_closed(mesh: &Mesh) -> bool {
             *edges.entry((y, x)).or_insert(0) -= 1;
         }
     }
-    !edges.is_empty() && edges.values().all(|&c| c == 0)
+    edges
+}
+
+/// DIRECTED quantized closed-surface audit (0.1 mm grid): every directed edge
+/// must be cancelled by its reverse. Strictly stronger than the undirected
+/// 2-manifold check — it catches inconsistent winding and doubled coincident
+/// surfaces (two triangles sharing an edge in the SAME direction), not just
+/// cracks. Triangles that collapse to a degenerate key on the grid are skipped
+/// (their edges net to zero).
+pub(crate) fn directed_closed(mesh: &Mesh) -> bool {
+    let edges = directed_edge_counts(mesh);
+    !edges.is_empty() && edges.values().all(|&count| count == 0)
 }
 
 /// Closed-surface audit with a HAIRLINE tolerance: the surface passes when
@@ -49,31 +89,28 @@ pub(crate) fn directed_closed(mesh: &Mesh) -> bool {
 /// exact kernel's own output is routinely NOT even undirected-watertight on
 /// these hosts, so this gate is still far stricter than the status quo.
 pub(crate) fn closed_or_hairline(mesh: &Mesh) -> bool {
-    type K = (i64, i64, i64);
-    let key = |i: u32| -> K {
-        let b = i as usize * 3;
-        let q = |v: f32| (v as f64 / 1.0e-4).round() as i64;
-        (
-            q(mesh.positions[b]),
-            q(mesh.positions[b + 1]),
-            q(mesh.positions[b + 2]),
-        )
-    };
-    let mut edges: FxHashMap<(K, K), i64> = FxHashMap::default();
-    for tri in mesh.indices.chunks_exact(3) {
-        let (ka, kb, kc) = (key(tri[0]), key(tri[1]), key(tri[2]));
-        if ka == kb || kb == kc || kc == ka {
-            continue;
-        }
-        for (x, y) in [(ka, kb), (kb, kc), (kc, ka)] {
-            *edges.entry((x, y)).or_insert(0) += 1;
-            *edges.entry((y, x)).or_insert(0) -= 1;
-        }
+    ClosureVerdict::for_mesh(mesh).closed_enough_to_emit()
+}
+
+/// Named emit contract for callers that tolerate bounded T-junction hairlines.
+pub(crate) fn closed_enough_to_emit(mesh: &Mesh) -> bool {
+    ClosureVerdict::for_mesh(mesh).closed_enough_to_emit()
+}
+
+fn hairline_closed(bad: &[(QuantizedPoint, QuantizedPoint, i64)]) -> bool {
+    if bad.is_empty() {
+        return true;
     }
-    if edges.is_empty() {
-        return false;
+    if bad.len() > 64 {
+        return false; // way past hairline territory
     }
-    // Canonicalize to undirected segments with a net sign.
+    // Canonicalize the unmatched directed segments only when the caller asks
+    // for the hairline verdict. Strict-only callers retain the old O(edges)
+    // walk without paying this allocation or sort.
+    let mut bad = bad.to_vec();
+    bad.sort_unstable_by_key(|&(a, b, _)| (a, b));
+
+    // Treat the canonicalized entries as undirected segments with a net sign.
     //
     // Sorted by endpoint key, NOT left in `edges` iteration order: `FxHashMap`
     // iterates target-dependently, and the grouping below is greedy, so an
@@ -83,20 +120,7 @@ pub(crate) fn closed_or_hairline(mesh: &Mesh) -> bool {
     // sort with a tie-free key yields one deterministic sequence whatever order
     // the map was walked in. The length sort that seeds the grouping is a total
     // order too, by its own index tie-break; see the comment there.
-    let mut bad: Vec<(K, K, i64)> = Vec::new();
-    for (&(a, b), &c) in edges.iter() {
-        if c > 0 {
-            bad.push((a, b, c));
-        }
-    }
-    bad.sort_unstable_by_key(|&(a, b, _)| (a, b));
-    if bad.is_empty() {
-        return true;
-    }
-    if bad.len() > 64 {
-        return false; // way past hairline territory
-    }
-    let p = |k: K| [k.0 as f64, k.1 as f64, k.2 as f64]; // grid units (0.1 mm)
+    let p = |k: QuantizedPoint| [k.0 as f64, k.1 as f64, k.2 as f64]; // grid units (0.1 mm)
 
     // Rigorous hairline test. A hairline (T-junction) boundary is one where the
     // uncancelled directed edges, viewed as a 1-D SIGNED measure along each
