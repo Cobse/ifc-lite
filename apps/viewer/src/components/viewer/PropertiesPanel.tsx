@@ -33,8 +33,7 @@ import { useIfc } from '@/hooks/useIfc';
 import { configureMutationView } from '@/utils/configureMutationView';
 import { IfcQuery } from '@ifc-lite/query';
 import { MutablePropertyView } from '@ifc-lite/mutations';
-import { extractClassificationsOnDemand, extractAllMaterialsOnDemand, extractMaterialPropertiesOnDemand, extractTypePropertiesOnDemand, extractTypeQuantitiesOnDemand, extractTypeEntityOwnProperties, extractDocumentsOnDemand, extractRelationshipsOnDemand, extractGroupMembersOnDemand, extractGeoreferencingOnDemand, extractLengthUnitScale, extractProjectUnits, ProjectUnits, extractStructuralOnDemand, getAttributeNames, type IfcDataStore, type MaterialPsetGroup } from '@ifc-lite/parser';
-import type { NewEntity } from '@ifc-lite/mutations';
+import { extractClassificationsOnDemand, extractAllMaterialsOnDemand, extractMaterialPropertiesOnDemand, extractTypePropertiesOnDemand, extractTypeQuantitiesOnDemand, extractTypeEntityOwnProperties, extractDocumentsOnDemand, extractRelationshipsOnDemand, extractGroupMembersOnDemand, extractGeoreferencingOnDemand, extractLengthUnitScale, extractProjectUnits, ProjectUnits, extractStructuralOnDemand, type IfcDataStore, type MaterialPsetGroup } from '@ifc-lite/parser';
 import { EntityFlags, RelationshipType, isSpatialStructureTypeName, isStoreyLikeSpatialTypeName } from '@ifc-lite/data';
 import type { EntityRef, FederatedModel } from '@/store/types';
 import { ZoneVolumeBreakdown } from './ZoneVolumeBreakdown';
@@ -43,6 +42,8 @@ import { withInheritedTypeQuantities } from '@/lib/zones/inherited-quantities';
 import { CoordVal, CoordRow } from './properties/CoordinateDisplay';
 import { renderToWorldViewer } from './tools/measure-modes/coordinates';
 import { viewerToIfcAxes } from '@/lib/geo/coordinate-frame';
+import { getEffectiveGeoreference } from '@/lib/geo/effective-georef';
+import { displayStoreyElevationMeters } from '@/lib/geo/storey-elevation';
 import { useRenderFrameOffsets } from '@/hooks/useRenderFrameOffsets';
 import { PropertySetCard } from './properties/PropertySetCard';
 import { QuantitySetCard } from './properties/QuantitySetCard';
@@ -65,6 +66,7 @@ import { UnitDisplayControl } from './properties/UnitDisplayControl';
 import { EntityHeaderActions } from './properties/EntityHeaderActions';
 import { TOUR_ANCHORS, tourAnchor } from '@/lib/tours/anchors';
 import { isMaterialDefinitionType } from '@/utils/materialDefinitionTypes';
+import { attributesFromOverlayEntity } from './properties/overlayAttributes';
 
 type DisplayProperty = { name: string; value: unknown; isMutated: boolean; type?: number; dataType?: string };
 type DisplayPropertySet = {
@@ -73,41 +75,6 @@ type DisplayPropertySet = {
   isNewPset: boolean;
   source?: PropertySet['source'];
 };
-
-/**
- * Synthesize an attribute list from a NewEntity record so the panel's
- * attributes section renders for overlay-only duplicates / scripted
- * adds. Positional indices are mapped to schema names; everything past
- * the schema's defined slots is dropped (no "Arg 9" rows in the bSDD
- * panel).
- */
-function attributesFromOverlayEntity(entity: NewEntity): Array<{ name: string; value: string }> {
-  const names = getAttributeNames(entity.type) ?? [];
-  if (names.length === 0) return [];
-  const out: Array<{ name: string; value: string }> = [];
-  // Stop at the smaller of the schema and the actual attributes — IFC
-  // entities can be partially populated (trailing optionals omitted).
-  const len = Math.min(names.length, entity.attributes.length);
-  for (let i = 0; i < len; i++) {
-    const value = entity.attributes[i];
-    let display: string;
-    if (value === null || value === undefined) continue;
-    if (typeof value === 'string') {
-      if (value === '$' || value.length === 0) continue;
-      display = value;
-    } else if (typeof value === 'number') {
-      display = String(value);
-    } else if (typeof value === 'boolean') {
-      display = value ? 'true' : 'false';
-    } else {
-      // Lists / typed values — skip the bSDD attributes panel; users
-      // can still see them on the Raw STEP tab.
-      continue;
-    }
-    out.push({ name: names[i], value: display });
-  }
-  return out;
-}
 
 function mergePropertySetLists(base: DisplayPropertySet[], incoming: DisplayPropertySet[]): DisplayPropertySet[] {
   const merged = base.map(pset => ({
@@ -222,6 +189,7 @@ export function PropertiesPanel() {
   const setEditEnabled = useViewerStore((s) => s.setEditEnabled);
   const pendingPropertyFocus = useViewerStore((s) => s.pendingPropertyFocus);
   const setPendingPropertyFocus = useViewerStore((s) => s.setPendingPropertyFocus);
+  const georefMutations = useViewerStore((s) => s.georefMutations);
 
   // One-shot "jump to the property I just added in bSDD" focus (issue #1107).
   // The bSDD card arms `pendingPropertyFocus` and the user crosses over via its
@@ -904,6 +872,22 @@ export function PropertiesPanel() {
     return info?.hasGeoreference ? info : null;
   }, [model, ifcDataStore]);
 
+  // The hierarchy retains model-relative elevations for level operations.
+  // Resolve the selected model's effective georeference only for Inspector
+  // display so a federated selection never borrows the anchor model's height.
+  const effectiveGeoref = useMemo(() => {
+    const dataStore = model?.ifcDataStore ?? ifcDataStore;
+    const coordinateInfo = (model?.geometryResult ?? geometryResult)?.coordinateInfo;
+    const modelId = selectedEntity?.modelId === 'legacy'
+      ? '__legacy__'
+      : (model?.id ?? selectedEntity?.modelId);
+    return getEffectiveGeoreference(
+      dataStore,
+      coordinateInfo,
+      modelId ? georefMutations.get(modelId) : undefined,
+    );
+  }, [model, ifcDataStore, geometryResult, selectedEntity?.modelId, georefMutations, mutationVersion]);
+
   // Extract IFC length unit scale (e.g. 0.001 for mm, 0.3048 for ft)
   const lengthUnitScale = useMemo(() => {
     const dataStore = model?.ifcDataStore ?? ifcDataStore;
@@ -1041,12 +1025,13 @@ export function PropertiesPanel() {
     if (isStoreyLikeSpatialTypeName(typeName)) {
       const elevation = hierarchy.storeyElevations.get(expressId);
       if (elevation !== undefined) {
-        stats.push({ label: 'Elevation', value: `${elevation.toFixed(2)} m` });
+        const displayElevation = displayStoreyElevationMeters(elevation, effectiveGeoref, dataStore, expressId);
+        stats.push({ label: 'Elevation', value: `${displayElevation.toFixed(2)} m` });
       }
     }
 
     return stats.length > 0 ? stats : null;
-  }, [selectedEntity, model, ifcDataStore]);
+  }, [selectedEntity, model, ifcDataStore, effectiveGeoref]);
 
   // Location-zone membership (issue #1810): which zone this element falls in
   // per defined zone set, read straight from the last-computed assignment
@@ -2078,6 +2063,8 @@ function EntityDataSection({
   // component to the main PropertiesPanel, so it reads the store directly
   // rather than threading the value through as a prop.
   const unitDisplayOverrides = useViewerStore((s) => s.unitDisplayOverrides);
+  const georefMutations = useViewerStore((s) => s.georefMutations);
+  const mutationVersion = useViewerStore((s) => s.mutationVersion);
 
   // Get attributes - uses schema-aware extraction to show ALL string/enum attributes
   // Note: GlobalId is intentionally excluded since it's shown in the dedicated GUID field above
@@ -2090,8 +2077,15 @@ function EntityDataSection({
   const elevationInfo = useMemo(() => {
     if (!dataStore?.spatialHierarchy) return null;
     const elevation = dataStore.spatialHierarchy.storeyElevations.get(entityRef.expressId);
-    return elevation !== undefined ? elevation : null;
-  }, [dataStore, entityRef.expressId]);
+    if (elevation === undefined) return null;
+    const modelId = entityRef.modelId === 'legacy' ? '__legacy__' : entityRef.modelId;
+    const effectiveGeoref = getEffectiveGeoreference(
+      dataStore,
+      model?.geometryResult?.coordinateInfo,
+      georefMutations.get(modelId),
+    );
+    return displayStoreyElevationMeters(elevation, effectiveGeoref, dataStore, entityRef.expressId);
+  }, [dataStore, entityRef.modelId, entityRef.expressId, model, georefMutations, mutationVersion]);
 
   if (!entityNode) {
     return (
