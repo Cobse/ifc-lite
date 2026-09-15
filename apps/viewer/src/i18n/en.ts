@@ -15,6 +15,17 @@ export const en = {
   'mergeLayersBanner.subtitle': 'Reload model to apply the new setting.',
   'mergeLayersBanner.reloadButton': 'Reload',
   'mergeLayersBanner.dismissAriaLabel': 'Dismiss reload reminder',
+
+  // appearanceAssignmentList: only the fixed strings convert (#4785). The
+  // per-row aria-labels and the object/objects count are built from live
+  // data (index, name, count) — the catalogue has no interpolation or
+  // pluralisation support yet, so those stay hardcoded. See the component's
+  // doc comment for the tracked gap.
+  'appearanceAssignmentList.sectionAriaLabel': 'Appearance assignments',
+  'appearanceAssignmentList.heading': 'Assignments',
+  'appearanceAssignmentList.description':
+    'Later assignments replace earlier ones on overlapping objects. Excluding an object here keeps any earlier assignment.',
+  'appearanceAssignmentList.reviewButton': 'Review objects and exceptions',
 } as const;
 
 export type TranslationKey = keyof typeof en;

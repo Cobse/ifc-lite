@@ -5,6 +5,7 @@ import { useId, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronRight, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { ResolvedAssignment } from '@/lib/appearance/assignments/types.js';
+import { useTranslation } from '@/i18n';
 import { AppearanceAssignmentMembers } from './AppearanceAssignmentMembers.js';
 
 export interface AppearanceAssignmentListProps {
@@ -16,14 +17,28 @@ export interface AppearanceAssignmentListProps {
   onExclude(id: string, GlobalId: string, excluded: boolean): void;
 }
 
-/** Ordered recipe review; the controller alone prepares and publishes changes. */
+/**
+ * Ordered recipe review; the controller alone prepares and publishes changes.
+ *
+ * Only the section's fixed strings (heading, description, aria-label, the
+ * "Review objects and exceptions" button) go through the i18n catalogue
+ * (#4785, second pattern conversion after `MergeLayersBanner`). The per-row
+ * aria-labels ("Move assignment 2 earlier", "Assignment 1: Brick on
+ * Building", ...) and the "N object(s)" count are built from live index,
+ * name and count values — `useTranslation`'s `t(key)` takes no arguments and
+ * the catalogue has no interpolation or pluralisation support, so those
+ * strings stay hardcoded here rather than hand-rolling a second templating
+ * scheme on top of it. That gap is a finding for whoever extends the i18n
+ * API next, not something this component works around.
+ */
 export function AppearanceAssignmentList(props: AppearanceAssignmentListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const reviewId = useId();
+  const { t } = useTranslation();
   if (!props.rows.length) return null;
-  return <section className="space-y-2" aria-label="Appearance assignments">
-    <div><h3 className="text-xs font-semibold">Assignments</h3>
-      <p className="text-[11px] text-muted-foreground">Later assignments replace earlier ones on overlapping objects. Excluding an object here keeps any earlier assignment.</p></div>
+  return <section className="space-y-2" aria-label={t('appearanceAssignmentList.sectionAriaLabel')}>
+    <div><h3 className="text-xs font-semibold">{t('appearanceAssignmentList.heading')}</h3>
+      <p className="text-[11px] text-muted-foreground">{t('appearanceAssignmentList.description')}</p></div>
     <ol className="space-y-2">{props.rows.map((row, index) => {
       const item = row.assignment;
       return <li key={item.id} className="rounded-md border p-2" aria-label={`Assignment ${index + 1}: ${item.source.name} on ${item.model.name}`}>
@@ -41,7 +56,7 @@ export function AppearanceAssignmentList(props: AppearanceAssignmentListProps) {
         <Button type="button" variant="ghost" size="sm" className="mt-1 h-6 px-0 text-[11px]" disabled={props.disabled}
           aria-label={`Review objects for assignment ${index + 1}`} aria-expanded={expandedId === item.id}
           aria-controls={`${reviewId}-${index}`} onClick={() => setExpandedId(expandedId === item.id ? null : item.id)}>
-          <ChevronRight className={`h-3 w-3 ${expandedId === item.id ? 'rotate-90' : ''}`} />Review objects and exceptions
+          <ChevronRight className={`h-3 w-3 ${expandedId === item.id ? 'rotate-90' : ''}`} />{t('appearanceAssignmentList.reviewButton')}
         </Button>
         <div id={`${reviewId}-${index}`}>
           {expandedId === item.id && <AppearanceAssignmentMembers assignment={item} disabled={props.disabled} objectName={props.objectName} onExclude={props.onExclude} />}
