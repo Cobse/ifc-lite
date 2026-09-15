@@ -117,6 +117,33 @@ export function executedCheckCount(output) {
   return tally ? Number(tally[1]) : null;
 }
 
+const BUMP_RANK = { patch: 1, minor: 2, major: 3 };
+
+/**
+ * The bump a run's WARN-level lints suggest, or null when none fired.
+ *
+ * `Summary` is driven by the tool's `required_bumps`, which counts ERRORS
+ * only. The 14 lints that carry `lint_level: Warn` feed a separate
+ * `suggested_bumps` and print underneath a clean `Summary no semver update
+ * required`, as their own `produced warnings suggest new <level> version`
+ * line (check_release.rs:597 and :603-625 in 0.50.0). Measured against a real
+ * repr(C) field reorder — cargo-semver-checks 0.50.0, `--release-type patch`
+ * — the transcript is exactly:
+ *
+ *   Checked [   0.010s] 223 checks: 222 pass, 0 fail, 1 warn, 31 skip
+ *   Summary no semver update required
+ *   Warning produced 1 major and 0 minor level warnings
+ *           produced warnings suggest new major version
+ *
+ * with exit code 0. This line, not the `Warning produced N major and M minor`
+ * one above it, is read: it already names the bump, so there is no count
+ * arithmetic to duplicate or get wrong here.
+ */
+function warnSuggests(output) {
+  const suggest = output.match(/produced warnings suggest new (major|minor) version/);
+  return suggest ? suggest[1] : null;
+}
+
 /**
  * The verdict of one run: the bump the tool says the API change requires, how
  * many lints it executed to say so, and a named reason when the output cannot
@@ -133,22 +160,23 @@ export function executedCheckCount(output) {
  * against the bump the version carries and this module does not know it
  * (#4786).
  *
- * WHAT THE SUMMARY LINE STILL DOES NOT SAY. It is driven by the tool's
- * `required_bumps`, which counts ERRORS. The 14 lints that carry
- * `lint_level: Warn` feed `suggested_bumps` instead and print on their own
- * `Warning produced N major and M minor level warnings` line, under a `Summary
- * no semver update required` (check_release.rs:597 and :603 in 0.50.0). So a
- * warn-level break — including the `#[repr(C)]` field reorders that are
- * ifc-lite-ffi's hazard — is read here as `patch`. Pre-existing and NOT closed
- * by #4786's floor, which only proves that lints ran: see #4800.
+ * `required` folds in what WARN-level lints suggest (#4800), taking whichever
+ * of the error-driven Summary and the warn-driven suggestion is the LARGER
+ * bump — never the smaller, so a warning can only raise the bar a failing
+ * lint already set, not lower it. A run whose Summary reads clean but whose
+ * warnings suggest a major — the `#[repr(C)]` field-reorder case that is
+ * ifc-lite-ffi's own named hazard — now reports `major`, not `patch`.
  */
 export function interpretRun({ status, output }) {
   const executed = executedCheckCount(output);
+  const warnRequired = warnSuggests(output);
+  const raise = (required) =>
+    warnRequired && BUMP_RANK[warnRequired] > BUMP_RANK[required] ? warnRequired : required;
   if (/Summary\s+no semver update required/.test(output)) {
-    return { required: 'patch', executed, reason: null };
+    return { required: raise('patch'), executed, reason: null };
   }
   const requires = output.match(/Summary\s+semver requires new (major|minor) version/);
-  if (requires) return { required: requires[1], executed, reason: null };
+  if (requires) return { required: raise(requires[1]), executed, reason: null };
   return {
     required: null,
     executed,

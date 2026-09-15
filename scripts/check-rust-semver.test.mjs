@@ -97,6 +97,55 @@ const SKIPPED_EVERY_LINT = {
   ].join('\n'),
 };
 
+/**
+ * A run that DETECTED a break but at warn level (#4800), so `required_bumps`
+ * — which drives the `Summary` line — never sees it: only `suggested_bumps`
+ * does, on the `Warning produced ...` / `produced warnings suggest ...` lines
+ * beneath a clean Summary. Transcribed from a real run, cargo-semver-checks
+ * 0.50.0, `--baseline-root` against a two-crate fixture with a `#[repr(C)]`
+ * struct whose fields were reordered between versions — the exact hazard
+ * check-rust-semver.mjs's own header names as ifc-lite-ffi's blind spot:
+ *
+ *   $ cargo +stable semver-checks --baseline-root ../old --release-type patch --color never
+ *        Checked [   0.010s] 223 checks: 222 pass, 0 fail, 1 warn, 31 skip
+ *   --- warning repr_c_plain_struct_fields_reordered: ... ---
+ *        Summary no semver update required
+ *        Warning produced 1 major and 0 minor level warnings
+ *                produced warnings suggest new major version
+ *       Finished [   1.346s] repro
+ *   $ echo $?
+ *   0
+ */
+const WARN_MAJOR = {
+  status: 0,
+  output: [
+    '     Checked [   0.010s] 223 checks: 222 pass, 0 fail, 1 warn, 31 skip',
+    '',
+    '--- warning repr_c_plain_struct_fields_reordered: struct fields reordered in repr(C) struct ---',
+    '',
+    'Failed in:',
+    '  Point.x moved from position 1 to 2, in src/lib.rs:4',
+    '  Point.y moved from position 2 to 1, in src/lib.rs:3',
+    '',
+    '     Summary no semver update required',
+    '     Warning produced 1 major and 0 minor level warnings',
+    '             produced warnings suggest new major version',
+    '    Finished [   1.346s] repro',
+  ].join('\n'),
+};
+
+/** Same shape, a warn-level MINOR suggestion instead of a major one. */
+const WARN_MINOR = {
+  status: 0,
+  output: [
+    '     Checked [   0.010s] 223 checks: 222 pass, 0 fail, 1 warn, 31 skip',
+    '     Summary no semver update required',
+    '     Warning produced 0 major and 1 minor level warnings',
+    '             produced warnings suggest new minor version',
+    '    Finished [   1.346s] repro',
+  ].join('\n'),
+};
+
 /** Defaults every case starts from: all seven crates published at 6.0.1. */
 function run(overrides = {}) {
   return checkRustSemver({
@@ -311,6 +360,58 @@ test('interpretRun reports the executed count as a fact and judges nothing', {
     'the adapter must not refuse on the gate’s behalf'
   );
   assert.equal(interpretRun(SKIPPED_EVERY_LINT).required, 'patch');
+});
+
+test('RED (#4800): a detected warn-level break is not discarded as patch', {
+  skip: typeof interpretRun !== 'function',
+}, () => {
+  // Before the fix, interpretRun reads only the Summary line, which is driven
+  // by required_bumps (errors only). WARN_MAJOR carries a full 223-lint tally
+  // AND a real detected break — cargo-semver-checks' own
+  // repr_c_plain_struct_fields_reordered lint, at warn level — so the
+  // NO_CHECKS_EXECUTED floor from #4786 does not and cannot catch this: the
+  // scan executed, and still returned a verdict that throws away what it
+  // found. `required` must be `major`, not `patch`.
+  assert.equal(
+    interpretRun(WARN_MAJOR).required,
+    'major',
+    'a warn-level repr(C) field reorder was read as "patch", exactly the ' +
+      'ifc-lite-ffi hazard check-rust-semver.mjs names as unclosed'
+  );
+  assert.equal(interpretRun(WARN_MINOR).required, 'minor');
+  // The executed count and reason are untouched by folding the warning in.
+  assert.equal(interpretRun(WARN_MAJOR).executed, 223);
+  assert.equal(interpretRun(WARN_MAJOR).reason, null);
+});
+
+test('a warn-level suggestion never LOWERS a verdict an error already forced higher', {
+  skip: typeof interpretRun !== 'function',
+}, () => {
+  // NEEDS_MAJOR already requires major from a failing lint; layering a
+  // warn-level minor suggestion on top of it must not read as a downgrade.
+  const majorErrorPlusMinorWarn = {
+    status: 1,
+    output:
+      NEEDS_MAJOR.output +
+      '\n     Warning produced 0 major and 1 minor level warnings\n' +
+      '             produced warnings suggest new minor version',
+  };
+  assert.equal(interpretRun(majorErrorPlusMinorWarn).required, 'major');
+});
+
+test('a warn-level suggestion RAISES a verdict an error alone set lower', () => {
+  // NEEDS_MINOR requires only minor from its failing lint; a warn-level
+  // major suggestion on the same run must still win, in this branch too
+  // (the error-verdict branch of interpretRun, not just the clean-Summary
+  // one WARN_MAJOR exercises).
+  const minorErrorPlusMajorWarn = {
+    status: 1,
+    output:
+      NEEDS_MINOR.output +
+      '\n     Warning produced 1 major and 0 minor level warnings\n' +
+      '             produced warnings suggest new major version',
+  };
+  assert.equal(interpretRun(minorErrorPlusMajorWarn).required, 'major');
 });
 
 test('the run is forced to the smallest release type, so the lint set is selected', {
