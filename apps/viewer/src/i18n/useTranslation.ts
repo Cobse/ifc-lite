@@ -10,9 +10,10 @@
 import { useSyncExternalStore } from 'react';
 import { getLocale, getLocaleSnapshot, resolve, subscribeLocale } from './registry';
 import type { TranslationKey } from './en';
+import type { TranslationParameters } from './types';
 
 export interface UseTranslationResult {
-  t: (key: TranslationKey) => string;
+  t: (key: TranslationKey, params?: TranslationParameters) => string;
   locale: string;
 }
 
