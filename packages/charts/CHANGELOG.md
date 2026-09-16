@@ -1,5 +1,11 @@
 # @ifc-lite/charts
 
+## 0.2.1
+
+### Patch Changes
+
+- [#4853](https://github.com/LTplus-AG/ifc-lite/pull/4853) [`3d68de9`](https://github.com/LTplus-AG/ifc-lite/commit/3d68de95ba3cb19921623873b9d70a6e17bcc836) Thanks [@louistrue](https://github.com/louistrue)! - Expose synthetic top-N Other bucket identity so consumers can distinguish it from literal category values with the same key.
+
 ## 0.2.0
 
 ### Minor Changes
