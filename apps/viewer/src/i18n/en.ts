@@ -3,12 +3,14 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
 import { appearanceAssignmentListEn } from './catalogues/appearance-assignment-list.en';
+import { appearanceAssignmentMembersEn } from './catalogues/appearance-assignment-members.en';
 import { mergeLayersBannerEn } from './catalogues/merge-layers-banner.en';
 
 /** English is assembled from feature catalogues so no locale becomes a monolith. */
 export const en = {
   ...mergeLayersBannerEn,
   ...appearanceAssignmentListEn,
+  ...appearanceAssignmentMembersEn,
 } as const;
 
 export type TranslationKey = keyof typeof en;
