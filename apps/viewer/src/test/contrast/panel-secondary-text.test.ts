@@ -292,9 +292,9 @@ describe('panel secondary text meets WCAG AA on its real surface (#4792)', () =>
       surface: 'bg-popover',
     },
     {
-      name: 'SectionPanel "or pick an axis" label',
+      name: 'SectionPanel axis prompt',
       file: SECTION_PANEL,
-      anchor: "{sectionPickMode ? 'Click a face to cut…' : isCustom ? 'Custom (pick again)' : 'Pick face'}\n                </span>\n              </Button>\n              <div ",
+      anchor: "{sectionPickMode ? t('sectionTool.pick.activeLabel') : isCustom ? t('sectionTool.pick.customLabel') : t('sectionTool.pick.label')}\n                </span>\n              </Button>\n              <div ",
       surface: 'bg-background',
     },
     {

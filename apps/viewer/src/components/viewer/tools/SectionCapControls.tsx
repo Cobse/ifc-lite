@@ -20,16 +20,17 @@
 import { useCallback, useId } from 'react';
 import { useViewerStore } from '@/store';
 import type { SectionCapHatchId } from '@/store/types';
+import { useTranslation, type TranslationKey } from '@/i18n';
 
-const PATTERN_LABELS: Record<SectionCapHatchId, string> = {
-  solid:      'Solid fill',
-  diagonal:   'Diagonal',
-  crossHatch: 'Cross-hatch',
-  horizontal: 'Horizontal',
-  vertical:   'Vertical',
-  concrete:   'Concrete',
-  brick:      'Brick',
-  insulation: 'Insulation',
+const PATTERN_LABEL_KEYS: Record<SectionCapHatchId, TranslationKey> = {
+  solid:      'sectionCap.pattern.solid',
+  diagonal:   'sectionCap.pattern.diagonal',
+  crossHatch: 'sectionCap.pattern.crossHatch',
+  horizontal: 'sectionCap.pattern.horizontal',
+  vertical:   'sectionCap.pattern.vertical',
+  concrete:   'sectionCap.pattern.concrete',
+  brick:      'sectionCap.pattern.brick',
+  insulation: 'sectionCap.pattern.insulation',
 };
 
 const PATTERN_IDS: SectionCapHatchId[] = [
@@ -56,10 +57,11 @@ function hexToRgba(hex: string, alpha: number): [number, number, number, number]
 interface DisplayToggleProps {
   active: boolean;
   label: string;
+  title: string;
   onToggle: () => void;
 }
 
-function DisplayToggle({ active, label, onToggle }: DisplayToggleProps): React.JSX.Element {
+function DisplayToggle({ active, label, title, onToggle }: DisplayToggleProps): React.JSX.Element {
   return (
     <button
       type="button"
@@ -70,7 +72,7 @@ function DisplayToggle({ active, label, onToggle }: DisplayToggleProps): React.J
           ? 'bg-primary text-primary-foreground border-primary'
           : 'bg-muted text-muted-foreground border-muted hover:border-foreground/20'
       }`}
-      title={`${active ? 'Hide' : 'Show'} ${label.toLowerCase()}`}
+      title={title}
     >
       <span
         aria-hidden
@@ -82,6 +84,7 @@ function DisplayToggle({ active, label, onToggle }: DisplayToggleProps): React.J
 }
 
 export function SectionCapControls(): React.JSX.Element {
+  const { t } = useTranslation();
   const sectionPlane       = useViewerStore((s) => s.sectionPlane);
   const setShowCap         = useViewerStore((s) => s.setSectionShowCap);
   const setShowOutlines    = useViewerStore((s) => s.setSectionShowOutlines);
@@ -135,10 +138,12 @@ export function SectionCapControls(): React.JSX.Element {
     <div className="mt-3 border-t pt-3 space-y-3">
       {/* Display toggles — surfaces and lines independently. */}
       <div>
-        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Display</div>
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">{t('sectionCap.display')}</div>
         <div className="grid grid-cols-2 gap-2">
-          <DisplayToggle active={sectionPlane.showCap}      label="Surfaces" onToggle={onToggleCap} />
-          <DisplayToggle active={sectionPlane.showOutlines} label="Lines"    onToggle={onToggleOutlines} />
+          <DisplayToggle active={sectionPlane.showCap} label={t('sectionCap.surfaces')}
+            title={t(sectionPlane.showCap ? 'sectionCap.hideSurfaces' : 'sectionCap.showSurfaces')} onToggle={onToggleCap} />
+          <DisplayToggle active={sectionPlane.showOutlines} label={t('sectionCap.lines')}
+            title={t(sectionPlane.showOutlines ? 'sectionCap.hideLines' : 'sectionCap.showLines')} onToggle={onToggleOutlines} />
         </div>
       </div>
 
@@ -149,7 +154,7 @@ export function SectionCapControls(): React.JSX.Element {
       >
         <div>
           <label htmlFor={patternId} className="text-[10px] uppercase tracking-wider text-muted-foreground block mb-1">
-            Hatch pattern
+            {t('sectionCap.patternLabel')}
           </label>
           <select
             id={patternId}
@@ -158,7 +163,7 @@ export function SectionCapControls(): React.JSX.Element {
             className="w-full text-xs bg-muted px-2 py-1.5 rounded border-none"
           >
             {PATTERN_IDS.map((id) => (
-              <option key={id} value={id}>{PATTERN_LABELS[id]}</option>
+              <option key={id} value={id}>{t(PATTERN_LABEL_KEYS[id])}</option>
             ))}
           </select>
         </div>
@@ -171,9 +176,9 @@ export function SectionCapControls(): React.JSX.Element {
               value={rgbaToHex(sectionPlane.capStyle.fillColor)}
               onChange={onFillColor}
               className="h-5 w-5 rounded cursor-pointer border border-muted"
-              aria-label="Fill colour"
+              aria-label={t('sectionCap.fillAriaLabel')}
             />
-            Fill
+            {t('sectionCap.fillLabel')}
           </label>
           <label htmlFor={strokeId} className="flex items-center gap-2 text-[10px] uppercase tracking-wider text-muted-foreground">
             <input
@@ -182,15 +187,15 @@ export function SectionCapControls(): React.JSX.Element {
               value={rgbaToHex(sectionPlane.capStyle.strokeColor)}
               onChange={onStrokeColor}
               className="h-5 w-5 rounded cursor-pointer border border-muted"
-              aria-label="Hatch colour"
+              aria-label={t('sectionCap.hatchAriaLabel')}
             />
-            Hatch
+            {t('sectionCap.hatchLabel')}
           </label>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
           <div>
-            <label htmlFor={spacingId} className="text-[10px] text-muted-foreground block mb-1">Spacing (px)</label>
+            <label htmlFor={spacingId} className="text-[10px] text-muted-foreground block mb-1">{t('sectionCap.spacingLabel')}</label>
             <input
               id={spacingId}
               type="number"
@@ -203,7 +208,7 @@ export function SectionCapControls(): React.JSX.Element {
             />
           </div>
           <div>
-            <label htmlFor={angleId} className="text-[10px] text-muted-foreground block mb-1">Angle (°)</label>
+            <label htmlFor={angleId} className="text-[10px] text-muted-foreground block mb-1">{t('sectionCap.angleLabel')}</label>
             <input
               id={angleId}
               type="number"
@@ -216,7 +221,7 @@ export function SectionCapControls(): React.JSX.Element {
             />
           </div>
           <div>
-            <label htmlFor={widthId} className="text-[10px] text-muted-foreground block mb-1">Width (px)</label>
+            <label htmlFor={widthId} className="text-[10px] text-muted-foreground block mb-1">{t('sectionCap.widthLabel')}</label>
             <input
               id={widthId}
               type="number"

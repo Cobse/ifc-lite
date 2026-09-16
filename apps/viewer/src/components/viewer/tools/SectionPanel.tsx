@@ -15,8 +15,10 @@ import { tourAnchor, TOUR_ANCHORS } from '@/lib/tours/anchors';
 import { AXIS_INFO } from './sectionConstants';
 import { SectionPlaneVisualization } from './SectionVisualization';
 import { SectionCapControls } from './SectionCapControls';
+import { useTranslation } from '@/i18n';
 
 export function SectionOverlay() {
+  const { t } = useTranslation();
   const sectionPlane = useViewerStore((s) => s.sectionPlane);
   const setSectionPlaneAxis = useViewerStore((s) => s.setSectionPlaneAxis);
   const setSectionPlanePosition = useViewerStore((s) => s.setSectionPlanePosition);
@@ -157,7 +159,7 @@ export function SectionOverlay() {
           <div className="flex items-center gap-1 min-w-0">
             <span
               onMouseDown={drag.onDragStart}
-              title="Drag to move"
+              title={t('sectionTool.dragTitle')}
               className="shrink-0 cursor-grab active:cursor-grabbing text-muted-foreground/50 hover:text-muted-foreground"
             >
               <GripVertical className="h-3.5 w-3.5" />
@@ -167,12 +169,15 @@ export function SectionOverlay() {
               className="flex items-center gap-2 hover:bg-accent/50 rounded px-2 py-1 transition-colors min-w-0"
             >
             <Slice className="h-4 w-4 text-primary" />
-            <span className="font-medium text-sm">Section</span>
+            <span className="font-medium text-sm">{t('sectionTool.heading')}</span>
             {sectionPlane.enabled && (
-              <span className="text-xs text-primary font-mono">
+              <span className="text-xs text-primary font-mono tabular-nums">
                 {isCustom
-                  ? <>Custom <span className="inline-block w-16 text-right tabular-nums">{sectionPlane.custom!.distance.toFixed(2)}m</span></>
-                  : <>{AXIS_INFO[sectionPlane.axis].label} <span className="inline-block w-12 text-right tabular-nums">{sectionPlane.position.toFixed(1)}%</span></>
+                  ? t('sectionTool.header.custom', { distance: sectionPlane.custom!.distance.toFixed(2) })
+                  : t('sectionTool.header.axis', {
+                    axis: t(AXIS_INFO[sectionPlane.axis].labelKey),
+                    position: sectionPlane.position.toFixed(1),
+                  })
                 }
               </span>
             )}
@@ -182,11 +187,11 @@ export function SectionOverlay() {
           <div className="flex items-center gap-1">
             {/* Only show 2D button when panel is closed */}
             {!drawingPanelVisible && (
-              <Button variant="ghost" size="icon-sm" onClick={handleView2D} title="Open 2D Drawing Panel">
+              <Button variant="ghost" size="icon-sm" onClick={handleView2D} title={t('sectionTool.openDrawingTitle')}>
                 <FileImage className="h-3 w-3" />
               </Button>
             )}
-            <Button variant="ghost" size="icon-sm" onClick={handleClose} title="Close">
+            <Button variant="ghost" size="icon-sm" onClick={handleClose} title={t('sectionTool.closeTitle')}>
               <X className="h-3 w-3" />
             </Button>
           </div>
@@ -209,16 +214,16 @@ export function SectionOverlay() {
                 aria-pressed={sectionPickMode}
                 title={
                   sectionPickMode
-                    ? 'Click any face in the viewport to cut through it'
-                    : 'Pick a face to cut through (Bonsai-style)'
+                    ? t('sectionTool.pick.activeTitle')
+                    : t('sectionTool.pick.title')
                 }
               >
                 <span className="text-xs font-medium flex items-center gap-1">
                   <MousePointerClick className="h-3 w-3" />
-                  {sectionPickMode ? 'Click a face to cut…' : isCustom ? 'Custom (pick again)' : 'Pick face'}
+                  {sectionPickMode ? t('sectionTool.pick.activeLabel') : isCustom ? t('sectionTool.pick.customLabel') : t('sectionTool.pick.label')}
                 </span>
               </Button>
-              <div className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground mb-1">or pick an axis</div>
+              <div className="mt-2 text-[10px] uppercase tracking-wider text-muted-foreground mb-1">{t('sectionTool.axisPrompt')}</div>
               <div className="flex gap-1">
                 {(['down', 'front', 'side'] as const).map((axis) => (
                   <Button
@@ -228,20 +233,20 @@ export function SectionOverlay() {
                     className="flex-1 h-7 px-2 text-[11px]"
                     onClick={() => handleAxisChange(axis)}
                   >
-                    <span className="font-normal">{AXIS_INFO[axis].label}</span>
+                    <span className="font-normal">{t(AXIS_INFO[axis].labelKey)}</span>
                   </Button>
                 ))}
               </div>
               {isCustom && (
                 <div className="mt-2 flex items-center justify-between text-[10px] font-mono text-muted-foreground bg-muted/50 rounded px-2 py-1">
-                  <span title="Custom plane normal (world-space unit vector)">
+                  <span title={t('sectionTool.normalTitle')}>
                     n=({sectionPlane.custom!.normal.map((v) => v.toFixed(2)).join(', ')})
                   </span>
                   <Button
                     variant="ghost"
                     size="icon-sm"
                     onClick={handleResetToAxis}
-                    title="Reset to nearest cardinal axis"
+                    title={t('sectionTool.resetAxisTitle')}
                     className="h-5 w-5"
                   >
                     <RotateCcw className="h-3 w-3" />
@@ -258,7 +263,7 @@ export function SectionOverlay() {
             <div className="mt-3">
               <div className="flex items-center justify-between mb-1">
                 <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {isCustom ? 'Distance (m)' : 'Position'}
+                  {isCustom ? t('sectionTool.distanceLabel') : t('sectionTool.positionLabel')}
                 </div>
                 <div className="flex items-center gap-1">
                   <Button
@@ -266,8 +271,8 @@ export function SectionOverlay() {
                     size="icon-sm"
                     onClick={flipSectionPlane}
                     aria-pressed={sectionPlane.flipped}
-                    aria-label={sectionPlane.flipped ? 'Unflip cut direction' : 'Flip cut direction'}
-                    title={sectionPlane.flipped ? 'Cut direction is flipped' : 'Flip cut direction'}
+                    aria-label={t(sectionPlane.flipped ? 'sectionTool.unflipLabel' : 'sectionTool.flipLabel')}
+                    title={t(sectionPlane.flipped ? 'sectionTool.flippedTitle' : 'sectionTool.flipLabel')}
                   >
                     <FlipHorizontal2 className="h-3 w-3" />
                   </Button>
@@ -277,7 +282,7 @@ export function SectionOverlay() {
                       step="0.05"
                       value={sectionPlane.custom!.distance.toFixed(3)}
                       onChange={handleCustomDistanceChange}
-                      aria-label="Section plane distance along picked normal (world units)"
+                      aria-label={t('sectionTool.distanceAriaLabel')}
                       className="w-20 text-xs font-mono bg-muted px-1.5 py-0.5 rounded border-none text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                   ) : (
@@ -288,7 +293,7 @@ export function SectionOverlay() {
                       step="0.1"
                       value={sectionPlane.position}
                       onChange={handlePositionChange}
-                      aria-label="Section plane position percentage"
+                      aria-label={t('sectionTool.positionAriaLabel')}
                       className="w-16 text-xs font-mono bg-muted px-1.5 py-0.5 rounded border-none text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                   )}
@@ -311,7 +316,7 @@ export function SectionOverlay() {
                 onBlur={handleSliderDragEnd}
                 onKeyDown={handleSliderDragStart}
                 onKeyUp={handleSliderDragEnd}
-                aria-label="Section plane position slider"
+                aria-label={t('sectionTool.sliderAriaLabel')}
                 className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
               />
             </div>
@@ -329,7 +334,7 @@ export function SectionOverlay() {
                   onClick={handleView2D}
                 >
                   <FileImage className="h-4 w-4 mr-2" />
-                  Open 2D Drawing
+                  {t('sectionTool.openDrawingButton')}
                 </Button>
               </div>
             )}
@@ -348,12 +353,16 @@ export function SectionOverlay() {
       >
         <span className="font-mono text-xs uppercase tracking-wide">
           {sectionPickMode
-            ? 'Hover a surface to preview, click to cut'
+            ? t('sectionTool.hint.pick')
             : sectionPlane.enabled
               ? isCustom
-                ? `Custom cut at d=${sectionPlane.custom!.distance.toFixed(2)}m${sectionPlane.flipped ? ' (flipped)' : ''}`
-                : `Cut ${AXIS_INFO[sectionPlane.axis].label.toLowerCase()} at ${sectionPlane.position.toFixed(1)}%${sectionPlane.flipped ? ' (flipped)' : ''}`
-              : 'Clip off — drag slider to cut'}
+                ? t(sectionPlane.flipped ? 'sectionTool.hint.customFlipped' : 'sectionTool.hint.custom', {
+                  distance: sectionPlane.custom!.distance.toFixed(2),
+                })
+                : t(sectionPlane.flipped
+                  ? AXIS_INFO[sectionPlane.axis].flippedStatusKey
+                  : AXIS_INFO[sectionPlane.axis].statusKey, { position: sectionPlane.position.toFixed(1) })
+              : t('sectionTool.hint.off')}
         </span>
       </div>
 
@@ -368,9 +377,9 @@ export function SectionOverlay() {
               ? 'bg-primary text-primary-foreground border-primary'
               : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-500 border-zinc-300 dark:border-zinc-700'
           }`}
-          title={sectionPlane.enabled ? 'Click to disable the cut' : 'Click to enable the cut'}
+          title={t(sectionPlane.enabled ? 'sectionTool.clipping.disableTitle' : 'sectionTool.clipping.enableTitle')}
         >
-          {sectionPlane.enabled ? 'Clipping' : 'Clip off'}
+          {t(sectionPlane.enabled ? 'sectionTool.clipping.onLabel' : 'sectionTool.clipping.offLabel')}
         </button>
       </div>
 
