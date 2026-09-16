@@ -9,6 +9,7 @@
 import { createLogger } from '@ifc-lite/data';
 import { decodeIfcString } from '@ifc-lite/encoding';
 import { isIndexableExpressId } from './express-id.js';
+import { entityParameters } from './step-entity-parameters.js';
 import { StepTextScan } from './step-lexing.js';
 import { STEP_TRIVIA } from './step-trivia.js';
 import type { IfcEntity, EntityRef } from './types.js';
@@ -27,7 +28,7 @@ const MAX_PARSE_DEPTH = 100;
  * Compiled once: `extractEntity` is on the hot path for every entity in a
  * model.
  */
-const ENTITY_RECORD_RE = new RegExp(`^#(\\d+)\\s*=\\s*(\\w+)${STEP_TRIVIA}\\(([\\s\\S]*)\\)`);
+const ENTITY_RECORD_RE = new RegExp(`^#(\\d+)\\s*=\\s*(\\w+)${STEP_TRIVIA}\\(`);
 
 /**
  * `TYPE(inner)` for a positional typed-value attribute, same trivia
@@ -109,7 +110,8 @@ export class EntityExtractor {
       // canonical, but this legacy eager adapter re-reads the record and must
       // not reintroduce the file's spelling into EntityIndexBuilder.byType.
       const type = match[2].toUpperCase();
-      const paramsText = match[3];
+      const paramsText = entityParameters(entityText, match[0].length);
+      if (paramsText === undefined) return null;
 
       // Parse attributes (simplified - handles basic types)
       const { attributes, enumAttrIndices } = this.parseAttributes(paramsText);

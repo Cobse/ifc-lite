@@ -52,6 +52,15 @@ Override the source for mirrors or local cache servers:
 IFC_LITE_FIXTURE_BASE_URL=https://my-mirror.example/path pnpm fixtures
 ```
 
+### Cost composition fixture provenance
+
+`cost/buildingsmart-cost-composition.ifc` was authored by the ifc-lite
+contributors under MPL-2.0. Its independently checked 800 + 1,300 + 150 =
+2,250 GBP oracle follows the published buildingSMART IFC4 `IfcCostItem`
+composition example; no third-party model bytes were copied into the fixture.
+IfcOpenShell 0.8.2 independently opens the fixture as IFC4 and resolves its
+top-level `IfcCostValue` to 2,250.
+
 ## For maintainers: adding a new fixture
 
 1. Drop the file under `tests/models/<group>/<name>` locally.

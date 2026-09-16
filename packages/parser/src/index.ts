@@ -158,16 +158,7 @@ export {
 
 // Cost (5D) extractor — IfcCostItem, IfcCostValue, IfcCostSchedule, IfcRelNests,
 // IfcRelAssignsToControl. Read model + extraction only (#4322).
-export {
-  extractCostOnDemand,
-} from './cost-extractor.js';
-export type {
-  CostExtraction,
-  CostItemInfo,
-  CostScheduleInfo,
-  CostValueInfo,
-  CostValueUnitBasis,
-} from './cost-types.js';
+export * from './cost.js';
 
 // Signed ISO 8601 duration codec — shared by the schedule extractor (decode)
 // and serializer (encode), and by any other schedule consumer that needs to

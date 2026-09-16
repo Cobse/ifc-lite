@@ -329,6 +329,11 @@
       "size": 12492
     },
     {
+      "path": "cost/buildingsmart-cost-composition.ifc",
+      "sha256": "31ad577a5bf502e3d35a70185e5ae1f44b0d60bfb772c7a08c03b56421c3786c",
+      "size": 2505
+    },
+    {
       "path": "ifc5/ACCA_Building_esempio_01_edificius.ifcx",
       "sha256": "cdb3e35b3f833af94fadb918665ea1b14a970abe0cd6873bb245f1f0a13ad8db",
       "size": 7243221

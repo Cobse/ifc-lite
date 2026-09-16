@@ -2,390 +2,377 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-/**
- * Cost (5D) extractor — parses IfcCostItem, IfcCostValue, IfcCostSchedule,
- * IfcRelNests and IfcRelAssignsToControl from a parsed IfcDataStore into a
- * normalized CostExtraction. Structure mirrors `schedule-extractor.ts`
- * (schedule/task hierarchy -> cost/cost-item hierarchy).
- *
- * Relationship wiring, verified against `packages/codegen/schemas/IFC4_ADD2_TC1.exp`
- * / `IFC4X3.exp` (identical in both):
- *
- *  - `IfcControl` (the supertype of both `IfcCostItem` and `IfcCostSchedule`)
- *    declares `INVERSE Controls : SET [0:?] OF IfcRelAssignsToControl FOR
- *    RelatingControl` — `IfcRelAssignsToControl` is the ONLY relationship
- *    that can target a Control as `RelatingControl`, so it is necessarily
- *    what binds both "schedule controls cost items" and "cost item controls
- *    the objects it prices" — there is no separate relationship analogous to
- *    `IfcRelAssignsToProcess` for cost. Which of the two a given
- *    `IfcRelAssignsToControl` instance expresses is told apart here by
- *    what its `RelatingControl` expressId resolves to (a cost schedule or
- *    a cost item), not by anything the schema itself distinguishes.
- *  - Cost item breakdown (parent/child `IfcCostItem` nesting) uses
- *    `IfcRelNests` (`RelatingObject`/`RelatedObjects : IfcObjectDefinition`,
- *    which `IfcCostItem` satisfies via `IfcControl -> IfcObject ->
- *    IfcObjectDefinition`) — the same relationship `schedule-extractor.ts`
- *    uses for task hierarchy. The EXPRESS schema does not constrain this by
- *    a WHERE rule (nothing stops `IfcRelNests` from nesting unrelated
- *    objects), so this is the domain convention this extractor follows, not
- *    a schema-enforced fact — reported explicitly rather than asserted as
- *    certain.
- *
- * IFC2X3's `IfcCostItem` has NO attributes at all (`SUBTYPE OF (IfcControl)`
- * only — no PredefinedType/CostValues/CostQuantities), so those fields are
- * always `undefined` for a 2X3 file; this is schema-version-gated below, not
- * inferred from an empty read. IFC2X3's `IfcCostSchedule` DOES carry
- * Status/SubmittedOn/UpdateDate/PredefinedType, at different slots and with
- * entity-valued dates — read through `cost-schedule-2x3.ts`.
- */
-
-import { EntityExtractor } from './entity-extractor.js';
+import { QuantityType } from '@ifc-lite/data';
 import type { IfcDataStore } from './columnar-parser.js';
-import { collectQuantitiesFromRefs } from './quantity-collect.js';
-import { resolveUnitByRef } from './project-units.js';
-import { COST_SCHEDULE_ATTR_2X3, resolveDateTimeSelect2x3 } from './cost-schedule-2x3.js';
+import { compatibilityTreeBuilder } from './cost-compatibility-tree.js';
+import { costQuantityExactValue, extractCostQuantities } from './cost-quantities.js';
+import { asEnum, asRef, asString, CostEntityReader } from './cost-reader.js';
+import { diagnoseCostGraphs, extractCostRelationships } from './cost-relationships.js';
+import { isZeroCostNumericLexeme } from './cost-step-lexemes.js';
 import type {
-  CostExtraction,
+  CostAppliedValue,
+  CostDiagnostic,
+  CostGraphExtraction,
   CostItemInfo,
+  CostQuantityDimension,
+  CostQuantityInfo,
   CostScheduleInfo,
   CostValueInfo,
-  CostValueUnitBasis,
 } from './cost-types.js';
+import { CostUnitResolver } from './cost-units.js';
 
-/** Flattened IFC4/IFC4X3 STEP attribute indices for IfcCostItem. */
-const COST_ITEM_ATTR = {
-  GlobalId: 0,
-  Name: 2,
-  Description: 3,
-  ObjectType: 4,
-  Identification: 5,
-  PredefinedType: 6,
-  CostValues: 7,
-  CostQuantities: 8,
-} as const;
-
-const COST_SCHEDULE_ATTR = {
-  GlobalId: 0,
-  Name: 2,
-  Description: 3,
-  ObjectType: 4,
-  Identification: 5,
-  PredefinedType: 6,
-  Status: 7,
-  SubmittedOn: 8,
-  UpdateDate: 9,
-} as const;
-
-/**
- * IfcAppliedValue attribute slots (IfcCostValue adds no attributes of its
- * own). Slot 3, `UnitBasis : OPTIONAL IfcMeasureWithUnit`, is what tells a
- * RATE ("$85 per hour") apart from a flat total ("$5,000") — read via
- * `extractUnitBasis` below, not skipped.
- */
-const COST_VALUE_ATTR = {
-  Name: 0,
-  Description: 1,
-  AppliedValue: 2,
-  UnitBasis: 3,
-  ApplicableDate: 4,
-  FixedUntilDate: 5,
-  Category: 6,
-  Condition: 7,
-  ArithmeticOperator: 8,
-  Components: 9,
-} as const;
-
-const REL_NESTS_ATTR = { RelatingObject: 4, RelatedObjects: 5 } as const;
-const REL_ASSIGNS_TO_CONTROL_ATTR = { RelatedObjects: 4, RelatingControl: 6 } as const;
-
-function asString(v: unknown): string | undefined {
-  if (typeof v === 'string' && v.length > 0) return v;
-  return undefined;
+function scalarString(value: unknown): string | undefined {
+  if (Array.isArray(value) && value.length === 2) return scalarString(value[1]);
+  if (typeof value === 'string' && value.length > 0) return value;
+  return typeof value === 'number' && Number.isFinite(value) ? value.toString() : undefined;
 }
 
-function asEnum(v: unknown): string | undefined {
-  if (typeof v !== 'string' || v.length === 0) return undefined;
-  const match = v.match(/^\.([A-Z_]+)\.$/);
-  return match ? match[1] : undefined;
-}
-
-function asRef(v: unknown): number | undefined {
-  if (typeof v === 'number' && Number.isInteger(v) && v > 0) return v;
-  return undefined;
-}
-
-function asRefList(v: unknown): number[] {
-  if (!Array.isArray(v)) return [];
-  const out: number[] = [];
-  for (const x of v) {
-    const id = asRef(x);
-    if (id !== undefined) out.push(id);
-  }
-  return out;
-}
-
-/**
- * `AppliedValue` is an `IfcAppliedValueSelect`. A resolved measure reads as a
- * typed pair `['IFCMONETARYMEASURE', 500]` (same shape `extractLagTimeSeconds`
- * in `schedule-extractor.ts` unwraps for `IfcTimeOrRatioSelect`); a plain
- * number is accepted too, since not every parse path wraps a select. Any
- * other select member (e.g. a table or measure-with-unit reference) is left
- * unresolved rather than guessed at.
- */
-function asAppliedValueNumber(v: unknown): number | undefined {
-  if (typeof v === 'number' && Number.isFinite(v)) return v;
-  if (Array.isArray(v) && v.length === 2) {
-    const inner = v[1];
-    if (typeof inner === 'number' && Number.isFinite(inner)) return inner;
-    if (typeof inner === 'string') {
-      const n = parseFloat(inner);
-      if (Number.isFinite(n)) return n;
+function dateTime2x3(reader: CostEntityReader, value: unknown): string | undefined {
+  const pad = (part: number): string => String(part).padStart(2, '0');
+  let current = asRef(value);
+  let clock: string | undefined;
+  const visited = new Set<number>();
+  while (current !== undefined) {
+    if (visited.has(current)) return undefined;
+    visited.add(current);
+    const entity = reader.get(current);
+    if (!entity) return undefined;
+    const a = entity.attributes ?? [];
+    const type = entity.type.toUpperCase();
+    if (type === 'IFCCALENDARDATE' &&
+        typeof a[0] === 'number' && typeof a[1] === 'number' && typeof a[2] === 'number') {
+      const date = `${a[2]}-${pad(a[1])}-${pad(a[0])}`;
+      return clock ? `${date}T${clock}` : date;
     }
+    if (type !== 'IFCDATEANDTIME') return undefined;
+    if (!clock) {
+      const timeId = asRef(a[1]);
+      const time = timeId === undefined ? undefined : reader.get(timeId);
+      const t = time?.type.toUpperCase() === 'IFCLOCALTIME' ? time.attributes ?? [] : [];
+      if (typeof t[0] === 'number') {
+        const minute = typeof t[1] === 'number' ? t[1] : 0;
+        const second = typeof t[2] === 'number' ? Math.floor(t[2]) : 0;
+        clock = `${pad(t[0])}:${pad(minute)}:${pad(second)}`;
+      }
+    }
+    current = asRef(a[0]);
   }
   return undefined;
 }
 
-/**
- * Resolve `IfcAppliedValue.UnitBasis` (slot 3, `OPTIONAL IfcMeasureWithUnit`)
- * into the minimal shape that answers "is this a rate or a total?" —
- * `undefined` when `UnitBasis` is absent or its reference is broken;
- * otherwise an object whose mere presence marks the owning `CostValueInfo` as
- * a rate, with `valueComponent`/`unitSymbol` individually `undefined` when
- * that half of `IfcMeasureWithUnit` could not itself be resolved (see
- * {@link CostValueUnitBasis}'s doc comment in `cost-types.ts`).
- *
- * `IfcMeasureWithUnit` (`ValueComponent : IfcValue`, `UnitComponent :
- * IfcUnit`) — both SELECT types, so each is resolved independently:
- *  - `ValueComponent` reuses `asAppliedValueNumber`, the same resolution
- *    `AppliedValue` above uses for its own `IfcAppliedValueSelect`.
- *  - `UnitComponent` reuses `resolveUnitByRef` (shared with
- *    `IfcPhysicalSimpleQuantity.Unit` in `quantity-collect.ts`), NOT
- *    `quantitySiScale`'s project-unit-fallback machinery: `IfcMeasureWithUnit`
- *    is not an `IfcPhysicalQuantity`, `UnitComponent` is not `OPTIONAL`
- *    within it, and there is no containing project unit to fall back to — the
- *    reference resolves or it does not.
- */
-function extractUnitBasis(
-  extractor: EntityExtractor,
-  store: IfcDataStore,
-  unitBasisRef: number | undefined,
-): CostValueUnitBasis | undefined {
-  if (unitBasisRef === undefined) return undefined;
-  const ref = store.entityIndex.byId.get(unitBasisRef);
-  if (!ref) return undefined;
-  const entity = extractor.extractEntity(ref);
-  if (!entity || entity.type.toUpperCase() !== 'IFCMEASUREWITHUNIT') return undefined;
-  const a = entity.attributes || [];
-  const unitRef = asRef(a[1]);
-  const unit = unitRef !== undefined ? resolveUnitByRef(extractor, store.entityIndex, unitRef) : null;
-  return {
-    valueComponent: asAppliedValueNumber(a[0]),
-    unitSymbol: unit?.resolved.symbol,
-    unitSiScale: unit?.resolved.siScale,
-  };
-}
-
-const MAX_COST_VALUE_DEPTH = 20;
-
-function extractCostValue(
-  extractor: EntityExtractor,
-  store: IfcDataStore,
-  valueId: number,
-  depth: number,
-  visiting: Set<number>,
-): CostValueInfo | undefined {
-  if (depth > MAX_COST_VALUE_DEPTH || visiting.has(valueId)) return undefined;
-  const ref = store.entityIndex.byId.get(valueId);
-  if (!ref) return undefined;
-  const entity = extractor.extractEntity(ref);
-  if (!entity) return undefined;
-  if (entity.type.toUpperCase() !== 'IFCCOSTVALUE') return undefined;
-  const a = entity.attributes || [];
-
-  visiting.add(valueId);
-  const componentIds = asRefList(a[COST_VALUE_ATTR.Components]);
-  const components = componentIds.length
-    ? componentIds
-        .map((id) => extractCostValue(extractor, store, id, depth + 1, visiting))
-        .filter((c): c is CostValueInfo => c !== undefined)
-    : undefined;
-  visiting.delete(valueId);
-
-  return {
-    name: asString(a[COST_VALUE_ATTR.Name]),
-    description: asString(a[COST_VALUE_ATTR.Description]),
-    appliedValue: asAppliedValueNumber(a[COST_VALUE_ATTR.AppliedValue]),
-    unitBasis: extractUnitBasis(extractor, store, asRef(a[COST_VALUE_ATTR.UnitBasis])),
-    applicableDate: asString(a[COST_VALUE_ATTR.ApplicableDate]),
-    fixedUntilDate: asString(a[COST_VALUE_ATTR.FixedUntilDate]),
-    category: asString(a[COST_VALUE_ATTR.Category]),
-    condition: asString(a[COST_VALUE_ATTR.Condition]),
-    arithmeticOperator: asEnum(a[COST_VALUE_ATTR.ArithmeticOperator]),
-    ...(components && components.length ? { components } : {}),
-  };
-}
-
-function extractCostValues(
-  extractor: EntityExtractor,
-  store: IfcDataStore,
-  refs: unknown,
-): CostValueInfo[] | undefined {
-  const ids = asRefList(refs);
-  if (ids.length === 0) return undefined;
-  const visiting = new Set<number>();
-  const values = ids
-    .map((id) => extractCostValue(extractor, store, id, 0, visiting))
-    .filter((v): v is CostValueInfo => v !== undefined);
-  return values.length ? values : undefined;
-}
-
-/**
- * Extract all costing data from a parsed IFC store.
- *
- * Walks every IfcCostItem / IfcCostSchedule / IfcRelNests /
- * IfcRelAssignsToControl entity and assembles a connected CostExtraction.
- */
-export function extractCostOnDemand(store: IfcDataStore): CostExtraction {
-  if (!store.source?.length) {
-    return { costSchedules: [], costItems: [], hasCost: false };
+function appliedValue(
+  value: unknown,
+  reader: CostEntityReader,
+  expressId: number,
+): CostAppliedValue | undefined {
+  if (!reader.attributePresent(expressId, 2)) return undefined;
+  if (value === null || value === undefined) return { Kind: 'Unsupported', Raw: value };
+  if (Array.isArray(value) && value.length === 2 && typeof value[0] === 'string') {
+    const parsed = reader.decimalLexeme(expressId, 2);
+    return parsed === undefined
+      ? { Kind: 'Unsupported', Raw: value, InvalidNumber: true }
+      : { Kind: 'Typed', Type: value[0].toUpperCase(), Value: parsed };
   }
-
-  const byType = store.entityIndex.byType;
-  const costItemIds = byType.get('IFCCOSTITEM') ?? [];
-  const costScheduleIds = byType.get('IFCCOSTSCHEDULE') ?? [];
-  const relNestsIds = byType.get('IFCRELNESTS') ?? [];
-  const relAssignsControlIds = byType.get('IFCRELASSIGNSTOCONTROL') ?? [];
-
-  if (costItemIds.length + costScheduleIds.length === 0) {
-    return { costSchedules: [], costItems: [], hasCost: false };
+  const reference = reader.referenceLexeme(expressId, 2);
+  if (reference !== undefined && reader.get(reference)) {
+    return { Kind: 'Reference', expressId: reference };
   }
+  return { Kind: 'Unsupported', Raw: value };
+}
 
-  const extractor = new EntityExtractor(store.source);
-  // IFC2X3's IfcCostItem has no attributes at all — schema-version-gated,
-  // not inferred from a missing value (see module doc comment).
-  const schemaIs2x3 = store.schemaVersion === 'IFC2X3';
+function quantityType(dimension: CostQuantityDimension | undefined): QuantityType {
+  switch (dimension) {
+    case 'length': return QuantityType.Length;
+    case 'area': return QuantityType.Area;
+    case 'volume': return QuantityType.Volume;
+    case 'mass': return QuantityType.Weight;
+    case 'time': return QuantityType.Time;
+    case 'number': return QuantityType.Number;
+    default: return QuantityType.Count;
+  }
+}
 
-  const costItemByExpressId = new Map<number, CostItemInfo>();
+function finiteCompatibilityNumber(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const converted = Number(value);
+  if (!Number.isFinite(converted)) return undefined;
+  return converted !== 0 || isZeroCostNumericLexeme(value) ? converted : undefined;
+}
 
-  // Pass 1: base IfcCostItem records.
-  for (const expressId of costItemIds) {
-    const ref = store.entityIndex.byId.get(expressId);
-    if (!ref) continue;
-    const entity = extractor.extractEntity(ref);
-    if (!entity) continue;
-    const a = entity.attributes || [];
-    const globalId = asString(a[COST_ITEM_ATTR.GlobalId]) ?? '';
-
-    const item: CostItemInfo = {
+function pushInvalidList(
+  reader: CostEntityReader,
+  diagnostics: CostDiagnostic[],
+  expressId: number,
+  index: number,
+  attribute: 'CostValues' | 'CostQuantities' | 'Components',
+  value: unknown,
+): number[] | undefined {
+  if (!reader.attributePresent(expressId, index)) return undefined;
+  const refs = reader.referenceListLexeme(expressId, index);
+  if (!refs || refs.length === 0 || !Array.isArray(value) || refs.length !== value.length) {
+    diagnostics.push({
+      Code: 'INVALID_LIST',
+      Message: `${attribute} on #${expressId} must contain at least one reference`,
+      Severity: 'warning',
       expressId,
-      globalId,
-      name: asString(a[COST_ITEM_ATTR.Name]) ?? '',
-      predefinedType: schemaIs2x3 ? undefined : asEnum(a[COST_ITEM_ATTR.PredefinedType]),
-      costValues: schemaIs2x3
-        ? undefined
-        : extractCostValues(extractor, store, a[COST_ITEM_ATTR.CostValues]),
-      costQuantities: schemaIs2x3
-        ? undefined
-        : (() => {
-            const qtys = collectQuantitiesFromRefs(store, extractor, a[COST_ITEM_ATTR.CostQuantities]);
-            return qtys.length ? qtys : undefined;
-          })(),
-      childGlobalIds: [],
-      productExpressIds: [],
-      productGlobalIds: [],
+    });
+    return [];
+  }
+  return refs;
+}
+
+function extractSchedules(reader: CostEntityReader, schemaIs2x3: boolean): CostScheduleInfo[] {
+  const result: CostScheduleInfo[] = [];
+  for (const expressId of reader.ids('IFCCOSTSCHEDULE')) {
+    const a = reader.get(expressId)?.attributes ?? [];
+    result.push(schemaIs2x3 ? {
+      expressId,
+      GlobalId: asString(a[0]) ?? '',
+      Name: asString(a[2]), Description: asString(a[3]), ObjectType: asString(a[4]),
+      SubmittedOn: dateTime2x3(reader, a[7]), Status: asString(a[8]),
+      UpdateDate: dateTime2x3(reader, a[10]), ID: asString(a[11]), PredefinedType: asEnum(a[12]),
+      globalId: asString(a[0]) ?? '', name: asString(a[2]) ?? '',
+      predefinedType: asEnum(a[12]), status: asString(a[8]),
+      submittedOn: dateTime2x3(reader, a[7]), updateDate: dateTime2x3(reader, a[10]),
+      costItemGlobalIds: [],
+    } : {
+      expressId,
+      GlobalId: asString(a[0]) ?? '',
+      Name: asString(a[2]), Description: asString(a[3]), ObjectType: asString(a[4]),
+      Identification: asString(a[5]), PredefinedType: asEnum(a[6]), Status: asString(a[7]),
+      SubmittedOn: scalarString(a[8]), UpdateDate: scalarString(a[9]),
+      globalId: asString(a[0]) ?? '', name: asString(a[2]) ?? '',
+      predefinedType: asEnum(a[6]), status: asString(a[7]),
+      submittedOn: scalarString(a[8]), updateDate: scalarString(a[9]),
+      costItemGlobalIds: [],
+    });
+  }
+  return result;
+}
+
+function extractItems(
+  reader: CostEntityReader,
+  schemaIs2x3: boolean,
+  diagnostics: CostDiagnostic[],
+): CostItemInfo[] {
+  return reader.ids('IFCCOSTITEM').map((expressId) => {
+    const a = reader.get(expressId)?.attributes ?? [];
+    const base: CostItemInfo = {
+      expressId, GlobalId: asString(a[0]) ?? '', Name: asString(a[2]),
+      Description: asString(a[3]), ObjectType: asString(a[4]),
+      globalId: asString(a[0]) ?? '', name: asString(a[2]) ?? '',
+      childGlobalIds: [], productExpressIds: [], productGlobalIds: [],
       controllingScheduleGlobalIds: [],
     };
-    costItemByExpressId.set(expressId, item);
-  }
+    if (schemaIs2x3) return base;
+    base.Identification = asString(a[5]);
+    base.PredefinedType = asEnum(a[6]);
+    base.predefinedType = base.PredefinedType;
+    base.CostValues = pushInvalidList(reader, diagnostics, expressId, 7, 'CostValues', a[7]);
+    base.CostQuantities = pushInvalidList(reader, diagnostics, expressId, 8, 'CostQuantities', a[8]);
+    return base;
+  });
+}
 
-  // Pass 2: IfcRelNests — cost item breakdown hierarchy.
-  for (const relId of relNestsIds) {
-    const ref = store.entityIndex.byId.get(relId);
-    if (!ref) continue;
-    const entity = extractor.extractEntity(ref);
+function extractValues(
+  reader: CostEntityReader,
+  schemaIs2x3: boolean,
+  diagnostics: CostDiagnostic[],
+): CostValueInfo[] {
+  const ids = new Set([...reader.ids('IFCCOSTVALUE'), ...reader.ids('IFCAPPLIEDVALUE')]);
+  const values: CostValueInfo[] = [];
+  for (const expressId of ids) {
+    const entity = reader.get(expressId);
     if (!entity) continue;
-    const a = entity.attributes || [];
-    const parent = asRef(a[REL_NESTS_ATTR.RelatingObject]);
-    const children = asRefList(a[REL_NESTS_ATTR.RelatedObjects]);
-    if (parent === undefined) continue;
-    const parentItem = costItemByExpressId.get(parent);
-    if (!parentItem) continue; // nesting over non-cost-item entities — ignore
-    for (const childId of children) {
-      const childItem = costItemByExpressId.get(childId);
-      if (!childItem) continue;
-      parentItem.childGlobalIds.push(childItem.globalId);
-      if (!childItem.parentGlobalId) {
-        childItem.parentGlobalId = parentItem.globalId;
-      }
-    }
-  }
-
-  // Pass 3: extract cost schedules.
-  const costSchedules: CostScheduleInfo[] = [];
-  const scheduleByExpressId = new Map<number, CostScheduleInfo>();
-  for (const expressId of costScheduleIds) {
-    const ref = store.entityIndex.byId.get(expressId);
-    if (!ref) continue;
-    const entity = extractor.extractEntity(ref);
-    if (!entity) continue;
-    const a = entity.attributes || [];
-    const globalId = asString(a[COST_SCHEDULE_ATTR.GlobalId]) ?? '';
-    const info: CostScheduleInfo = {
+    const a = entity.attributes ?? [];
+    const AppliedValue = appliedValue(a[2], reader, expressId);
+    const ApplicableDate = schemaIs2x3 ? dateTime2x3(reader, a[4]) : scalarString(a[4]);
+    const FixedUntilDate = schemaIs2x3 ? dateTime2x3(reader, a[5]) : scalarString(a[5]);
+    const Condition = asString(a[7]);
+    const InvalidCondition = reader.attributePresent(expressId, 7) && Condition === undefined;
+    const UnitBasis = reader.referenceLexeme(expressId, 3);
+    const InvalidUnitBasis = reader.attributePresent(expressId, 3) && UnitBasis === undefined;
+    const base: CostValueInfo = {
       expressId,
-      globalId,
-      name: asString(a[COST_SCHEDULE_ATTR.Name]) ?? '',
-      // IFC2X3 lays the schedule out differently (see cost-schedule-2x3.ts).
-      predefinedType: asEnum(a[schemaIs2x3 ? COST_SCHEDULE_ATTR_2X3.PredefinedType : COST_SCHEDULE_ATTR.PredefinedType]),
-      status: asString(a[schemaIs2x3 ? COST_SCHEDULE_ATTR_2X3.Status : COST_SCHEDULE_ATTR.Status]),
-      submittedOn: schemaIs2x3
-        ? resolveDateTimeSelect2x3(extractor, store, a[COST_SCHEDULE_ATTR_2X3.SubmittedOn])
-        : asString(a[COST_SCHEDULE_ATTR.SubmittedOn]),
-      updateDate: schemaIs2x3
-        ? resolveDateTimeSelect2x3(extractor, store, a[COST_SCHEDULE_ATTR_2X3.UpdateDate])
-        : asString(a[COST_SCHEDULE_ATTR.UpdateDate]),
-      costItemGlobalIds: [],
+      Type: entity.type.toUpperCase() === 'IFCCOSTVALUE' ? 'IfcCostValue' : 'IfcAppliedValue',
+      Name: asString(a[0]), Description: asString(a[1]), AppliedValue,
+      UnitBasis, InvalidUnitBasis: InvalidUnitBasis || undefined, ApplicableDate, FixedUntilDate,
+      InvalidCondition: InvalidCondition || undefined,
+      name: asString(a[0]), description: asString(a[1]),
+      appliedValue: AppliedValue?.Kind === 'Typed'
+        ? finiteCompatibilityNumber(AppliedValue.Value)
+        : undefined,
+      applicableDate: ApplicableDate, fixedUntilDate: FixedUntilDate,
     };
-    costSchedules.push(info);
-    scheduleByExpressId.set(expressId, info);
+    if (schemaIs2x3) {
+      base.CostType = asString(a[6]);
+      base.Condition = Condition;
+      base.condition = base.Condition;
+    } else {
+      base.Category = asString(a[6]);
+      base.Condition = Condition;
+      base.ArithmeticOperator = asEnum(a[8]);
+      base.Components = pushInvalidList(reader, diagnostics, expressId, 9, 'Components', a[9]);
+      base.category = base.Category;
+      base.condition = base.Condition;
+      base.arithmeticOperator = base.ArithmeticOperator;
+    }
+    values.push(base);
   }
+  return values;
+}
 
-  // Pass 4: IfcRelAssignsToControl — schedule->cost-item assignment AND
-  // cost-item->object (product) assignment, told apart by what
-  // RelatingControl resolves to (see module doc comment).
-  for (const relId of relAssignsControlIds) {
-    const ref = store.entityIndex.byId.get(relId);
-    if (!ref) continue;
-    const entity = extractor.extractEntity(ref);
-    if (!entity) continue;
-    const a = entity.attributes || [];
-    const controlId = asRef(a[REL_ASSIGNS_TO_CONTROL_ATTR.RelatingControl]);
-    if (controlId === undefined) continue;
-    const relatedIds = asRefList(a[REL_ASSIGNS_TO_CONTROL_ATTR.RelatedObjects]);
-
-    const schedule = scheduleByExpressId.get(controlId);
-    if (schedule) {
-      for (const objId of relatedIds) {
-        const item = costItemByExpressId.get(objId);
+/** Extract a schema-aware, read-only IFC cost graph from a parsed store. */
+export function extractCostOnDemand(store: IfcDataStore): CostGraphExtraction {
+  const schema = store.schemaVersion;
+  const diagnostics: CostDiagnostic[] = [];
+  const empty = (): CostGraphExtraction => ({
+    SchemaVersion: schema, CostSchedules: [], CostItems: [], CostValues: [],
+    CostQuantities: [], Units: [], MeasuresWithUnit: [], ProjectUnits: {}, Relationships: [], Diagnostics: diagnostics,
+    HasCostData: false, costSchedules: [], costItems: [], hasCost: false,
+  });
+  if (!store.source?.length) return empty();
+  const reader = new CostEntityReader(store);
+  const hasCost = reader.ids('IFCCOSTSCHEDULE').length + reader.ids('IFCCOSTITEM').length +
+    reader.ids('IFCCOSTVALUE').length + reader.ids('IFCAPPLIEDVALUE').length > 0;
+  if (!hasCost) return empty();
+  if (schema === 'IFC5') {
+    diagnostics.push({ Code: 'UNSUPPORTED_SCHEMA', Message: 'IFC5 cost extraction is not supported', Severity: 'error' });
+    return { ...empty(), HasCostData: true };
+  }
+  const schemaIs2x3 = schema === 'IFC2X3';
+  if (schemaIs2x3) diagnostics.push({
+    Code: 'IFC2X3_PARTIAL_READ',
+    Message: 'IFC2X3 cost metadata and relationships are preserved, but values are not evaluated',
+    Severity: 'warning',
+  });
+  const CostSchedules = extractSchedules(reader, schemaIs2x3);
+  const CostItems = extractItems(reader, schemaIs2x3, diagnostics);
+  const CostValues = extractValues(reader, schemaIs2x3, diagnostics);
+  const itemIds = new Set(CostItems.map(item => item.expressId));
+  const scheduleIds = new Set(CostSchedules.map(schedule => schedule.expressId));
+  const valueIds = new Set(CostValues.flatMap(value => value.expressId === undefined ? [] : [value.expressId]));
+  const Relationships = extractCostRelationships(reader, itemIds, scheduleIds, valueIds);
+  const quantityMap = new Map<number, CostQuantityInfo>();
+  extractCostQuantities(reader, CostItems.flatMap(item => item.CostQuantities ?? []), quantityMap, diagnostics);
+  const unitResolver = new CostUnitResolver(reader, diagnostics);
+  for (const quantity of quantityMap.values()) {
+    if (quantity.Unit !== undefined) unitResolver.resolve(quantity.Unit);
+  }
+  for (const value of CostValues) {
+    if (value.UnitBasis !== undefined) {
+      const basis = unitResolver.resolveMeasureWithUnit(value.UnitBasis);
+      const compatibility = unitResolver.compatibilityMeasureWithUnit(value.UnitBasis, basis);
+      const valueComponent = finiteCompatibilityNumber(compatibility?.Value);
+      const unitSiScale = finiteCompatibilityNumber(compatibility?.Unit?.Scale);
+      value.unitBasis = compatibility ? {
+        valueComponent,
+        unitSymbol: compatibility.Unit?.Scale === undefined ? undefined : compatibility.Unit.Symbol,
+        unitSiScale,
+      } : undefined;
+    }
+    if (value.AppliedValue?.Kind === 'Reference' && reader.typeOf(value.AppliedValue.expressId) === 'IFCMEASUREWITHUNIT') {
+      unitResolver.resolveMeasureWithUnit(value.AppliedValue.expressId);
+    }
+  }
+  diagnoseCostGraphs(Relationships, CostValues, itemIds, diagnostics);
+  const schedules = new Map(CostSchedules.map(schedule => [schedule.expressId, schedule]));
+  const items = new Map(CostItems.map(item => [item.expressId, item]));
+  const values = new Map(CostValues.map(value => [value.expressId, value]));
+  const legacyComponents = compatibilityTreeBuilder(values, diagnostics);
+  const quantities = new Map([...quantityMap.values()].map(quantity => [quantity.expressId, quantity]));
+  for (const value of CostValues) {
+    for (const componentId of value.Components ?? []) {
+      if (!values.has(componentId)) diagnostics.push({
+        Code: 'MISSING_REFERENCE',
+        Message: `IfcAppliedValue component #${componentId} cannot be resolved`,
+        Severity: 'error', expressId: value.expressId, RelatedExpressId: componentId,
+      });
+    }
+  }
+  const compatibilityBuilt = new Set<number>();
+  for (const item of CostItems) {
+    for (const valueId of item.CostValues ?? []) {
+      const value = values.get(valueId);
+      if (!value) diagnostics.push({
+        Code: 'MISSING_REFERENCE',
+        Message: `IfcCostValue #${valueId} cannot be resolved`,
+        Severity: 'error', expressId: item.expressId, RelatedExpressId: valueId,
+      });
+      else if (value.Type !== 'IfcCostValue') diagnostics.push({
+        Code: 'INVALID_LIST',
+        Message: `CostValues on IfcCostItem #${item.expressId} must reference IfcCostValue`,
+        Severity: 'error', expressId: item.expressId, RelatedExpressId: valueId,
+      });
+    }
+    item.costValues = item.CostValues
+      ?.map(id => {
+        const value = values.get(id);
+        if (value && !compatibilityBuilt.has(id)) {
+          value.components = legacyComponents(id);
+          compatibilityBuilt.add(id);
+        }
+        return value;
+      })
+      .filter((entry): entry is CostValueInfo => entry !== undefined);
+    item.costQuantities = item.CostQuantities
+      ?.map(id => quantities.get(id))
+      .filter((entry): entry is CostQuantityInfo => entry !== undefined && costQuantityExactValue(entry) !== undefined)
+      .flatMap(quantity => {
+        const value = finiteCompatibilityNumber(costQuantityExactValue(quantity));
+        if (value === undefined) return [];
+        const unit = quantity.Unit === undefined ? undefined : unitResolver.Units.get(quantity.Unit);
+        const explicitUnitSiScale = finiteCompatibilityNumber(unit?.Scale);
+        return [{
+          name: quantity.Name ?? '',
+          type: quantityType(quantity.Dimension),
+          value,
+          ...(explicitUnitSiScale !== undefined ? { explicitUnitSiScale } : {}),
+        }];
+      });
+    if (item.costQuantities?.length === 0) item.costQuantities = undefined;
+  }
+  for (const relation of Relationships) {
+    if (relation.Type === 'IfcRelNests' && relation.RelatingObject !== undefined) {
+      const parent = items.get(relation.RelatingObject);
+      if (!parent) continue;
+      for (const childId of relation.RelatedObjects ?? []) {
+        const child = items.get(childId);
+        if (!child) continue;
+        parent.childGlobalIds.push(child.GlobalId ?? '');
+        child.parentGlobalId ??= parent.GlobalId ?? '';
+      }
+    } else if ((relation.Type === 'IfcRelAssignsToControl' || relation.Type === 'IfcRelSchedulesCostItems') &&
+               relation.RelatingControl !== undefined) {
+      const schedule = schedules.get(relation.RelatingControl);
+      const item = items.get(relation.RelatingControl);
+      for (const relatedId of relation.RelatedObjects ?? []) {
+        const relatedItem = items.get(relatedId);
+        if (schedule && relatedItem) {
+          schedule.costItemGlobalIds.push(relatedItem.GlobalId ?? '');
+          relatedItem.controllingScheduleGlobalIds.push(schedule.GlobalId ?? '');
+        } else if (item) {
+          item.productExpressIds.push(relatedId);
+          item.productGlobalIds.push(store.entities?.getGlobalId?.(relatedId) ?? '');
+        }
+      }
+    } else if (relation.Type === 'IfcRelAssignsToProduct' && relation.RelatingProduct !== undefined) {
+      for (const relatedId of relation.RelatedObjects ?? []) {
+        const item = items.get(relatedId);
         if (!item) continue;
-        schedule.costItemGlobalIds.push(item.globalId);
-        item.controllingScheduleGlobalIds.push(schedule.globalId);
-      }
-      continue;
-    }
-
-    const costItem = costItemByExpressId.get(controlId);
-    if (costItem) {
-      for (const productId of relatedIds) {
-        const gid = store.entities?.getGlobalId?.(productId) ?? undefined;
-        costItem.productExpressIds.push(productId);
-        costItem.productGlobalIds.push(gid ?? '');
+        item.productExpressIds.push(relation.RelatingProduct);
+        item.productGlobalIds.push(store.entities?.getGlobalId?.(relation.RelatingProduct) ?? '');
       }
     }
   }
-
   return {
-    costSchedules,
-    costItems: Array.from(costItemByExpressId.values()),
-    hasCost: true,
+    SchemaVersion: schema, CostSchedules, CostItems, CostValues,
+    CostQuantities: [...quantityMap.values()], Units: [...unitResolver.Units.values()],
+    MeasuresWithUnit: [...unitResolver.MeasuresWithUnit.values()],
+    ProjectUnits: Object.fromEntries(
+      [...unitResolver.ProjectUnits.entries()].map(([dimension, unit]) => [dimension, unit.expressId]),
+    ),
+    Relationships, Diagnostics: diagnostics, HasCostData: true, Currency: unitResolver.Currency,
+    costSchedules: CostSchedules, costItems: CostItems, hasCost: true,
   };
 }

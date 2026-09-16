@@ -2,114 +2,285 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/. */
 
-/**
- * Read-model types for the cost (5D) extractor. See `cost-extractor.ts` for
- * the extraction logic and the relationship-wiring rationale.
- */
+/** Schema-aware, read-only IFC cost graph types. */
 
 import type { CollectedQuantity } from './quantity-collect.js';
 
 export type { CollectedQuantity };
 
-/**
- * `UnitBasis` resolved (`IfcAppliedValue.UnitBasis : OPTIONAL
- * IfcMeasureWithUnit`, schema slot 3 in `IFC4_ADD2_TC1.exp` / `IFC4X3.exp` /
- * `IFC2X3_TC1.exp` alike). Present exactly when the source declared a
- * `UnitBasis` that resolves to an `IFCMEASUREWITHUNIT` entity — that presence
- * alone is what marks this `CostValueInfo` as a RATE ("$85 per hour") rather
- * than a flat total ("$5,000"), even when `valueComponent`/`unitSymbol` below
- * could not themselves be resolved (e.g. `UnitComponent` selects an
- * `IfcContextDependentUnit`, which carries no SI conversion and
- * `resolveUnitByRef` does not resolve). `undefined` on `CostValueInfo` when
- * `UnitBasis` itself is absent or its reference is broken — matching this
- * module's absent-vs-unresolved convention for `costValues`/`parentGlobalId`.
- */
+export type CostSchemaVersion = 'IFC2X3' | 'IFC4' | 'IFC4X3' | 'IFC5';
+
+export type CostDiagnosticCode =
+  | 'IFC2X3_PARTIAL_READ'
+  | 'UNSUPPORTED_SCHEMA'
+  | 'MISSING_REFERENCE'
+  | 'INVALID_LIST'
+  | 'MULTIPLE_NESTING_PARENTS'
+  | 'NESTING_CYCLE'
+  | 'QUANTITY_CYCLE'
+  | 'VALUE_CYCLE'
+  | 'MISSING_VALUE'
+  | 'INVALID_NUMBER'
+  | 'UNSUPPORTED_APPLIED_VALUE'
+  | 'UNSUPPORTED_CONDITION'
+  | 'UNSUPPORTED_UNIT'
+  | 'INCOMPATIBLE_UNIT'
+  | 'MISSING_CURRENCY'
+  | 'MIXED_CURRENCY'
+  | 'DIVISION_BY_ZERO';
+
+export interface CostDiagnostic {
+  Code: CostDiagnosticCode;
+  Message: string;
+  Severity: 'warning' | 'error';
+  expressId?: number;
+  RelatedExpressId?: number;
+}
+
+export interface CostScheduleInfo {
+  expressId: number;
+  GlobalId?: string;
+  Name?: string;
+  Description?: string;
+  ObjectType?: string;
+  Identification?: string;
+  PredefinedType?: string;
+  Status?: string;
+  SubmittedOn?: string;
+  UpdateDate?: string;
+  /** IFC2X3-only identifier. */
+  ID?: string;
+  /** @deprecated Use the exact IFC-cased field. */
+  globalId: string;
+  /** @deprecated Use the exact IFC-cased field. */
+  name: string;
+  /** @deprecated Use PredefinedType. */
+  predefinedType?: string;
+  /** @deprecated Use Status. */
+  status?: string;
+  /** @deprecated Use SubmittedOn. */
+  submittedOn?: string;
+  /** @deprecated Use UpdateDate. */
+  updateDate?: string;
+  /** Existing normalized schedule-root convenience view. */
+  costItemGlobalIds: string[];
+}
+
+export interface CostItemInfo {
+  expressId: number;
+  GlobalId?: string;
+  Name?: string;
+  Description?: string;
+  ObjectType?: string;
+  Identification?: string;
+  PredefinedType?: string;
+  /** Ordered IFC4/IFC4X3 attribute references. Undefined means absent. */
+  CostValues?: number[];
+  /** Ordered IFC4/IFC4X3 attribute references. Undefined means absent. */
+  CostQuantities?: number[];
+  /** @deprecated Use the exact IFC-cased field. */
+  globalId: string;
+  /** @deprecated Use the exact IFC-cased field. */
+  name: string;
+  /** @deprecated Use PredefinedType. */
+  predefinedType?: string;
+  /** Existing normalized quantity view; never falls back to product Qto. */
+  costQuantities?: CollectedQuantity[];
+  /** Existing nested value view retained for compatibility. */
+  costValues?: CostValueInfo[];
+  parentGlobalId?: string;
+  childGlobalIds: string[];
+  productExpressIds: number[];
+  productGlobalIds: string[];
+  controllingScheduleGlobalIds: string[];
+}
+
 export interface CostValueUnitBasis {
-  /** `ValueComponent`, e.g. `1` in "per 1 hour". `undefined` when the
-   *  `IfcValue` select member is not a plain numeric measure this reader
-   *  resolves (same resolution `appliedValue` below uses). */
   valueComponent?: number;
-  /** `UnitComponent`'s display symbol, e.g. `"h"`, `"m²"`. `undefined` when
-   *  `resolveUnitByRef` does not resolve the referenced `IfcUnit` member. */
   unitSymbol?: string;
-  /** SI scale factor for `unitSymbol`, when resolved. */
   unitSiScale?: number;
 }
 
-/**
- * One `IfcCostValue` (a subtype of `IfcAppliedValue` that adds no attributes
- * of its own — `packages/codegen/schemas/IFC4_ADD2_TC1.exp` /
- * `IFC4X3.exp`: `ENTITY IfcCostValue SUBTYPE OF (IfcAppliedValue); END_ENTITY;`).
- * Every field below is `IfcAppliedValue`'s own, per its EXPRESS definition.
- */
+export type CostAppliedValue =
+  | { Kind: 'Typed'; Type: string; Value: string }
+  | { Kind: 'Reference'; expressId: number }
+  | { Kind: 'Unsupported'; Raw: unknown; InvalidNumber?: boolean };
+
 export interface CostValueInfo {
+  /** Present on values returned by the schema-aware extractor. Optional for source compatibility. */
+  expressId?: number;
+  /** Present on values returned by the schema-aware extractor. Optional for source compatibility. */
+  Type?: 'IfcCostValue' | 'IfcAppliedValue';
+  Name?: string;
+  Description?: string;
+  AppliedValue?: CostAppliedValue;
+  UnitBasis?: number;
+  /** The source supplied UnitBasis but it was not an entity reference. */
+  InvalidUnitBasis?: boolean;
+  ApplicableDate?: string;
+  FixedUntilDate?: string;
+  Category?: string;
+  Condition?: string;
+  /** The source supplied Condition with a non-string representation. */
+  InvalidCondition?: boolean;
+  ArithmeticOperator?: string;
+  /** Ordered references; shared references retain their original expressId. */
+  Components?: number[];
+  /** IFC2X3-only equivalent of Category. */
+  CostType?: string;
+  /** @deprecated Use the exact IFC-cased field. */
   name?: string;
+  /** @deprecated Use the exact IFC-cased field. */
   description?: string;
-  /**
-   * `AppliedValue` is an `IfcAppliedValueSelect` — in practice almost always
-   * an `IfcMonetaryMeasure`/`IfcNumericMeasure`/`IfcRatioMeasure` typed
-   * numeric wrapper. Resolved to a plain number when the wrapped value reads
-   * as one; left `undefined` when it selects a non-numeric member (e.g. an
-   * `IfcMeasureWithUnit` reference) this extractor does not resolve.
-   */
+  /** @deprecated Use AppliedValue. */
   appliedValue?: number;
-  /** See {@link CostValueUnitBasis} — distinguishes a rate from a flat total. */
+  /** Existing resolved rate basis view. */
   unitBasis?: CostValueUnitBasis;
   applicableDate?: string;
   fixedUntilDate?: string;
   category?: string;
   condition?: string;
   arithmeticOperator?: string;
-  /** Nested `IfcCostValue` components (`Components : OPTIONAL LIST [1:?] OF IfcAppliedValue`). */
+  /** Existing nested component view. Shared identity is available in Components. */
   components?: CostValueInfo[];
 }
 
+export type CostQuantityDimension =
+  | 'length'
+  | 'area'
+  | 'volume'
+  | 'mass'
+  | 'time'
+  | 'count'
+  | 'number';
+
+export interface CostQuantityInfo {
+  expressId: number;
+  Type: string;
+  Name?: string;
+  Description?: string;
+  Unit?: number;
+  /** The source supplied Unit but it was not an entity reference. */
+  InvalidUnit?: boolean;
+  LengthValue?: string;
+  AreaValue?: string;
+  VolumeValue?: string;
+  CountValue?: string;
+  WeightValue?: string;
+  TimeValue?: string;
+  NumberValue?: string;
+  Formula?: string;
+  Dimension?: CostQuantityDimension;
+  /** IfcPhysicalComplexQuantity children, in source order. */
+  HasQuantities?: number[];
+  /** The source aggregate contained a non-reference member. */
+  InvalidHasQuantities?: boolean;
+}
+
+export interface CostUnitInfo {
+  expressId: number;
+  Type: string;
+  UnitType?: string;
+  Prefix?: string;
+  Name?: string;
+  Symbol?: string;
+  Currency?: string;
+  Dimension?: CostQuantityDimension;
+  /** Decimal multiplier into the dimension's canonical SI unit. */
+  Scale?: string;
+}
+
+export interface CostMeasureWithUnitInfo {
+  expressId: number;
+  ValueComponent: string;
+  UnitComponent: number;
+  ValueType?: string;
+  ValueDimension?: CostQuantityDimension;
+}
+
+export type CostRelationshipType =
+  | 'IfcRelAssignsToControl'
+  | 'IfcRelAssignsToProduct'
+  | 'IfcRelAssignsToProcess'
+  | 'IfcRelNests'
+  | 'IfcRelDeclares'
+  | 'IfcRelAssociatesAppliedValue'
+  | 'IfcRelSchedulesCostItems'
+  | 'IfcAppliedValueRelationship';
+
 /**
- * One `IfcCostItem`. Mirrors `ScheduleTaskInfo`'s shape in `schedule-extractor.ts`.
- *
- * `costQuantities` is `undefined` when `CostQuantities` is absent (the
- * schema's `LIST [1:?]` forbids an empty-but-declared list, so `undefined`
- * is the only "nothing here" state) or when every referenced quantity failed
- * to resolve. It is never a fallback to a product's `Qto_` quantities — see
- * `cost-extractor.ts` for why.
- *
- * `productExpressIds`/`productGlobalIds` use an empty array as a genuine
- * "no products assigned" state, distinct from "not resolved".
+ * Exact relationship endpoints are retained instead of flattened ID arrays.
+ * Only attributes present on a relationship kind are populated.
  */
-export interface CostItemInfo {
+export interface CostRelationshipInfo {
   expressId: number;
-  globalId: string;
-  name: string;
-  predefinedType?: string;
-  costQuantities?: CollectedQuantity[];
-  costValues?: CostValueInfo[];
-  /** Parent cost item globalId (from IfcRelNests where this item is in RelatedObjects). */
-  parentGlobalId?: string;
-  /** Child cost item globalIds (from IfcRelNests where this item is RelatingObject). */
-  childGlobalIds: string[];
-  /** expressIds of objects/products this cost item is assigned to via IfcRelAssignsToControl. */
-  productExpressIds: number[];
-  /** globalIds of the same products (index-aligned with productExpressIds). */
-  productGlobalIds: string[];
-  /** CostSchedule globalIds that control this cost item via IfcRelAssignsToControl. */
-  controllingScheduleGlobalIds: string[];
+  Type: CostRelationshipType;
+  GlobalId?: string;
+  Name?: string;
+  Description?: string;
+  RelatedObjects?: number[];
+  /** The source RelatedObjects aggregate contained a non-reference member. */
+  InvalidRelatedObjects?: boolean;
+  /** One or more source endpoints were present but not STEP references. */
+  InvalidReferences?: boolean;
+  RelatedDefinitions?: number[];
+  RelatingControl?: number;
+  RelatingObject?: number;
+  RelatingProduct?: number;
+  RelatingProcess?: number;
+  RelatingContext?: number;
+  RelatingAppliedValue?: number;
+  ComponentOfTotal?: number;
+  Components?: number[];
+  ArithmeticOperator?: string;
 }
 
-export interface CostScheduleInfo {
-  expressId: number;
-  globalId: string;
-  name: string;
-  predefinedType?: string;
-  status?: string;
-  submittedOn?: string;
-  updateDate?: string;
-  /** Top-level cost item globalIds directly assigned via IfcRelAssignsToControl. */
-  costItemGlobalIds: string[];
-}
-
+/** Backward-compatible normalized extraction shape. */
 export interface CostExtraction {
   costSchedules: CostScheduleInfo[];
   costItems: CostItemInfo[];
-  /** True if we encountered any costing entity (useful for empty-state UI). */
   hasCost: boolean;
+  SchemaVersion?: CostSchemaVersion;
+  CostSchedules?: CostScheduleInfo[];
+  CostItems?: CostItemInfo[];
+  CostValues?: CostValueInfo[];
+  CostQuantities?: CostQuantityInfo[];
+  Units?: CostUnitInfo[];
+  MeasuresWithUnit?: CostMeasureWithUnitInfo[];
+  ProjectUnits?: Partial<Record<CostQuantityDimension, number>>;
+  Relationships?: CostRelationshipInfo[];
+  Diagnostics?: CostDiagnostic[];
+  HasCostData?: boolean;
+  Currency?: string;
+}
+
+/** Complete schema-aware graph returned by {@link extractCostOnDemand}. */
+export interface CostGraphExtraction extends CostExtraction {
+  SchemaVersion: CostSchemaVersion;
+  CostSchedules: CostScheduleInfo[];
+  CostItems: CostItemInfo[];
+  CostValues: CostValueInfo[];
+  CostQuantities: CostQuantityInfo[];
+  Units: CostUnitInfo[];
+  MeasuresWithUnit: CostMeasureWithUnitInfo[];
+  ProjectUnits: Partial<Record<CostQuantityDimension, number>>;
+  Relationships: CostRelationshipInfo[];
+  Diagnostics: CostDiagnostic[];
+  HasCostData: boolean;
+  /** Project currency, when supplied by IfcUnitAssignment. */
+  Currency?: string;
+}
+
+export interface CostEvaluationResult {
+  expressId: number;
+  Amount?: string;
+  Currency?: string;
+  Dimension?: CostQuantityDimension | 'ratio';
+  QuantityApplied?: string;
+  Diagnostics: CostDiagnostic[];
+}
+
+export interface CostEvaluationOptions {
+  /** Decimal significant-digit precision from 1 through 1,000,000,000. Defaults to 34 (decimal128). */
+  Precision?: number;
 }
