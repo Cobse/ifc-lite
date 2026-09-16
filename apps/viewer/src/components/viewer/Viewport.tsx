@@ -187,7 +187,7 @@ export function Viewport({
     // highlights stuck on with no way to clear them by clicking away.
     const currentState = useViewerStore.getState();
     if (currentState.selectedEntitiesSet.size > 0 || currentState.selectedEntityIds.size > 0) {
-      useViewerStore.setState({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set() });
+      useViewerStore.setState((state) => ({ selectedEntitiesSet: new Set(), selectedEntityIds: new Set(), selectionRevision: state.selectionRevision + 1 }));
     }
 
     if (!pickResult) {

@@ -29,7 +29,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  */
 const PINNED_SESSION_RESET_KEYS: readonly string[] = [
   'documentPanelVisible', // #4594 documents: templates survive, the panel closes
-  'chartPanelVisible', 'chartSlice', 'chartSliceSource', 'chartVisibilityOwned', // #3944 charts: the slice is renderer ids of the outgoing model; the claim is on a shared channel
+  'chartPanelVisible', 'chartSelectionRevision', 'chartSlice', 'chartSliceSource', 'chartSliceBuckets', 'chartVisibilityOwned', 'chartVisibilityRevision', // #3944 charts: the slice is renderer ids of the outgoing model; the claim is on a shared channel
   'modelTagAssignments', 'modelTagView', // #4215 model tags: assignments and the Models-section view die with the federation, definitions survive
   'appearanceReferences', 'referenceUndo', 'referenceRedo', 'referenceRevision', 'selectedAppearanceReferenceId', // #4308 drawing workspace lifecycle
   'modelPlacement', 'repositionNudge', 'repositionOpen', 'placementStaleMeasurements', // #4226 workspace placement lifecycle
@@ -79,7 +79,7 @@ const PINNED_SESSION_RESET_KEYS: readonly string[] = [
   'searchFilterRunning', 'searchFilterSchema', 'searchHighlightIndex', 'searchIndexes',
   'searchModalOpen', 'searchModelFilter', 'searchOpen', 'searchQuery', 'searchVimCycle',
   'sectionPlane', 'selectedAnnotation2D', 'selectedAnnotationId', 'selectedEntities',
-  'selectedEntitiesSet', 'selectedEntity', 'selectedEntityId', 'selectedEntityIds',
+  'selectedEntitiesSet', 'selectedEntity', 'selectedEntityId', 'selectedEntityIds', 'selectionRevision',
   'selectedModelId', 'selectedStoreys', 'selectedTaskGlobalIds', 'separationLinesEnabled',
   'separationLinesIntensity', 'separationLinesQuality', 'separationLinesRadius',
   'sheetEnabled', 'sheetPanelVisible', 'slabCutAnchor', 'slabCutFootprint',
@@ -93,7 +93,7 @@ const PINNED_SESSION_RESET_KEYS: readonly string[] = [
 
 /** The same, for `all-models-cleared`. */
 const PINNED_ALL_MODELS_CLEARED_KEYS: readonly string[] = [
-  'chartSlice', 'chartSliceSource', 'chartVisibilityOwned', // #3944 charts
+  'chartSelectionRevision', 'chartSlice', 'chartSliceSource', 'chartSliceBuckets', 'chartVisibilityOwned', 'chartVisibilityRevision', // #3944 charts
   'modelTagAssignments', 'modelTagView', // #4215 model tags: assignments and the Models-section view die with the federation, definitions survive
   'modelPlacement', 'repositionNudge', 'repositionOpen', 'placementStaleMeasurements', // #4226 workspace placement lifecycle
   'activeModelId', 'activeStorey', 'addElementModelId', 'addElementStoreyId', 'basketVisibilityOwned', 'classFilter',
@@ -101,7 +101,7 @@ const PINNED_ALL_MODELS_CLEARED_KEYS: readonly string[] = [
   'hierarchyBasketSelection', 'hoverState', 'ifcDataStore', 'isolatedEntities', 'isolatedEntitiesByModel',
   'layerDiffBusy', 'layerStack', 'layerStackDiff', 'layerStackPathToId',
   'meshColorBackup', 'models', 'pinboardEntities', 'selectedEntities', 'selectedEntitiesSet',
-  'selectedEntity', 'selectedEntityId', 'selectedEntityIds', 'selectedModelId', 'selectedStoreys',
+  'selectedEntity', 'selectedEntityId', 'selectedEntityIds', 'selectedModelId', 'selectedStoreys', 'selectionRevision',
   'slabCutAnchor', 'slabCutFootprint', 'slabCutStoreyElevation', 'splitHoverAxisDirection',
   'splitHoverCutPoint', 'splitHoverDistance', 'splitHoverLength', 'splitHoverPoint', 'splitMode',
   'splitTargetExpressId', 'splitTargetModelId',
@@ -153,7 +153,7 @@ const PINNED_MODEL_REMOVED_KEYS: readonly string[] = [
   'measure2DCurrent', 'measure2DResults', 'measure2DSnapPoint', 'measure2DStart', 'meshColorBackup', 'models', 'pinboardEntities',
   'polygonArea2DPoints', 'polygonArea2DResults',
   'selectedAnnotation2D', 'selectedEntities', 'selectedEntitiesSet',
-  'selectedEntity', 'selectedEntityId', 'selectedEntityIds', 'selectedModelId', 'selectedStoreys',
+  'selectedEntity', 'selectedEntityId', 'selectedEntityIds', 'selectedModelId', 'selectedStoreys', 'selectionRevision',
   'textAnnotation2DEditing', 'textAnnotations2D',
 ];
 
@@ -215,7 +215,7 @@ function modelRemovedFixture() {
  */
 const PINNED_OWNED_KEYS: readonly string[] = [
   'documentPanelVisible', // #4594 documents
-  'chartPanelVisible', 'chartSlice', 'chartSliceSource', 'chartVisibilityOwned', // #3944 charts
+  'chartPanelVisible', 'chartSelectionRevision', 'chartSlice', 'chartSliceSource', 'chartSliceBuckets', 'chartVisibilityOwned', 'chartVisibilityRevision', // #3944 charts
   'modelTagAssignments', 'modelTagView', // #4215 model tags: assignments and the Models-section view die with the federation, definitions survive
   'appearanceReferences', 'referenceUndo', 'referenceRedo', 'referenceRevision', 'selectedAppearanceReferenceId', // #4308 drawing workspace lifecycle
   'modelPlacement', 'repositionNudge', 'repositionOpen', 'placementStaleMeasurements', // #4226 workspace placement lifecycle
@@ -265,7 +265,7 @@ const PINNED_OWNED_KEYS: readonly string[] = [
   'searchFilterRunning', 'searchFilterSchema', 'searchHighlightIndex', 'searchIndexes',
   'searchModalOpen', 'searchModelFilter', 'searchOpen', 'searchQuery', 'searchVimCycle',
   'sectionPlane', 'selectedAnnotation2D', 'selectedAnnotationId', 'selectedEntities',
-  'selectedEntitiesSet', 'selectedEntity', 'selectedEntityId', 'selectedEntityIds',
+  'selectedEntitiesSet', 'selectedEntity', 'selectedEntityId', 'selectedEntityIds', 'selectionRevision',
   'selectedModelId', 'selectedStoreys', 'selectedTaskGlobalIds', 'separationLinesEnabled',
   'separationLinesIntensity', 'separationLinesQuality', 'separationLinesRadius',
   'sheetEnabled', 'sheetPanelVisible', 'slabCutAnchor', 'slabCutFootprint',
@@ -273,7 +273,7 @@ const PINNED_OWNED_KEYS: readonly string[] = [
   'splitHoverDistance', 'splitHoverLength', 'splitHoverPoint', 'splitMode',
   'splitTargetExpressId', 'splitTargetModelId', 'suppressNextSection2DPanelAutoOpen',
   'textAnnotation2DEditing', 'textAnnotations2D', 'titleBlockEditorVisible', 'typeViewMode',
-  'typeVisibility', 'undoStacks', 'visualEnhancementsEnabled', 'zoneApportionment',
+  'typeVisibility', 'undoStacks', 'visibilityRevision', 'visualEnhancementsEnabled', 'zoneApportionment',
   'zoneAssignmentTiming', 'zoneAssignments',
 ];
 

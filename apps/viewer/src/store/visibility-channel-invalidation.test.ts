@@ -56,8 +56,10 @@ beforeEach(() => {
     isolatedEntitiesByModel: new Map(),
     pinboardEntities: new Set(),
     activeBasketViewId: null,
+    basketVisibilityOwned: null,
     idsFocusVisibilityOwned: null,
     clashVisibilityOwned: null,
+    chartVisibilityOwned: null,
     idsValidationReport: null,
   });
 });
@@ -255,22 +257,21 @@ describe('every pinboard write of the isolate channel ends the claims it invalid
 
 // ─── The other direction: invalidation must not OVER-fire ──────────────────
 
-describe('a write that leaves a record\'s content intact does not invalidate it', () => {
-  it('showPinboard re-installing exactly what is already isolated keeps the basket owner\'s claim', () => {
+describe('content-preserving writes retain ownership unless a producer explicitly takes over', () => {
+  it('showPinboard explicitly takes over an equal isolation for the basket', () => {
     store().setBasket([{ modelId: 'A', expressId: 3 }]);
-    // Pretend the basket's isolation is a feature-owned presentation with a
-    // record — the same content-preserving replay Space Sketch's view capture
-    // and `syncSourceModel`'s rebuild perform (#2662 P2).
+    // A foreign producer can subsequently claim the equal channel. Re-showing
+    // the basket is an explicit producer action, not a neutral capture/replay:
+    // ownership must transfer even though the visible ids do not change.
     store().setClashVisibilityOwned({ channel: 'isolate', ids: new Set([3]) });
 
     store().showPinboard();
 
     assert.deepEqual(isolated(), [3], 'setup: the channel content is unchanged');
-    assert.deepEqual(
-      store().clashVisibilityOwned,
-      { channel: 'isolate', ids: new Set([3]) },
-      'a content-preserving rewrite must not convert a feature-owned focus into "user" state',
-    );
+    assert.equal(store().clashVisibilityOwned, null, 'the displaced producer no longer owns equal ids');
+    assert.deepEqual(store().basketVisibilityOwned?.ids, new Set([3]));
+    store().clearClashFocus();
+    assert.deepEqual(isolated(), [3], 'later clash cleanup cannot erase the basket takeover');
   });
 
   it('a basket edit that happens to leave the channel content unchanged keeps the record', () => {
@@ -302,23 +303,20 @@ describe('a write that leaves a record\'s content intact does not invalidate it'
     assert.deepEqual(store().clashVisibilityOwned, { channel: 'isolate', ids: new Set([3, 4, 9]) });
   });
 
-  it('a write of ONE channel leaves a record on the OTHER one alone', () => {
-    // `setBasket` writes `isolatedEntities` and never mentions the ghost
-    // channel, which therefore still shows exactly what its owner installed.
-    // Reading the untouched channel as "null" instead of "unchanged" would
-    // invalidate a presentation that is still on screen.
+  it('a basket isolation explicitly ends an incompatible ghost presentation', () => {
+    // Basket isolation is a user-visible producer takeover: leaving a prior
+    // clash/IDS/chart ghost active would combine two presentation modes and,
+    // once its claim was cleared, strand an unowned ghost in the scene.
     store().setGhostExceptEntities(new Set([7]));
     store().setClashVisibilityOwned({ channel: 'ghost', ids: new Set([7]) });
 
     store().setBasket([{ modelId: 'A', expressId: 3 }]);
 
     assert.deepEqual(isolated(), [3], 'setup: the basket took the isolate channel');
-    assert.deepEqual(ghosted(), [7], 'setup: the ghost channel is untouched');
-    assert.deepEqual(
-      store().clashVisibilityOwned,
-      { channel: 'ghost', ids: new Set([7]) },
-      'the clash ghost is still exactly what clash installed — its claim stands',
-    );
+    assert.equal(ghosted(), null, 'the displaced ghost presentation is removed atomically');
+    assert.equal(store().clashVisibilityOwned, null);
+    store().clearClashFocus();
+    assert.deepEqual(isolated(), [3], 'later clash cleanup cannot erase basket isolation');
   });
 
   it('and the mirror: a ghost-only write leaves an ISOLATE record alone', () => {

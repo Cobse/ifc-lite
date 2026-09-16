@@ -15,6 +15,7 @@
 
 import { useCallback, useMemo, useEffect, useRef, useState } from 'react';
 import { useViewerStore } from '@/store';
+import { installIdsFocusVisibility } from './ids-focus-visibility';
 import type {
   IDSAuditReport,
   IDSDocument,
@@ -682,18 +683,16 @@ export function useIDS(options: UseIDSOptions = {}): UseIDSResult {
     const state = useViewerStore.getState();
     // #3338: an IDS applicability filter matches any class, so the focused
     // row can be a geometry-less assembly whose bare id draws nothing.
-    state.setIsolatedEntities(new Set(resolvePresentationIds(state.cameraCallbacks.resolveHighlightIds, [...ids])));
-    const installed = useViewerStore.getState().isolatedEntities;
-    state.setIdsFocusVisibilityOwned(installed ? { channel: 'isolate', ids: installed } : null);
+    const installed = new Set(resolvePresentationIds(state.cameraCallbacks.resolveHighlightIds, [...ids]));
+    installIdsFocusVisibility('isolate', installed);
   }, []);
 
   /** Install the row focus's ghosting (X-Ray context) into the shared channel,
    *  with the same install-record contract as `installFocusIsolation`. */
   const installFocusGhost = useCallback((ids: Set<number>): void => {
     const state = useViewerStore.getState();
-    state.setGhostExceptEntities(ids);
-    const installed = useViewerStore.getState().ghostExceptEntities;
-    state.setIdsFocusVisibilityOwned(installed ? { channel: 'ghost', ids: installed } : null);
+    const installed = new Set(resolvePresentationIds(state.cameraCallbacks.resolveHighlightIds, [...ids]));
+    installIdsFocusVisibility('ghost', installed);
   }, []);
 
   /**

@@ -263,9 +263,17 @@ describe('isolate actuators keep mode and colours in step with the channel', () 
     await seed();
     await act(async () => { api!.isolateFailed(); });
     assert.equal(useViewerStore.getState().idsIsolateMode, 'failed');
+    useViewerStore.setState({
+      cameraCallbacks: { resolveHighlightIds: (ids) => ids.flatMap((id) => (id === 5 ? [51, 52] : [id])) },
+    });
 
     await act(async () => { api!.focusEntity('A', 5, 'ghost'); });
 
+    assert.deepEqual(
+      [...(useViewerStore.getState().ghostExceptEntities ?? [])].sort(),
+      [5, 51, 52],
+      'ghosting keeps a geometry-less assembly and its rendered parts solid',
+    );
     assert.equal(useViewerStore.getState().idsIsolateMode, null, 'ghosting installs, so the mode clears');
   });
 });

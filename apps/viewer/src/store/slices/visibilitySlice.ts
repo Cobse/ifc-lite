@@ -49,6 +49,7 @@ export interface VisibilitySlice {
    *  rest stays visible for context. `null` = no ghosting. Drives the renderer's
    *  `ghostExceptIds`. */
   ghostExceptEntities: Set<number> | null;
+  visibilityRevision: number;
   /** Class-level filter (from Class tab type-group clicks) — independent of isolatedEntities */
   classFilter: { ids: Set<number>; label: string } | null;
   typeVisibility: TypeVisibility;
@@ -69,9 +70,8 @@ export interface VisibilitySlice {
   hasTypeGeometry: boolean;
 
   // State (multi-model)
-  /** Hidden entities per model */
+  /** Hidden / isolated entities per model. */
   hiddenEntitiesByModel: Map<string, Set<number>>;
-  /** Isolated entities per model (null = show all in that model) */
   isolatedEntitiesByModel: Map<string, Set<number>>;
 
   // Actions (legacy - maintained for backward compatibility)
@@ -174,7 +174,7 @@ export const createVisibilitySlice: StateCreator<VisibilitySlice, [], [], Visibi
   // Initial state (legacy)
   hiddenEntities: new Set(),
   isolatedEntities: null,
-  ghostExceptEntities: null,
+  ghostExceptEntities: null, visibilityRevision: 0,
   classFilter: null,
   // Read persisted toggles fresh so the user's choices survive reloads.
   typeVisibility: getPersistedTypeVisibility(),

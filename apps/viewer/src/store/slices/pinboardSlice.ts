@@ -21,6 +21,7 @@ import type { StateCreator } from 'zustand';
 import type { Drawing2D } from '@ifc-lite/drawing-2d';
 import type { CameraCallbacks, CameraViewpoint, EntityRef, SectionPlane } from '../types.js';
 import { entityRefToString } from '../types.js';
+import type { VisibilityOwnership } from '../../lib/visibility/ownership.js';
 import {
   basketAddIsolation,
   basketReleaseIsolation,
@@ -76,6 +77,7 @@ export interface SaveBasketViewOptions {
  */
 interface PinboardCrossSliceState {
   isolatedEntities: Set<number> | null;
+  ghostExceptEntities: Set<number> | null;
   hiddenEntities: Set<number>;
   models: Map<string, { idOffset: number }>;
   cameraCallbacks: CameraCallbacks;
@@ -87,6 +89,28 @@ interface PinboardCrossSliceState {
   setActiveTool: (tool: string) => void;
   clearEntitySelection: () => void;
   activeTool: string;
+  idsFocusVisibilityOwned: VisibilityOwnership;
+  clashVisibilityOwned: VisibilityOwnership;
+  chartVisibilityOwned: VisibilityOwnership;
+}
+
+/** A basket install is a producer handoff even when its ids equal the prior
+ * producer's. Neutral capture/restore replays intentionally preserve equal
+ * ownership in the middleware, so producers must name the handoff atomically. */
+function basketVisibilityHandoff(owned: BasketIsolationOwnership): {
+  ghostExceptEntities?: null;
+  idsFocusVisibilityOwned?: null;
+  clashVisibilityOwned?: null;
+  chartVisibilityOwned?: null;
+} {
+  return owned
+    ? {
+        ghostExceptEntities: null,
+        idsFocusVisibilityOwned: null,
+        clashVisibilityOwned: null,
+        chartVisibilityOwned: null,
+      }
+    : {};
 }
 
 export interface PinboardSlice {
@@ -183,7 +207,6 @@ export const createPinboardSlice: StateCreator<
   [],
   PinboardSlice
 > = (set, get) => ({
-  // Initial state
   pinboardEntities: new Set(),
   basketVisibilityOwned: null,
   basketViews: [],
@@ -202,13 +225,16 @@ export const createPinboardSlice: StateCreator<
     const state = get();
     if (state.pinboardEntities.size === 0) return;
     const isolatedEntities = basketToGlobalIds(state.pinboardEntities, state.models);
-    set({ isolatedEntities, basketVisibilityOwned: ownedWholesale(isolatedEntities) });
+    const basketVisibilityOwned = ownedWholesale(isolatedEntities);
+    set({
+      isolatedEntities,
+      basketVisibilityOwned,
+      ...basketVisibilityHandoff(basketVisibilityOwned),
+    });
   },
 
-  // ──────────────────────────────────────────────────────────────────────────
   // Basket actions (= + −)
   // These are the primary API for the new basket-based isolation UX.
-  // ──────────────────────────────────────────────────────────────────────────
 
   /** = Set basket to exactly these entities and isolate them */
   setBasket: (refs) => {
@@ -223,7 +249,12 @@ export const createPinboardSlice: StateCreator<
     }
     const s = get();
     const visibility = computeBasketVisibility(next, s.models, s.hiddenEntities, refs);
-    set({ pinboardEntities: next, ...visibility, activeBasketViewId: null });
+    set({
+      pinboardEntities: next,
+      ...visibility,
+      ...basketVisibilityHandoff(visibility.basketVisibilityOwned),
+      activeBasketViewId: null,
+    });
   },
 
   /** + Add entities to basket and update isolation (incremental — avoids re-parsing all strings) */
@@ -233,7 +264,13 @@ export const createPinboardSlice: StateCreator<
     set((state) => {
       const next = new Set<string>(state.pinboardEntities);
       for (const ref of refs) next.add(entityRefToString(ref));
-      return { pinboardEntities: next, ...basketAddIsolation(state, next, refs), activeBasketViewId: null };
+      const visibility = basketAddIsolation(state, next, refs);
+      return {
+        pinboardEntities: next,
+        ...visibility,
+        ...basketVisibilityHandoff(visibility.basketVisibilityOwned),
+        activeBasketViewId: null,
+      };
     });
   },
 
@@ -245,7 +282,13 @@ export const createPinboardSlice: StateCreator<
       // Only refs that were IN the basket may touch the isolation (a never-pinned ref has no claim on its global id).
       const removed = refs.filter((ref) => next.delete(entityRefToString(ref)));
       if (removed.length === 0) return {};
-      return { pinboardEntities: next, ...basketRemoveIsolation(state, next, removed), activeBasketViewId: null };
+      const visibility = basketRemoveIsolation(state, next, removed);
+      return {
+        pinboardEntities: next,
+        ...visibility,
+        ...basketVisibilityHandoff(visibility.basketVisibilityOwned),
+        activeBasketViewId: null,
+      };
     });
   },
 
@@ -297,6 +340,7 @@ export const createPinboardSlice: StateCreator<
       return {
         pinboardEntities: nextPinboard.size === 0 ? new Set() : nextPinboard,
         ...visibility,
+        ...basketVisibilityHandoff(visibility.basketVisibilityOwned),
         activeBasketViewId: viewId,
       };
     });

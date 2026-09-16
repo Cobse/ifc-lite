@@ -60,7 +60,7 @@ import {
 /** The state surface this middleware reads: the two shared channels plus every
  *  ownership record over them. */
 type ChannelState = Pick<VisibilityChannels, 'isolatedEntities' | 'ghostExceptEntities'> &
-  OwnedVisibilityRecords;
+  OwnedVisibilityRecords & { visibilityRevision?: number };
 
 type SetState<T> = (
   partial: T | Partial<T> | ((state: T) => T | Partial<T>),
@@ -128,7 +128,8 @@ export function applyOwnershipInvalidation<T extends ChannelState>(
     if (field in patch) delete reset[field];
     else stale = true;
   }
-  if (!stale) return patch;
+  const revision = (state.visibilityRevision ?? 0) + 1;
+  if (!stale) return { ...patch, visibilityRevision: revision };
 
-  return { ...patch, ...reset };
+  return { ...patch, ...reset, visibilityRevision: revision };
 }

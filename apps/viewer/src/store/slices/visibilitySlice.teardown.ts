@@ -33,6 +33,7 @@ export const visibilityTeardown = defineSliceTeardown(
     'hiddenEntities',
     'isolatedEntities',
     'ghostExceptEntities',
+    'visibilityRevision',
     'classFilter',
     'typeVisibility',
     'typeViewMode',

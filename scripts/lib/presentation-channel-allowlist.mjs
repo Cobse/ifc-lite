@@ -251,5 +251,9 @@ export const EXEMPT_ACTIONS = new Map([
  *  call in this file). Stripping comments correctly removes that false
  *  candidate rather than a real channel disappearing -- confirmed by rereading
  *  the file, not by the count alone. */
-export const CANDIDATE_FLOOR = 23;
-
+// #4832 deliberately moved chart/clash/IDS presentation installs to atomic
+// store writes so the shared visibility channel and its producer ownership
+// revision cannot be observed out of sync. Two previously counted action
+// call-site files therefore no longer call a policed action; the audited tree
+// now has 22 real candidate channel files.
+export const CANDIDATE_FLOOR = 22;

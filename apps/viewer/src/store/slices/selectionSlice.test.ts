@@ -144,6 +144,19 @@ describe('SelectionSlice', () => {
       assert.ok(state.selectedEntitiesSet.has('model-1:123'));
     });
 
+    it('increments provenance when a non-final entity is removed (#4832)', () => {
+      const first: EntityRef = { modelId: 'model-1', expressId: 123 };
+      const second: EntityRef = { modelId: 'model-2', expressId: 456 };
+      state.addEntityToSelection(first);
+      state.addEntityToSelection(second);
+      const before = state.selectionRevision;
+
+      state.removeEntityFromSelection(first);
+
+      assert.equal(state.selectionRevision, before + 1);
+      assert.deepEqual([...state.selectedEntitiesSet], ['model-2:456']);
+    });
+
     it('should clear primary when removing last entity', () => {
       const ref: EntityRef = { modelId: 'model-1', expressId: 123 };
       state.addEntityToSelection(ref);

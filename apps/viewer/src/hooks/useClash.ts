@@ -258,22 +258,22 @@ export function useClash() {
   /** Install clash isolation into the shared channel, recording exactly what
    *  was installed so `releaseClashVisibility` can release only that. */
   const installClashIsolation = useCallback((ids: Set<number>): void => {
-    const state = useViewerStore.getState();
-    state.setIsolatedEntities(ids);
-    // Read the set BACK from the store: the slice setter clones, and the record
-    // must hold what the channel actually shows. Recording the isolate channel
-    // also drops any ghost claim — `setIsolatedEntities` cleared the ghosting.
-    const installed = useViewerStore.getState().isolatedEntities;
-    state.setClashVisibilityOwned(installed ? { channel: 'isolate', ids: installed } : null);
+    useViewerStore.setState({
+      isolatedEntities: ids, ghostExceptEntities: null,
+      hiddenEntities: new Set<number>(),
+      idsFocusVisibilityOwned: null, basketVisibilityOwned: null, chartVisibilityOwned: null,
+      clashVisibilityOwned: { channel: 'isolate', ids },
+    });
   }, []);
 
   /** Install clash ghosting (X-Ray context) into the shared channel, with the
    *  same install-record contract as `installClashIsolation`. */
   const installClashGhost = useCallback((ids: Set<number>): void => {
-    const state = useViewerStore.getState();
-    state.setGhostExceptEntities(ids);
-    const installed = useViewerStore.getState().ghostExceptEntities;
-    state.setClashVisibilityOwned(installed ? { channel: 'ghost', ids: installed } : null);
+    useViewerStore.setState({
+      isolatedEntities: null, ghostExceptEntities: ids,
+      idsFocusVisibilityOwned: null, basketVisibilityOwned: null, chartVisibilityOwned: null,
+      clashVisibilityOwned: { channel: 'ghost', ids },
+    });
   }, []);
 
   /**

@@ -30,6 +30,7 @@ export const selectionTeardown = defineSliceTeardown(
   [
     'selectedEntityId',
     'selectedEntityIds',
+    'selectionRevision',
     'selectedStoreys',
     'activeStorey',
     'selectedEntity',
@@ -38,10 +39,11 @@ export const selectionTeardown = defineSliceTeardown(
     'selectedModelId',
   ],
   {
-    'session-reset': () => ({
+    'session-reset': (_scope, state) => ({
       // Selection (legacy)
       selectedEntityId: null,
       selectedEntityIds: new Set<number>(),
+      selectionRevision: (state.selectionRevision ?? 0) + 1,
       selectedStoreys: new Set<number>(),
       // Drop the shared active storey — it references the outgoing model, so
       // a new file must not inherit a stale storey for Solo / Space Sketch.
@@ -64,9 +66,10 @@ export const selectionTeardown = defineSliceTeardown(
     // halves, so this was purely a gap in `clearAllModels`'s own path
     // (`GeoreferencingPanel.tsx`'s `reloadModelsForAlignment`, which calls
     // `clearAllModels()` without `resetViewerState()`).
-    'all-models-cleared': () => ({
+    'all-models-cleared': (_scope, state) => ({
       selectedEntityId: null,
       selectedEntityIds: new Set<number>(),
+      selectionRevision: (state.selectionRevision ?? 0) + 1,
       selectedStoreys: new Set<number>(),
       activeStorey: null,
       selectedEntity: null,
@@ -93,9 +96,8 @@ export const selectionTeardown = defineSliceTeardown(
       const priorEntities = state.selectedEntities ?? [];
       const priorSet = state.selectedEntitiesSet ?? new Set<string>();
       const keptEntities = priorEntities.filter((e) => e.modelId !== modelId);
-      const refsTouched =
+      const entityRefsTouched =
         state.selectedEntity?.modelId === modelId ||
-        state.activeStorey?.modelId === modelId ||
         keptEntities.length !== priorEntities.length ||
         // `selectedModelId` on its own is enough. `removeModel` used to gate it
         // behind the entity-ref checks above, so a model selected in the
@@ -103,6 +105,7 @@ export const selectionTeardown = defineSliceTeardown(
         // the resync purge already cleared it unconditionally on the
         // resync path. One implementation now, so it takes the purge's reading.
         state.selectedModelId === modelId;
+      const refsTouched = entityRefsTouched || state.activeStorey?.modelId === modelId;
 
       // ── Global-id half ──────────────────────────────────────────────────────
       // These key off `globalId`, not `modelId` — they don't carry which model an
@@ -112,12 +115,16 @@ export const selectionTeardown = defineSliceTeardown(
       const priorSelectedEntityIds = state.selectedEntityIds;
       const priorSelectedStoreys = state.selectedStoreys;
       const priorSelectedEntityId = state.selectedEntityId;
-      const idsTouched =
+      const entityIdsTouched =
         (priorSelectedEntityIds !== undefined && [...priorSelectedEntityIds].some(isStale)) ||
-        (priorSelectedStoreys !== undefined && [...priorSelectedStoreys].some(isStale)) ||
         (priorSelectedEntityId != null && isStale(priorSelectedEntityId));
+      const idsTouched = entityIdsTouched ||
+        (priorSelectedStoreys !== undefined && [...priorSelectedStoreys].some(isStale));
 
       return {
+        ...(entityRefsTouched || entityIdsTouched
+          ? { selectionRevision: (state.selectionRevision ?? 0) + 1 }
+          : {}),
         ...(refsTouched
           ? {
               selectedEntity:

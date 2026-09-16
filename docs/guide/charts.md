@@ -15,7 +15,7 @@ A chart is a **dataset** plus a **spec**. The dataset has one row per thing bein
 | Top N | Keep the N largest buckets and fold the rest into one grey **Other** bucket (which still carries every element it stands for) |
 | Order | Largest first, or by label (dates and histogram bins are always chronological / ascending) |
 
-Because a bucket keeps its element ids, the bidirectional link needs no support from the chart library: a click is `bucket → ids`, a 3D pick is `ids → buckets`. The headless half is the [`@ifc-lite/charts`](https://github.com/LTplus-AG/ifc-lite/tree/main/packages/charts) package, which the CLI and the PDF export share.
+Because a bucket keeps its element ids, the bidirectional link needs no support from the chart library: a click is `bucket → ids`, a 3D pick is `ids → buckets`. The headless half is the [`@ifc-lite/charts`](https://github.com/LTplus-AG/ifc-lite/tree/main/packages/charts) package, which the CLI and the PDF export share. Its public `Bucket.isOther?: true` flag identifies the synthetic top-N tail; consumers must use that flag instead of treating a literal category key such as `__other__` as synthetic.
 
 ## Sources and scope
 
@@ -36,7 +36,7 @@ The dashboard's **scope** applies to the elements source and decides which eleme
 
 - **On click** sets what a bucket click does to the model: **Ghost others** (the default — the bucket's elements stay solid, everything else turns translucent), **Isolate** (hide everything else) or **Highlight** (selection outline only). The panel claims the isolate/ghost channel it writes and releases only what it installed, so an isolation another feature set up survives a chart click, and vice versa.
 - A pick in the viewport highlights the matching bucket; a bucket that is only partly selected is emphasised, not marked selected. A foreign pick drops the dashboard slice.
-- **Colour in 3D** pushes the first chart's bucket colours onto the model as an overlay layer (priority 75 — above the lens, below a running 4D playback). Colours are assigned per label and kept when a bucket changes rank, so the legend stays a key.
+- **Colour in 3D** pushes the first chart's bucket colours onto the model as an overlay layer (priority 75 — above the lens, below a running 4D playback). The chart that produced the selection keeps its full aggregation while the other cards cross-filter. Its selected elements retain the exact clicked bucket colour across overlap, reordering, and named ↔ **Other** folding; in **Ghost others** mode, unselected context keeps its authored model colours. Colours are assigned per label and kept when a bucket changes rank, so the legend stays a key.
 - The **frame** button on a card frames the selected buckets (or the whole chart) in the camera.
 
 ## Coordination report (PDF)
