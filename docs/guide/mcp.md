@@ -4,6 +4,12 @@ The `@ifc-lite/mcp` package turns any IFC model into a set of tools an LLM agent
 
 The server bundles the same headless kernel the [CLI](cli.md) and [server](server.md) use, and can optionally drive the WebGL viewer so an agent paints results into a live 3D scene.
 
+For 5D workflows, `cost_data` returns the canonical IFC cost graph and
+`cost_evaluate` evaluates an `item` or `value` by local `express_id`. Pass
+`model_id` whenever multiple models are loaded. Amounts are decimal strings,
+diagnostics retain model-qualified references, and results describe the loaded
+source snapshot rather than pending mutation overlays.
+
 ## Quickstart
 
 ### stdio (local agents)
@@ -92,7 +98,7 @@ Tools are grouped by capability. Everything below is registered in the default t
 | Category | Tools |
 |----------|-------|
 | Discovery | `model_info`, `model_list`, `model_load`, `model_unload`, `schema_describe` |
-| Query | `query_entities`, `count_entities`, `get_entity`, `get_entities_bulk`, `spatial_hierarchy`, `containment_chain`, `relationships`, `properties_unique`, `materials_list`, `classifications_list`, `georeferencing`, `units` |
+| Query | `query_entities`, `count_entities`, `get_entity`, `get_entities_bulk`, `spatial_hierarchy`, `containment_chain`, `relationships`, `properties_unique`, `materials_list`, `classifications_list`, `georeferencing`, `units`, `cost_data`, `cost_evaluate` |
 | Geometry | `geometry_bbox`, `geometry_volume`, `geometry_area`, `geometry_get` *(planned)*, `raycast` *(planned)* |
 | Clash | `clash_check`, `clash_matrix` |
 | Validation | `ids_validate`, `ids_explain`, `model_audit`, `gherkin_check` *(planned)* |
